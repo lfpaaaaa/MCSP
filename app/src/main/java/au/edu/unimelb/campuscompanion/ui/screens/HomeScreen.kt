@@ -12,6 +12,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.NearMe
 import androidx.compose.material3.Button
@@ -20,8 +21,13 @@ import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -32,11 +38,28 @@ import au.edu.unimelb.campuscompanion.ui.components.GroupUpdateRow
 import au.edu.unimelb.campuscompanion.ui.components.MetricItem
 import au.edu.unimelb.campuscompanion.ui.components.SectionHeader
 import au.edu.unimelb.campuscompanion.ui.components.StatusPill
+import au.edu.unimelb.campuscompanion.ui.components.TimetableUrlDialog
 import au.edu.unimelb.campuscompanion.ui.model.MockCampusData
 
 @Composable
-fun HomeScreen(modifier: Modifier = Modifier) {
+fun HomeScreen(
+    timetableUrl: String,
+    onTimetableUrlSave: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var showTimetableDialog by rememberSaveable { mutableStateOf(timetableUrl.isBlank()) }
     val context = MockCampusData.currentContext
+
+    if (showTimetableDialog) {
+        TimetableUrlDialog(
+            initialUrl = timetableUrl,
+            onDismiss = { showTimetableDialog = false },
+            onSave = { url ->
+                onTimetableUrlSave(url)
+                showTimetableDialog = false
+            }
+        )
+    }
 
     Column(
         modifier = modifier
@@ -54,6 +77,12 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                 text = "Your next class, route status, and group updates are ready.",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        if (timetableUrl.isBlank()) {
+            TimetableSetupPrompt(
+                onConnect = { showTimetableDialog = true }
             )
         }
 
@@ -148,5 +177,42 @@ fun HomeScreen(modifier: Modifier = Modifier) {
             style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+    }
+}
+
+@Composable
+private fun TimetableSetupPrompt(
+    onConnect: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.CalendarMonth,
+                contentDescription = null
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Connect your timetable",
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Text(
+                    text = "Add the MyTimetable subscription URL.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+            Button(onClick = onConnect) {
+                Text("Add URL")
+            }
+        }
     }
 }

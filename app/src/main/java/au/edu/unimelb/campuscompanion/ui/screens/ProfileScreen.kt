@@ -12,6 +12,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.DirectionsWalk
+import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.outlined.DirectionsCar
 import androidx.compose.material.icons.outlined.DirectionsTransit
 import androidx.compose.material.icons.outlined.Fingerprint
@@ -23,6 +24,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -43,6 +45,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import au.edu.unimelb.campuscompanion.auth.AuthenticatedUser
 import au.edu.unimelb.campuscompanion.data.TravelMode
 import au.edu.unimelb.campuscompanion.data.TravelPreferences
 import au.edu.unimelb.campuscompanion.data.TravelPreferencesStore
@@ -51,7 +54,11 @@ import au.edu.unimelb.campuscompanion.ui.components.SectionHeader
 import kotlin.math.roundToInt
 
 @Composable
-fun ProfileScreen(modifier: Modifier = Modifier) {
+fun ProfileScreen(
+    user: AuthenticatedUser,
+    onSignOut: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     val context = LocalContext.current
     val travelPreferencesStore = remember(context) { TravelPreferencesStore(context) }
     val savedTravelPreferences = remember(travelPreferencesStore) {
@@ -93,18 +100,18 @@ fun ProfileScreen(modifier: Modifier = Modifier) {
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(
-                    text = "Zan Liang",
+                    text = user.profileName,
                     style = MaterialTheme.typography.headlineSmall,
                     color = MaterialTheme.colorScheme.onSecondaryContainer
                 )
                 Text(
-                    text = "University of Melbourne student",
+                    text = user.email ?: "Signed in with ${user.provider.displayName}",
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSecondaryContainer
                 )
                 IconTextLine(
                     icon = Icons.Outlined.Route,
-                    text = "Context reminders enabled",
+                    text = "${user.provider.displayName} account",
                     tint = MaterialTheme.colorScheme.onSecondaryContainer
                 )
             }
@@ -147,6 +154,22 @@ fun ProfileScreen(modifier: Modifier = Modifier) {
                 title = "Keep raw GPS history on device",
                 detail = "Only derived context should be synced.",
                 checked = true
+            )
+        }
+
+        SectionHeader(title = "Account")
+        OutlinedButton(
+            onClick = onSignOut,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Outlined.Logout,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp)
+            )
+            Text(
+                text = "Sign out",
+                modifier = Modifier.padding(start = 8.dp)
             )
         }
     }

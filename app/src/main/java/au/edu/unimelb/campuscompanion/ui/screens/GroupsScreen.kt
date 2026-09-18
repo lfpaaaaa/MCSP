@@ -76,11 +76,13 @@ fun GroupsScreen(modifier: Modifier = Modifier) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             QuickActionChip(
                 label = "Find group",
-                icon = Icons.Outlined.Search
+                icon = Icons.Outlined.Search,
+                onClick = {}
             )
             QuickActionChip(
                 label = "NFC join",
-                icon = Icons.Outlined.Nfc
+                icon = Icons.Outlined.Nfc,
+                onClick = {}
             )
         }
 

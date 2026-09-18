@@ -1,5 +1,7 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
+import android.net.Uri
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,6 +17,7 @@ import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.EditCalendar
+import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -28,10 +31,12 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -41,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import au.edu.unimelb.campuscompanion.ui.components.CourseSessionRow
 import au.edu.unimelb.campuscompanion.ui.components.QuickActionChip
 import au.edu.unimelb.campuscompanion.ui.components.SectionHeader
+import au.edu.unimelb.campuscompanion.ui.components.TimetableUrlDialog
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
 import au.edu.unimelb.campuscompanion.ui.model.MockCampusData
 import au.edu.unimelb.campuscompanion.ui.model.departureReminderTime
@@ -51,10 +57,27 @@ private val reminderTimeFormatter = DateTimeFormatter.ofPattern("h:mm a")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ScheduleScreen(modifier: Modifier = Modifier) {
+fun ScheduleScreen(
+    timetableUrl: String,
+    onTimetableUrlSave: (String) -> Unit,
+    onTimetableUrlRemove: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     var remindersEnabled by rememberSaveable { mutableStateOf(true) }
     var leadMinutes by rememberSaveable { mutableIntStateOf(10) }
+    var showTimetableDialog by rememberSaveable { mutableStateOf(false) }
     val nextSession = MockCampusData.sessions.first()
+
+    if (showTimetableDialog) {
+        TimetableUrlDialog(
+            initialUrl = timetableUrl,
+            onDismiss = { showTimetableDialog = false },
+            onSave = { url ->
+                onTimetableUrlSave(url)
+                showTimetableDialog = false
+            }
+        )
+    }
 
     Scaffold(
         floatingActionButton = {
@@ -107,12 +130,22 @@ fun ScheduleScreen(modifier: Modifier = Modifier) {
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 QuickActionChip(
-                    label = "Import ICS",
-                    icon = Icons.Outlined.CalendarMonth
+                    label = if (timetableUrl.isBlank()) "Connect URL" else "Change URL",
+                    icon = Icons.Outlined.Link,
+                    onClick = { showTimetableDialog = true }
                 )
                 QuickActionChip(
                     label = "Edit classes",
-                    icon = Icons.Outlined.EditCalendar
+                    icon = Icons.Outlined.EditCalendar,
+                    onClick = {}
+                )
+            }
+
+            if (timetableUrl.isNotBlank()) {
+                TimetableConnectionCard(
+                    url = timetableUrl,
+                    onChange = { showTimetableDialog = true },
+                    onRemove = onTimetableUrlRemove
                 )
             }
 
@@ -128,6 +161,56 @@ fun ScheduleScreen(modifier: Modifier = Modifier) {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 MockCampusData.sessions.forEach { session ->
                     CourseSessionRow(session = session)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TimetableConnectionCard(
+    url: String,
+    onChange: () -> Unit,
+    onRemove: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val host = remember(url) { Uri.parse(url).host ?: "Calendar subscription" }
+
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.CalendarMonth,
+                    contentDescription = null
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Timetable URL saved",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Text(
+                        text = host,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = onChange) {
+                    Text("Change")
+                }
+                TextButton(onClick = onRemove) {
+                    Text("Remove")
                 }
             }
         }

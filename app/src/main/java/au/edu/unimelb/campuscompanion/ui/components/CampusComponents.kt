@@ -307,11 +307,12 @@ fun IconTextLine(
 fun QuickActionChip(
     label: String,
     icon: ImageVector,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
 ) {
     AssistChip(
         modifier = modifier,
-        onClick = {},
+        onClick = onClick,
         leadingIcon = {
             Icon(
                 imageVector = icon,
