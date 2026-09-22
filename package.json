@@ -1,0 +1,13 @@
+{
+  "private": true,
+  "scripts": {
+    "backend:start": "supabase start",
+    "backend:stop": "supabase stop",
+    "backend:status": "supabase status",
+    "backend:reset": "supabase db reset",
+    "backend:test": "supabase test db"
+  },
+  "devDependencies": {
+    "supabase": "^2.117.0"
+  }
+}
