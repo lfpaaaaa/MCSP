@@ -3,8 +3,12 @@
 build/
 */build/
 
-# Node / Supabase CLI
+# Node dependencies
 node_modules/
+
+# Supabase local runtime files
+supabase/.temp/
+supabase/.branches/
 
 # Android Studio
 .idea/

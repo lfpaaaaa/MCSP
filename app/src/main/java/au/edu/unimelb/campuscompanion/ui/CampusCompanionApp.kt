@@ -150,9 +150,34 @@ private fun AuthenticatedCampusApp(
                     }
                 )
             }
-            composable(CampusDestination.Groups.route) { GroupsScreen() }
+            composable(CampusDestination.Groups.route) {
+                GroupsScreen(
+                    timetableConnected = timetableUrl.isNotBlank(),
+                    onOpenTimetableSetup = {
+                        navController.navigate(CampusDestination.Home.route) {
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                saveState = true
+                            }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    }
+                )
+            }
             composable(CampusDestination.Profile.route) {
-                ProfileScreen(user = user, onSignOut = onSignOut)
+                ProfileScreen(
+                    user = user,
+                    timetableUrl = timetableUrl,
+                    onTimetableUrlSave = { url ->
+                        timetableStore.saveUrl(user.id, url)
+                        timetableUrl = url
+                    },
+                    onTimetableUrlRemove = {
+                        timetableStore.clear(user.id)
+                        timetableUrl = ""
+                    },
+                    onSignOut = onSignOut
+                )
             }
         }
     }

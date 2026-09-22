@@ -169,9 +169,7 @@ fun ScheduleScreen(
                     }
                 }
             } else {
-                EmptyTimetableState(
-                    onConnect = { showTimetableDialog = true }
-                )
+                EmptyTimetableState(onConnect = { showTimetableDialog = true })
             }
         }
     }

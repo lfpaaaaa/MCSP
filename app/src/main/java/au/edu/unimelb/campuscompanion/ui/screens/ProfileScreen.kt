@@ -1,5 +1,6 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
+import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,11 +16,17 @@ import androidx.compose.material.icons.automirrored.outlined.DirectionsWalk
 import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.outlined.DirectionsCar
 import androidx.compose.material.icons.outlined.DirectionsTransit
+import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Fingerprint
+import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Route
 import androidx.compose.material.icons.outlined.Security
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -32,6 +39,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -51,11 +59,15 @@ import au.edu.unimelb.campuscompanion.data.TravelPreferences
 import au.edu.unimelb.campuscompanion.data.TravelPreferencesStore
 import au.edu.unimelb.campuscompanion.ui.components.IconTextLine
 import au.edu.unimelb.campuscompanion.ui.components.SectionHeader
+import au.edu.unimelb.campuscompanion.ui.components.TimetableUrlDialog
 import kotlin.math.roundToInt
 
 @Composable
 fun ProfileScreen(
     user: AuthenticatedUser,
+    timetableUrl: String,
+    onTimetableUrlSave: (String) -> Unit,
+    onTimetableUrlRemove: () -> Unit,
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -69,6 +81,44 @@ fun ProfileScreen(
     }
     var longerDistanceMode by rememberSaveable {
         mutableStateOf(savedTravelPreferences.longerDistanceMode)
+    }
+    var showTimetableDialog by rememberSaveable { mutableStateOf(false) }
+    var showRemoveTimetableDialog by rememberSaveable { mutableStateOf(false) }
+
+    if (showTimetableDialog) {
+        TimetableUrlDialog(
+            initialUrl = timetableUrl,
+            onDismiss = { showTimetableDialog = false },
+            onSave = { url ->
+                onTimetableUrlSave(url)
+                showTimetableDialog = false
+            }
+        )
+    }
+
+    if (showRemoveTimetableDialog) {
+        AlertDialog(
+            onDismissRequest = { showRemoveTimetableDialog = false },
+            title = { Text("Remove timetable URL?") },
+            text = {
+                Text("Courses, departure reminders, and automatically joined groups will be cleared.")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onTimetableUrlRemove()
+                        showRemoveTimetableDialog = false
+                    }
+                ) {
+                    Text("Remove")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRemoveTimetableDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 
     fun saveTravelPreferences(
@@ -129,6 +179,13 @@ fun ProfileScreen(
             }
         )
 
+        SectionHeader(title = "Timetable")
+        TimetableSettingsCard(
+            timetableUrl = timetableUrl,
+            onAddOrChange = { showTimetableDialog = true },
+            onRemove = { showRemoveTimetableDialog = true }
+        )
+
         SectionHeader(title = "Permissions")
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             SettingRow(
@@ -171,6 +228,95 @@ fun ProfileScreen(
                 text = "Sign out",
                 modifier = Modifier.padding(start = 8.dp)
             )
+        }
+    }
+}
+
+@Composable
+private fun TimetableSettingsCard(
+    timetableUrl: String,
+    onAddOrChange: () -> Unit,
+    onRemove: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val isConnected = timetableUrl.isNotBlank()
+    val host = remember(timetableUrl) {
+        Uri.parse(timetableUrl).host ?: "Calendar subscription"
+    }
+
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Outlined.CalendarMonth,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp)
+                )
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 12.dp)
+                ) {
+                    Text(
+                        text = "Timetable URL",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Text(
+                        text = if (isConnected) "Connected to $host" else "No timetable connected",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            if (isConnected) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = onAddOrChange) {
+                        Icon(
+                            imageVector = Icons.Outlined.Edit,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = "Change",
+                            modifier = Modifier.padding(start = 8.dp)
+                        )
+                    }
+                    TextButton(onClick = onRemove) {
+                        Icon(
+                            imageVector = Icons.Outlined.DeleteOutline,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = "Remove",
+                            modifier = Modifier.padding(start = 8.dp)
+                        )
+                    }
+                }
+            } else {
+                Button(onClick = onAddOrChange) {
+                    Icon(
+                        imageVector = Icons.Outlined.Link,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        text = "Add URL",
+                        modifier = Modifier.padding(start = 8.dp)
+                    )
+                }
+            }
         }
     }
 }

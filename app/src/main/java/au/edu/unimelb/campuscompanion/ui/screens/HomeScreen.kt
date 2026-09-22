@@ -80,7 +80,7 @@ fun HomeScreen(
                 text = if (hasTimetable) {
                     "Your next class, route status, and group updates are ready."
                 } else {
-                    "Connect your timetable to see classes and departure reminders."
+                    "Connect your timetable to see classes, reminders, and course groups."
                 },
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -172,16 +172,14 @@ fun HomeScreen(
                     CourseSessionRow(session = session)
                 }
             }
-        }
 
-        SectionHeader(title = "Group updates", actionLabel = "Groups")
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            MockCampusData.groups.take(1).forEach { group ->
-                GroupUpdateRow(group = group)
+            SectionHeader(title = "Group updates", actionLabel = "Groups")
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                MockCampusData.groups.take(1).forEach { group ->
+                    GroupUpdateRow(group = group)
+                }
             }
-        }
 
-        if (hasTimetable) {
             Text(
                 text = "Mock data is used until timetable, sensing, and Supabase layers are connected.",
                 style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
