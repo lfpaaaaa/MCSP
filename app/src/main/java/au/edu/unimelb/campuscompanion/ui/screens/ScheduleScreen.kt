@@ -63,10 +63,10 @@ fun ScheduleScreen(
     onTimetableUrlRemove: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val hasTimetable = timetableUrl.isNotBlank()
     var remindersEnabled by rememberSaveable { mutableStateOf(true) }
     var leadMinutes by rememberSaveable { mutableIntStateOf(10) }
     var showTimetableDialog by rememberSaveable { mutableStateOf(false) }
-    val nextSession = MockCampusData.sessions.first()
 
     if (showTimetableDialog) {
         TimetableUrlDialog(
@@ -81,8 +81,10 @@ fun ScheduleScreen(
 
     Scaffold(
         floatingActionButton = {
-            FloatingActionButton(onClick = {}) {
-                Icon(Icons.Outlined.Add, contentDescription = "Add class")
+            if (hasTimetable) {
+                FloatingActionButton(onClick = {}) {
+                    Icon(Icons.Outlined.Add, contentDescription = "Add class")
+                }
             }
         },
         modifier = modifier
@@ -101,67 +103,114 @@ fun ScheduleScreen(
                     style = MaterialTheme.typography.headlineSmall
                 )
                 Text(
-                    text = "Import a university calendar or keep classes updated manually.",
+                    text = if (hasTimetable) {
+                        "Your connected timetable and departure reminders."
+                    } else {
+                        "No classes are shown until you connect a timetable URL."
+                    },
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                FilterChip(
-                    selected = true,
-                    onClick = {},
-                    label = { Text("Today") }
-                )
-                FilterChip(
-                    selected = false,
-                    onClick = {},
-                    label = { Text("Week") }
-                )
-                FilterChip(
-                    selected = false,
-                    onClick = {},
-                    label = { Text("Manual") }
-                )
-            }
+            if (hasTimetable) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    FilterChip(
+                        selected = true,
+                        onClick = {},
+                        label = { Text("Today") }
+                    )
+                    FilterChip(
+                        selected = false,
+                        onClick = {},
+                        label = { Text("Week") }
+                    )
+                    FilterChip(
+                        selected = false,
+                        onClick = {},
+                        label = { Text("Manual") }
+                    )
+                }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                QuickActionChip(
-                    label = if (timetableUrl.isBlank()) "Connect URL" else "Change URL",
-                    icon = Icons.Outlined.Link,
-                    onClick = { showTimetableDialog = true }
-                )
-                QuickActionChip(
-                    label = "Edit classes",
-                    icon = Icons.Outlined.EditCalendar,
-                    onClick = {}
-                )
-            }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    QuickActionChip(
+                        label = "Change URL",
+                        icon = Icons.Outlined.Link,
+                        onClick = { showTimetableDialog = true }
+                    )
+                    QuickActionChip(
+                        label = "Edit classes",
+                        icon = Icons.Outlined.EditCalendar,
+                        onClick = {}
+                    )
+                }
 
-            if (timetableUrl.isNotBlank()) {
                 TimetableConnectionCard(
                     url = timetableUrl,
                     onChange = { showTimetableDialog = true },
                     onRemove = onTimetableUrlRemove
                 )
-            }
 
-            DepartureReminderSettings(
-                session = nextSession,
-                enabled = remindersEnabled,
-                leadMinutes = leadMinutes,
-                onEnabledChange = { remindersEnabled = it },
-                onLeadMinutesChange = { leadMinutes = it }
-            )
+                DepartureReminderSettings(
+                    session = MockCampusData.sessions.first(),
+                    enabled = remindersEnabled,
+                    leadMinutes = leadMinutes,
+                    onEnabledChange = { remindersEnabled = it },
+                    onLeadMinutesChange = { leadMinutes = it }
+                )
 
-            SectionHeader(title = "Next sessions")
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                MockCampusData.sessions.forEach { session ->
-                    CourseSessionRow(session = session)
+                SectionHeader(title = "Next sessions")
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    MockCampusData.sessions.forEach { session ->
+                        CourseSessionRow(session = session)
+                    }
                 }
+            } else {
+                EmptyTimetableState(onConnect = { showTimetableDialog = true })
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmptyTimetableState(
+    onConnect: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 24.dp, vertical = 32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.CalendarMonth,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(40.dp)
+            )
+            Text(
+                text = "No timetable connected",
+                style = MaterialTheme.typography.titleLarge
+            )
+            Text(
+                text = "Add your timetable URL to load classes and departure reminders.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            TextButton(onClick = onConnect) {
+                Icon(Icons.Outlined.Link, contentDescription = null)
+                Text(
+                    text = "Connect URL",
+                    modifier = Modifier.padding(start = 8.dp)
+                )
             }
         }
     }

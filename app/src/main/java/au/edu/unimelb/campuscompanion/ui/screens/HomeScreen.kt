@@ -47,7 +47,10 @@ fun HomeScreen(
     onTimetableUrlSave: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var showTimetableDialog by rememberSaveable { mutableStateOf(timetableUrl.isBlank()) }
+    val hasTimetable = timetableUrl.isNotBlank()
+    var showTimetableDialog by rememberSaveable(hasTimetable) {
+        mutableStateOf(!hasTimetable)
+    }
     val context = MockCampusData.currentContext
 
     if (showTimetableDialog) {
@@ -74,109 +77,115 @@ fun HomeScreen(
                 style = MaterialTheme.typography.headlineSmall
             )
             Text(
-                text = "Your next class, route status, and group updates are ready.",
+                text = if (hasTimetable) {
+                    "Your next class, route status, and group updates are ready."
+                } else {
+                    "Connect your timetable to see classes, reminders, and course groups."
+                },
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
 
-        if (timetableUrl.isBlank()) {
+        if (!hasTimetable) {
             TimetableSetupPrompt(
                 onConnect = { showTimetableDialog = true }
             )
         }
 
-        ElevatedCard(
-            shape = RoundedCornerShape(8.dp),
-            colors = CardDefaults.elevatedCardColors(
-                containerColor = MaterialTheme.colorScheme.primaryContainer
-            ),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(
-                modifier = Modifier.padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+        if (hasTimetable) {
+            ElevatedCard(
+                shape = RoundedCornerShape(8.dp),
+                colors = CardDefaults.elevatedCardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                ),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = context.headline,
-                            style = MaterialTheme.typography.headlineSmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = context.detail,
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    }
-                    StatusPill(
-                        label = "Action",
-                        status = context.status
-                    )
-                }
-
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    MetricItem(
-                        icon = CampusIcons.Time,
-                        label = "ETA",
-                        value = "${context.etaMinutes} min",
-                        modifier = Modifier.weight(1f)
-                    )
-                    MetricItem(
-                        icon = CampusIcons.Location,
-                        label = "To",
-                        value = context.destinationLabel,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(onClick = {}) {
-                        Icon(Icons.Outlined.NearMe, contentDescription = null)
-                        Text(
-                            text = "Navigate",
-                            modifier = Modifier.padding(start = 8.dp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = context.headline,
+                                style = MaterialTheme.typography.headlineSmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = context.detail,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                        StatusPill(
+                            label = "Action",
+                            status = context.status
                         )
                     }
-                    OutlinedButton(onClick = {}) {
-                        Icon(Icons.Outlined.ChatBubbleOutline, contentDescription = null)
-                        Text(
-                            text = "Open chat",
-                            modifier = Modifier.padding(start = 8.dp)
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        MetricItem(
+                            icon = CampusIcons.Time,
+                            label = "ETA",
+                            value = "${context.etaMinutes} min",
+                            modifier = Modifier.weight(1f)
                         )
+                        MetricItem(
+                            icon = CampusIcons.Location,
+                            label = "To",
+                            value = context.destinationLabel,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Button(onClick = {}) {
+                            Icon(Icons.Outlined.NearMe, contentDescription = null)
+                            Text(
+                                text = "Navigate",
+                                modifier = Modifier.padding(start = 8.dp)
+                            )
+                        }
+                        OutlinedButton(onClick = {}) {
+                            Icon(Icons.Outlined.ChatBubbleOutline, contentDescription = null)
+                            Text(
+                                text = "Open chat",
+                                modifier = Modifier.padding(start = 8.dp)
+                            )
+                        }
                     }
                 }
             }
-        }
 
-        SectionHeader(title = "Upcoming classes", actionLabel = "View all")
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            MockCampusData.sessions.take(2).forEach { session ->
-                CourseSessionRow(session = session)
+            SectionHeader(title = "Upcoming classes", actionLabel = "View all")
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                MockCampusData.sessions.take(2).forEach { session ->
+                    CourseSessionRow(session = session)
+                }
             }
-        }
 
-        SectionHeader(title = "Group updates", actionLabel = "Groups")
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            MockCampusData.groups.take(1).forEach { group ->
-                GroupUpdateRow(group = group)
+            SectionHeader(title = "Group updates", actionLabel = "Groups")
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                MockCampusData.groups.take(1).forEach { group ->
+                    GroupUpdateRow(group = group)
+                }
             }
-        }
 
-        Text(
-            text = "Mock data is used until timetable, sensing, and Supabase layers are connected.",
-            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+            Text(
+                text = "Mock data is used until timetable, sensing, and Supabase layers are connected.",
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
 
