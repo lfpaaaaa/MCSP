@@ -1,0 +1,1 @@
+-- Add repeatable local-development seed data here when feature tables are introduced.
