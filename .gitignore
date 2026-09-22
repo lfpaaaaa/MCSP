@@ -3,6 +3,9 @@
 build/
 */build/
 
+# Node / Supabase CLI
+node_modules/
+
 # Android Studio
 .idea/
 *.iml
