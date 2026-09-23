@@ -10,11 +10,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -26,7 +27,9 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import au.edu.unimelb.campuscompanion.auth.AuthViewModel
 import au.edu.unimelb.campuscompanion.auth.AuthenticatedUser
+import au.edu.unimelb.campuscompanion.data.TimetableImporter
 import au.edu.unimelb.campuscompanion.data.TimetableSubscriptionStore
+import au.edu.unimelb.campuscompanion.ui.model.TimetableState
 import au.edu.unimelb.campuscompanion.ui.navigation.CampusDestination
 import au.edu.unimelb.campuscompanion.ui.screens.AuthLoadingScreen
 import au.edu.unimelb.campuscompanion.ui.screens.CompleteProfileScreen
@@ -79,8 +82,67 @@ private fun AuthenticatedCampusApp(
 ) {
     val context = LocalContext.current
     val timetableStore = remember(context) { TimetableSubscriptionStore(context) }
-    var timetableUrl by rememberSaveable(user.id) {
-        mutableStateOf(timetableStore.loadUrl(user.id))
+    val timetableImporter = remember { TimetableImporter() }
+    val savedTimetableUrl = remember(user.id) { timetableStore.loadUrl(user.id) }
+    var timetableState by remember(user.id) {
+        mutableStateOf(
+            TimetableState(
+                url = savedTimetableUrl,
+                isLoading = savedTimetableUrl.isNotBlank()
+            )
+        )
+    }
+
+    DisposableEffect(timetableImporter) {
+        onDispose(timetableImporter::close)
+    }
+
+    LaunchedEffect(user.id, savedTimetableUrl) {
+        if (savedTimetableUrl.isBlank()) return@LaunchedEffect
+
+        timetableImporter.importFromUrl(savedTimetableUrl).fold(
+            onSuccess = { imported ->
+                timetableState = TimetableState(
+                    url = savedTimetableUrl,
+                    sessions = imported.sessions,
+                    groups = imported.groups,
+                    detectedEventCount = imported.sourceEventCount,
+                    isConnected = true
+                )
+            },
+            onFailure = { error ->
+                timetableState = TimetableState(
+                    url = savedTimetableUrl,
+                    errorMessage = error.message
+                )
+            }
+        )
+    }
+
+    val connectTimetable: suspend (String) -> Result<Unit> = { url ->
+        val previousState = timetableState
+        timetableImporter.importFromUrl(url).fold(
+            onSuccess = { imported ->
+                timetableStore.saveUrl(user.id, url)
+                timetableState = TimetableState(
+                    url = url,
+                    sessions = imported.sessions,
+                    groups = imported.groups,
+                    detectedEventCount = imported.sourceEventCount,
+                    isConnected = true
+                )
+                Result.success(Unit)
+            },
+            onFailure = { error ->
+                timetableState = previousState.copy(errorMessage = error.message)
+                Result.failure(error)
+            }
+        )
+    }
+
+    val removeTimetable = {
+        timetableStore.clear(user.id)
+        timetableState = TimetableState()
     }
     val navController = rememberNavController()
     val destinations = CampusDestination.topLevelDestinations
@@ -130,29 +192,20 @@ private fun AuthenticatedCampusApp(
         ) {
             composable(CampusDestination.Home.route) {
                 HomeScreen(
-                    timetableUrl = timetableUrl,
-                    onTimetableUrlSave = { url ->
-                        timetableStore.saveUrl(user.id, url)
-                        timetableUrl = url
-                    }
+                    timetableState = timetableState,
+                    onTimetableUrlSave = connectTimetable
                 )
             }
             composable(CampusDestination.Schedule.route) {
                 ScheduleScreen(
-                    timetableUrl = timetableUrl,
-                    onTimetableUrlSave = { url ->
-                        timetableStore.saveUrl(user.id, url)
-                        timetableUrl = url
-                    },
-                    onTimetableUrlRemove = {
-                        timetableStore.clear(user.id)
-                        timetableUrl = ""
-                    }
+                    timetableState = timetableState,
+                    onTimetableUrlSave = connectTimetable,
+                    onTimetableUrlRemove = removeTimetable
                 )
             }
             composable(CampusDestination.Groups.route) {
                 GroupsScreen(
-                    timetableConnected = timetableUrl.isNotBlank(),
+                    timetableState = timetableState,
                     onOpenTimetableSetup = {
                         navController.navigate(CampusDestination.Home.route) {
                             popUpTo(navController.graph.findStartDestination().id) {
@@ -167,15 +220,9 @@ private fun AuthenticatedCampusApp(
             composable(CampusDestination.Profile.route) {
                 ProfileScreen(
                     user = user,
-                    timetableUrl = timetableUrl,
-                    onTimetableUrlSave = { url ->
-                        timetableStore.saveUrl(user.id, url)
-                        timetableUrl = url
-                    },
-                    onTimetableUrlRemove = {
-                        timetableStore.clear(user.id)
-                        timetableUrl = ""
-                    },
+                    timetableState = timetableState,
+                    onTimetableUrlSave = connectTimetable,
+                    onTimetableUrlRemove = removeTimetable,
                     onSignOut = onSignOut
                 )
             }

@@ -60,13 +60,14 @@ import au.edu.unimelb.campuscompanion.data.TravelPreferencesStore
 import au.edu.unimelb.campuscompanion.ui.components.IconTextLine
 import au.edu.unimelb.campuscompanion.ui.components.SectionHeader
 import au.edu.unimelb.campuscompanion.ui.components.TimetableUrlDialog
+import au.edu.unimelb.campuscompanion.ui.model.TimetableState
 import kotlin.math.roundToInt
 
 @Composable
 fun ProfileScreen(
     user: AuthenticatedUser,
-    timetableUrl: String,
-    onTimetableUrlSave: (String) -> Unit,
+    timetableState: TimetableState,
+    onTimetableUrlSave: suspend (String) -> Result<Unit>,
     onTimetableUrlRemove: () -> Unit,
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier
@@ -87,12 +88,9 @@ fun ProfileScreen(
 
     if (showTimetableDialog) {
         TimetableUrlDialog(
-            initialUrl = timetableUrl,
+            initialUrl = timetableState.url,
             onDismiss = { showTimetableDialog = false },
-            onSave = { url ->
-                onTimetableUrlSave(url)
-                showTimetableDialog = false
-            }
+            onSave = onTimetableUrlSave
         )
     }
 
@@ -181,7 +179,7 @@ fun ProfileScreen(
 
         SectionHeader(title = "Timetable")
         TimetableSettingsCard(
-            timetableUrl = timetableUrl,
+            timetableState = timetableState,
             onAddOrChange = { showTimetableDialog = true },
             onRemove = { showRemoveTimetableDialog = true }
         )
@@ -234,14 +232,14 @@ fun ProfileScreen(
 
 @Composable
 private fun TimetableSettingsCard(
-    timetableUrl: String,
+    timetableState: TimetableState,
     onAddOrChange: () -> Unit,
     onRemove: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val isConnected = timetableUrl.isNotBlank()
-    val host = remember(timetableUrl) {
-        Uri.parse(timetableUrl).host ?: "Calendar subscription"
+    val hasSavedUrl = timetableState.url.isNotBlank()
+    val host = remember(timetableState.url) {
+        Uri.parse(timetableState.url).host ?: "Calendar subscription"
     }
 
     Card(
@@ -272,14 +270,21 @@ private fun TimetableSettingsCard(
                         style = MaterialTheme.typography.titleMedium
                     )
                     Text(
-                        text = if (isConnected) "Connected to $host" else "No timetable connected",
+                        text = when {
+                            timetableState.isLoading -> "Checking saved URL..."
+                            timetableState.isConnected -> {
+                                "Connected to $host - ${timetableState.detectedEventCount} calendar events"
+                            }
+                            timetableState.errorMessage != null -> timetableState.errorMessage
+                            else -> "No timetable connected"
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
 
-            if (isConnected) {
+            if (hasSavedUrl) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = onAddOrChange) {
                         Icon(

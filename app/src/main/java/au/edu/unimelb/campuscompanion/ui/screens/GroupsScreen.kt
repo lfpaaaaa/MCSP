@@ -17,6 +17,7 @@ import androidx.compose.material.icons.outlined.Nfc
 import androidx.compose.material.icons.outlined.QrCodeScanner
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -29,11 +30,11 @@ import androidx.compose.ui.unit.dp
 import au.edu.unimelb.campuscompanion.ui.components.GroupUpdateRow
 import au.edu.unimelb.campuscompanion.ui.components.QuickActionChip
 import au.edu.unimelb.campuscompanion.ui.components.SectionHeader
-import au.edu.unimelb.campuscompanion.ui.model.MockCampusData
+import au.edu.unimelb.campuscompanion.ui.model.TimetableState
 
 @Composable
 fun GroupsScreen(
-    timetableConnected: Boolean,
+    timetableState: TimetableState,
     onOpenTimetableSetup: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -50,70 +51,95 @@ fun GroupsScreen(
                 style = MaterialTheme.typography.headlineSmall
             )
             Text(
-                text = if (timetableConnected) {
-                    "Groups for courses in your timetable are added automatically."
-                } else {
-                    "Connect your timetable before course groups are added."
+                text = when {
+                    timetableState.isLoading -> "Checking your timetable for course codes."
+                    timetableState.isConnected -> {
+                        "Groups are created from subjects detected in your timetable."
+                    }
+                    else -> "Connect your timetable before course groups are added."
                 },
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
 
-        if (timetableConnected) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Button(
-                    onClick = {},
-                    modifier = Modifier.weight(1f)
+        when {
+            timetableState.isLoading -> {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainer
                 ) {
-                    Icon(Icons.Outlined.QrCodeScanner, contentDescription = null)
-                    Text(
-                        text = "Scan QR",
-                        modifier = Modifier.padding(start = 8.dp)
+                    Row(
+                        modifier = Modifier.padding(20.dp),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(28.dp))
+                        Text("Detecting subjects...")
+                    }
+                }
+            }
+            timetableState.isConnected && timetableState.groups.isNotEmpty() -> {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Button(
+                        onClick = {},
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Outlined.QrCodeScanner, contentDescription = null)
+                        Text(
+                            text = "Scan QR",
+                            modifier = Modifier.padding(start = 8.dp)
+                        )
+                    }
+                    OutlinedButton(
+                        onClick = {},
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Outlined.Add, contentDescription = null)
+                        Text(
+                            text = "Create",
+                            modifier = Modifier.padding(start = 8.dp)
+                        )
+                    }
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    QuickActionChip(
+                        label = "Find group",
+                        icon = Icons.Outlined.Search,
+                        onClick = {}
+                    )
+                    QuickActionChip(
+                        label = "NFC join",
+                        icon = Icons.Outlined.Nfc,
+                        onClick = {}
                     )
                 }
-                OutlinedButton(
-                    onClick = {},
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(Icons.Outlined.Add, contentDescription = null)
-                    Text(
-                        text = "Create",
-                        modifier = Modifier.padding(start = 8.dp)
-                    )
+
+                SectionHeader(title = "Detected course groups")
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    timetableState.groups.forEach { group ->
+                        GroupUpdateRow(group = group)
+                    }
                 }
             }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                QuickActionChip(
-                    label = "Find group",
-                    icon = Icons.Outlined.Search,
-                    onClick = {}
-                )
-                QuickActionChip(
-                    label = "NFC join",
-                    icon = Icons.Outlined.Nfc,
-                    onClick = {}
-                )
-            }
-
-            SectionHeader(title = "Active groups")
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                MockCampusData.groups.forEach { group ->
-                    GroupUpdateRow(group = group)
-                }
-            }
-        } else {
-            EmptyGroupsState(onOpenTimetableSetup = onOpenTimetableSetup)
+            else -> EmptyGroupsState(
+                timetableConnected = timetableState.isConnected,
+                errorMessage = timetableState.errorMessage,
+                onOpenTimetableSetup = onOpenTimetableSetup
+            )
         }
     }
 }
 
 @Composable
 private fun EmptyGroupsState(
+    timetableConnected: Boolean,
+    errorMessage: String?,
     onOpenTimetableSetup: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -138,12 +164,22 @@ private fun EmptyGroupsState(
                 style = MaterialTheme.typography.titleLarge
             )
             Text(
-                text = "Add your timetable URL on Home. Groups for imported courses will appear automatically.",
+                text = when {
+                    timetableConnected -> {
+                        "No groups are available to add."
+                    }
+                    errorMessage != null -> errorMessage
+                    else -> {
+                        "Add your timetable URL on Home. Groups for detected courses will appear automatically."
+                    }
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Button(onClick = onOpenTimetableSetup) {
-                Text("Go to Home")
+            if (!timetableConnected) {
+                Button(onClick = onOpenTimetableSetup) {
+                    Text("Go to Home")
+                }
             }
         }
     }

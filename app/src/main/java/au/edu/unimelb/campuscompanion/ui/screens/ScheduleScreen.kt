@@ -1,7 +1,6 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
 import android.net.Uri
-
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,19 +13,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AccessTime
-import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.CalendarMonth
-import androidx.compose.material.icons.outlined.EditCalendar
 import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -44,139 +38,140 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import au.edu.unimelb.campuscompanion.ui.components.CourseSessionRow
-import au.edu.unimelb.campuscompanion.ui.components.QuickActionChip
 import au.edu.unimelb.campuscompanion.ui.components.SectionHeader
 import au.edu.unimelb.campuscompanion.ui.components.TimetableUrlDialog
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
-import au.edu.unimelb.campuscompanion.ui.model.MockCampusData
+import au.edu.unimelb.campuscompanion.ui.model.TimetableState
 import au.edu.unimelb.campuscompanion.ui.model.departureReminderTime
 import java.time.format.DateTimeFormatter
 import kotlin.math.roundToInt
 
 private val reminderTimeFormatter = DateTimeFormatter.ofPattern("h:mm a")
+private const val MAX_VISIBLE_SESSIONS = 50
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ScheduleScreen(
-    timetableUrl: String,
-    onTimetableUrlSave: (String) -> Unit,
+    timetableState: TimetableState,
+    onTimetableUrlSave: suspend (String) -> Result<Unit>,
     onTimetableUrlRemove: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val hasTimetable = timetableUrl.isNotBlank()
     var remindersEnabled by rememberSaveable { mutableStateOf(true) }
     var leadMinutes by rememberSaveable { mutableIntStateOf(10) }
     var showTimetableDialog by rememberSaveable { mutableStateOf(false) }
 
     if (showTimetableDialog) {
         TimetableUrlDialog(
-            initialUrl = timetableUrl,
+            initialUrl = timetableState.url,
             onDismiss = { showTimetableDialog = false },
-            onSave = { url ->
-                onTimetableUrlSave(url)
-                showTimetableDialog = false
-            }
+            onSave = onTimetableUrlSave
         )
     }
 
-    Scaffold(
-        floatingActionButton = {
-            if (hasTimetable) {
-                FloatingActionButton(onClick = {}) {
-                    Icon(Icons.Outlined.Add, contentDescription = "Add class")
-                }
-            }
-        },
+    Column(
         modifier = modifier
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(innerPadding)
-                .padding(horizontal = 20.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp)
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(
-                    text = "Timetable",
-                    style = MaterialTheme.typography.headlineSmall
-                )
-                Text(
-                    text = if (hasTimetable) {
-                        "Your connected timetable and departure reminders."
-                    } else {
-                        "No classes are shown until you connect a timetable URL."
-                    },
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = "Timetable",
+                style = MaterialTheme.typography.headlineSmall
+            )
+            Text(
+                text = if (timetableState.isConnected) {
+                    "Upcoming sessions parsed from your calendar subscription."
+                } else {
+                    "No classes are shown until a timetable URL is verified."
+                },
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
 
-            if (hasTimetable) {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    FilterChip(
-                        selected = true,
-                        onClick = {},
-                        label = { Text("Today") }
-                    )
-                    FilterChip(
-                        selected = false,
-                        onClick = {},
-                        label = { Text("Week") }
-                    )
-                    FilterChip(
-                        selected = false,
-                        onClick = {},
-                        label = { Text("Manual") }
-                    )
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    QuickActionChip(
-                        label = "Change URL",
-                        icon = Icons.Outlined.Link,
-                        onClick = { showTimetableDialog = true }
-                    )
-                    QuickActionChip(
-                        label = "Edit classes",
-                        icon = Icons.Outlined.EditCalendar,
-                        onClick = {}
-                    )
-                }
-
+        when {
+            timetableState.isLoading -> LoadingTimetableState()
+            timetableState.isConnected -> {
                 TimetableConnectionCard(
-                    url = timetableUrl,
+                    url = timetableState.url,
+                    detectedEventCount = timetableState.detectedEventCount,
                     onChange = { showTimetableDialog = true },
                     onRemove = onTimetableUrlRemove
                 )
 
-                DepartureReminderSettings(
-                    session = MockCampusData.sessions.first(),
-                    enabled = remindersEnabled,
-                    leadMinutes = leadMinutes,
-                    onEnabledChange = { remindersEnabled = it },
-                    onLeadMinutesChange = { leadMinutes = it }
-                )
+                timetableState.sessions.firstOrNull()?.let { nextSession ->
+                    DepartureReminderSettings(
+                        session = nextSession,
+                        enabled = remindersEnabled,
+                        leadMinutes = leadMinutes,
+                        onEnabledChange = { remindersEnabled = it },
+                        onLeadMinutesChange = { leadMinutes = it }
+                    )
+                }
 
-                SectionHeader(title = "Next sessions")
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    MockCampusData.sessions.forEach { session ->
-                        CourseSessionRow(session = session)
+                SectionHeader(title = "Upcoming sessions")
+                if (timetableState.sessions.isEmpty()) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainer
+                    ) {
+                        Text(
+                            text = "No classes for now.",
+                            modifier = Modifier.padding(18.dp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        timetableState.sessions.take(MAX_VISIBLE_SESSIONS).forEach { session ->
+                            CourseSessionRow(session = session)
+                        }
+                        val hiddenCount = timetableState.sessions.size - MAX_VISIBLE_SESSIONS
+                        if (hiddenCount > 0) {
+                            Text(
+                                text = "$hiddenCount later sessions are also connected.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
-            } else {
-                EmptyTimetableState(onConnect = { showTimetableDialog = true })
             }
+            else -> EmptyTimetableState(
+                errorMessage = timetableState.errorMessage,
+                onConnect = { showTimetableDialog = true }
+            )
+        }
+    }
+}
+
+@Composable
+private fun LoadingTimetableState(modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer
+    ) {
+        Row(
+            modifier = Modifier.padding(20.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            CircularProgressIndicator(modifier = Modifier.size(28.dp))
+            Text(
+                text = "Downloading and checking calendar events...",
+                style = MaterialTheme.typography.bodyLarge
+            )
         }
     }
 }
 
 @Composable
 private fun EmptyTimetableState(
+    errorMessage: String?,
     onConnect: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -201,14 +196,15 @@ private fun EmptyTimetableState(
                 style = MaterialTheme.typography.titleLarge
             )
             Text(
-                text = "Add your timetable URL to load classes and departure reminders.",
+                text = errorMessage
+                    ?: "Add your timetable subscription URL to load real calendar events.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             TextButton(onClick = onConnect) {
                 Icon(Icons.Outlined.Link, contentDescription = null)
                 Text(
-                    text = "Connect URL",
+                    text = if (errorMessage == null) "Connect URL" else "Check URL",
                     modifier = Modifier.padding(start = 8.dp)
                 )
             }
@@ -219,6 +215,7 @@ private fun EmptyTimetableState(
 @Composable
 private fun TimetableConnectionCard(
     url: String,
+    detectedEventCount: Int,
     onChange: () -> Unit,
     onRemove: () -> Unit,
     modifier: Modifier = Modifier
@@ -245,11 +242,11 @@ private fun TimetableConnectionCard(
                 )
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Timetable URL saved",
+                        text = "Calendar verified",
                         style = MaterialTheme.typography.titleMedium
                     )
                     Text(
-                        text = host,
+                        text = "$host - $detectedEventCount calendar events detected",
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }
@@ -275,7 +272,9 @@ private fun DepartureReminderSettings(
     onLeadMinutesChange: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val notificationTime = session.departureReminderTime(leadMinutes)
+    val notificationTime = session.etaMinutes?.let {
+        session.departureReminderTime(leadMinutes)
+    }
 
     Card(
         modifier = modifier.fillMaxWidth(),
@@ -338,7 +337,8 @@ private fun DepartureReminderSettings(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = "Travel ${session.etaMinutes} min",
+                        text = session.etaMinutes?.let { "Travel $it min" }
+                            ?: "Travel time pending",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -366,12 +366,21 @@ private fun DepartureReminderSettings(
                         )
                         Column(modifier = Modifier.padding(start = 12.dp)) {
                             Text(
-                                text = "Notification time",
+                                text = if (notificationTime == null) {
+                                    "Waiting for route ETA"
+                                } else {
+                                    "Notification time"
+                                },
                                 style = MaterialTheme.typography.labelLarge
                             )
                             Text(
-                                text = notificationTime.format(reminderTimeFormatter),
-                                style = MaterialTheme.typography.titleLarge
+                                text = notificationTime?.format(reminderTimeFormatter)
+                                    ?: "Connect travel context to calculate",
+                                style = if (notificationTime == null) {
+                                    MaterialTheme.typography.bodyMedium
+                                } else {
+                                    MaterialTheme.typography.titleLarge
+                                }
                             )
                         }
                     }
