@@ -1,6 +1,9 @@
 package au.edu.unimelb.campuscompanion.ui.model
 
+import java.time.Duration
+import java.time.LocalDate
 import java.time.LocalTime
+import java.time.ZonedDateTime
 
 data class CourseSession(
     val id: String,
@@ -8,15 +11,30 @@ data class CourseSession(
     val title: String,
     val location: String,
     val room: String,
-    val startTime: LocalTime,
-    val endTime: LocalTime,
-    val etaMinutes: Int,
-    val status: SessionStatus
-)
+    val start: ZonedDateTime,
+    val end: ZonedDateTime,
+    val etaMinutes: Int? = null
+) {
+    val startDate: LocalDate get() = start.toLocalDate()
+    val startTime: LocalTime get() = start.toLocalTime()
+    val endTime: LocalTime get() = end.toLocalTime()
 
-fun CourseSession.departureReminderTime(leadMinutes: Int): LocalTime {
+    fun statusAt(now: ZonedDateTime = ZonedDateTime.now(start.zone)): SessionStatus {
+        val localNow = now.withZoneSameInstant(start.zone)
+        return when {
+            !localNow.isBefore(end) -> SessionStatus.Finished
+            !localNow.isBefore(start) -> SessionStatus.InProgress
+            Duration.between(localNow, start).toMinutes() <= (etaMinutes ?: 0) + 10L -> {
+                SessionStatus.LeaveSoon
+            }
+            else -> SessionStatus.Upcoming
+        }
+    }
+}
+
+fun CourseSession.departureReminderTime(leadMinutes: Int): ZonedDateTime {
     require(leadMinutes >= 0) { "Lead time cannot be negative" }
-    return startTime.minusMinutes((etaMinutes + leadMinutes).toLong())
+    return start.minusMinutes(((etaMinutes ?: 0) + leadMinutes).toLong())
 }
 
 enum class SessionStatus {
@@ -24,18 +42,9 @@ enum class SessionStatus {
     LeaveSoon,
     EnRoute,
     Arrived,
+    InProgress,
     Finished
 }
-
-data class CampusContext(
-    val headline: String,
-    val detail: String,
-    val locationLabel: String,
-    val destinationLabel: String,
-    val etaMinutes: Int,
-    val bufferMinutes: Int,
-    val status: SessionStatus
-)
 
 data class CourseGroup(
     val id: String,
@@ -48,73 +57,12 @@ data class CourseGroup(
     val privateContentEnabled: Boolean
 )
 
-object MockCampusData {
-    val currentContext = CampusContext(
-        headline = "Leave in 5 min",
-        detail = "COMP90018 starts at 3:00 PM in PAR-160.",
-        locationLabel = "Baillieu Library",
-        destinationLabel = "PAR-160",
-        etaMinutes = 30,
-        bufferMinutes = 5,
-        status = SessionStatus.LeaveSoon
-    )
-
-    val sessions = listOf(
-        CourseSession(
-            id = "comp90018-today",
-            code = "COMP90018",
-            title = "Mobile Computing Systems Programming",
-            location = "PAR-160",
-            room = "Room 160",
-            startTime = LocalTime.of(15, 0),
-            endTime = LocalTime.of(16, 0),
-            etaMinutes = 30,
-            status = SessionStatus.LeaveSoon
-        ),
-        CourseSession(
-            id = "swen90014-today",
-            code = "SWEN90014",
-            title = "Masters Software Engineering Project",
-            location = "Doug McDonell Building",
-            room = "G06",
-            startTime = LocalTime.of(17, 15),
-            endTime = LocalTime.of(18, 15),
-            etaMinutes = 11,
-            status = SessionStatus.Upcoming
-        ),
-        CourseSession(
-            id = "info90002-tomorrow",
-            code = "INFO90002",
-            title = "Database Systems and Information Modelling",
-            location = "Arts West",
-            room = "Forum Theatre",
-            startTime = LocalTime.of(10, 0),
-            endTime = LocalTime.of(12, 0),
-            etaMinutes = 18,
-            status = SessionStatus.Upcoming
-        )
-    )
-
-    val groups = listOf(
-        CourseGroup(
-            id = "comp90018-group",
-            courseCode = "COMP90018",
-            name = "Team 02",
-            members = 4,
-            unreadCount = 3,
-            latestMessage = "Cedric uploaded the first Supabase schema draft.",
-            latestFileName = "proposal.pdf",
-            privateContentEnabled = true
-        ),
-        CourseGroup(
-            id = "swen90014-group",
-            courseCode = "SWEN90014",
-            name = "Workshop partners",
-            members = 5,
-            unreadCount = 0,
-            latestMessage = "Meeting notes are ready for review.",
-            latestFileName = "notes-week-6.docx",
-            privateContentEnabled = false
-        )
-    )
-}
+data class TimetableState(
+    val url: String = "",
+    val sessions: List<CourseSession> = emptyList(),
+    val groups: List<CourseGroup> = emptyList(),
+    val detectedEventCount: Int = 0,
+    val isConnected: Boolean = false,
+    val isLoading: Boolean = false,
+    val errorMessage: String? = null
+)

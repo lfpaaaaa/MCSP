@@ -36,9 +36,11 @@ import androidx.compose.ui.unit.dp
 import au.edu.unimelb.campuscompanion.ui.model.CourseGroup
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
 import au.edu.unimelb.campuscompanion.ui.model.SessionStatus
+import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
 private val timeFormatter = DateTimeFormatter.ofPattern("h:mm a")
+private val dateFormatter = DateTimeFormatter.ofPattern("EEE d MMM")
 
 @Composable
 fun SectionHeader(
@@ -76,6 +78,7 @@ fun StatusPill(
         SessionStatus.LeaveSoon -> MaterialTheme.colorScheme.tertiaryContainer
         SessionStatus.EnRoute -> MaterialTheme.colorScheme.primaryContainer
         SessionStatus.Arrived -> MaterialTheme.colorScheme.secondaryContainer
+        SessionStatus.InProgress -> MaterialTheme.colorScheme.secondaryContainer
         SessionStatus.Finished -> MaterialTheme.colorScheme.surfaceVariant
         SessionStatus.Upcoming -> MaterialTheme.colorScheme.surfaceVariant
     }
@@ -83,6 +86,7 @@ fun StatusPill(
         SessionStatus.LeaveSoon -> MaterialTheme.colorScheme.onTertiaryContainer
         SessionStatus.EnRoute -> MaterialTheme.colorScheme.onPrimaryContainer
         SessionStatus.Arrived -> MaterialTheme.colorScheme.onSecondaryContainer
+        SessionStatus.InProgress -> MaterialTheme.colorScheme.onSecondaryContainer
         SessionStatus.Finished -> MaterialTheme.colorScheme.onSurfaceVariant
         SessionStatus.Upcoming -> MaterialTheme.colorScheme.onSurfaceVariant
     }
@@ -147,6 +151,17 @@ fun CourseSessionRow(
     session: CourseSession,
     modifier: Modifier = Modifier
 ) {
+    val status = session.statusAt()
+    val today = LocalDate.now(session.start.zone)
+    val dateLabel = when (session.startDate) {
+        today -> "Today"
+        today.plusDays(1) -> "Tomorrow"
+        else -> session.startDate.format(dateFormatter)
+    }
+    val locationText = listOf(session.location, session.room)
+        .filter(String::isNotBlank)
+        .joinToString(" - ")
+
     Card(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
@@ -158,8 +173,14 @@ fun CourseSessionRow(
         ) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.width(72.dp)
+                modifier = Modifier.width(84.dp)
             ) {
+                Text(
+                    text = dateLabel,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(4.dp))
                 Text(
                     text = session.startTime.format(timeFormatter),
                     style = MaterialTheme.typography.labelLarge,
@@ -183,8 +204,8 @@ fun CourseSessionRow(
                     )
                     Spacer(Modifier.width(8.dp))
                     StatusPill(
-                        label = session.status.displayName(),
-                        status = session.status
+                        label = status.displayName(),
+                        status = status
                     )
                 }
                 Spacer(Modifier.height(6.dp))
@@ -205,7 +226,7 @@ fun CourseSessionRow(
                     )
                     Spacer(Modifier.width(4.dp))
                     Text(
-                        text = "${session.location} - ${session.room}",
+                        text = locationText,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -240,7 +261,11 @@ fun GroupUpdateRow(
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = "${group.members} members",
+                        text = if (group.members > 0) {
+                            "${group.members} members"
+                        } else {
+                            "Detected from timetable"
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -329,6 +354,7 @@ fun SessionStatus.displayName(): String = when (this) {
     SessionStatus.LeaveSoon -> "Leave soon"
     SessionStatus.EnRoute -> "En route"
     SessionStatus.Arrived -> "Arrived"
+    SessionStatus.InProgress -> "In progress"
     SessionStatus.Finished -> "Finished"
 }
 
