@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import au.edu.unimelb.campuscompanion.sensing.location.distanceMeters
 import au.edu.unimelb.campuscompanion.sensing.location.bearingDegrees
+import au.edu.unimelb.campuscompanion.sensing.location.LocationTrackingMode
 
 class MainActivity : ComponentActivity() {
 
@@ -39,6 +40,9 @@ class MainActivity : ComponentActivity() {
 
             if (fineGranted || coarseGranted) {
                 locationTracker.startTracking()
+                //locationTracker.startTracking(
+                //    LocationTrackingMode.PRE_CLASS
+                //)
             }
         }
 
@@ -117,6 +121,9 @@ class MainActivity : ComponentActivity() {
             )
         } else {
             locationTracker.startTracking()
+            //locationTracker.startTracking(
+            //    LocationTrackingMode.PRE_CLASS
+            //)
         }
     }
 

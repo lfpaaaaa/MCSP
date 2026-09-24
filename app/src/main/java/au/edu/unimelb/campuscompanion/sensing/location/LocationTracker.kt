@@ -12,6 +12,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+enum class LocationTrackingMode {
+    NORMAL,
+    PRE_CLASS
+}
+
 class LocationTracker(
     context: Context
 ) {
@@ -21,13 +26,27 @@ class LocationTracker(
     private val _location = MutableStateFlow<LocationSample?>(null)
     val location: StateFlow<LocationSample?> = _location.asStateFlow()
 
-    private val locationRequest =
-        LocationRequest.Builder(
-            Priority.PRIORITY_HIGH_ACCURACY,
-            10_000L
-        )
-            .setMinUpdateIntervalMillis(5_000L)
-            .build()
+    private fun createLocationRequest(
+        mode: LocationTrackingMode
+    ): LocationRequest {
+        return when (mode) {
+            LocationTrackingMode.NORMAL ->
+                LocationRequest.Builder(
+                    Priority.PRIORITY_BALANCED_POWER_ACCURACY,
+                    60_000L
+                )
+                    .setMinUpdateIntervalMillis(30_000L)
+                    .build()
+
+            LocationTrackingMode.PRE_CLASS ->
+                LocationRequest.Builder(
+                    Priority.PRIORITY_HIGH_ACCURACY,
+                    10_000L
+                )
+                    .setMinUpdateIntervalMillis(5_000L)
+                    .build()
+        }
+    }
 
     private val locationCallback =
         object : LocationCallback() {
@@ -49,9 +68,11 @@ class LocationTracker(
         }
 
     @SuppressLint("MissingPermission")
-    fun startTracking() {
+    fun startTracking(
+        mode: LocationTrackingMode = LocationTrackingMode.NORMAL
+    ) {
         fusedLocationClient.requestLocationUpdates(
-            locationRequest,
+            createLocationRequest(mode),
             locationCallback,
             null
         )
