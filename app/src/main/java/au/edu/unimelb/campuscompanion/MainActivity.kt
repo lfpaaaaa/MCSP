@@ -18,6 +18,8 @@ import android.util.Log
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import au.edu.unimelb.campuscompanion.sensing.location.distanceMeters
+import au.edu.unimelb.campuscompanion.sensing.location.bearingDegrees
 
 class MainActivity : ComponentActivity() {
 
@@ -48,10 +50,33 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             locationTracker.location.collectLatest { location ->
                 if (location != null) {
+
+                    val targetLat = -37.7963
+                    val targetLon = 144.9614
+
+                    val distance =
+                        distanceMeters(
+                            location.latitude,
+                            location.longitude,
+                            targetLat,
+                            targetLon
+                        )
+
+                    val bearing =
+                        bearingDegrees(
+                            location.latitude,
+                            location.longitude,
+                            targetLat,
+                            targetLon
+                        )
+
                     Log.d(
                         "LocationTracker",
-                        "lat=${location.latitude}, lon=${location.longitude}, " +
-                                "accuracy=${location.accuracyMeters}, time=${location.timestampMillis}"
+                        "lat=${location.latitude}, " +
+                                "lon=${location.longitude}, " +
+                                "accuracy=${location.accuracyMeters}, " +
+                                "distance=${distance.toInt()}m, " +
+                                "bearing=${bearing.toInt()}°"
                     )
                 }
             }
