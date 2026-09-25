@@ -2,6 +2,18 @@ package au.edu.unimelb.campuscompanion.data.model
 
 import java.time.Instant
 
+/** Connection state of the chat that is open on screen. */
+enum class ChatConnection {
+    /** Loading the latest messages or joining the live feed. */
+    Connecting,
+
+    /** Up to date; new messages arrive as they are sent. */
+    Live,
+
+    /** The server cannot be reached. Saved messages are still shown and the app keeps retrying. */
+    Offline
+}
+
 enum class MessageStatus {
     /** Shown immediately after sending, before the server has confirmed it. */
     Sending,

@@ -95,8 +95,17 @@ fun InviteRow.toModel(groupId: String): GroupInvite = GroupInvite(
     expiresAt = parseTimestamp(expiresAt)
 )
 
-/** Parses a Postgres `timestamptz` value such as `2026-09-25T05:58:02.449382+00:00`. */
-internal fun parseTimestamp(value: String): Instant = OffsetDateTime.parse(value).toInstant()
+/**
+ * Parses a Postgres `timestamptz` value such as `2026-09-25T05:58:02.449382+00:00`. The text form
+ * `2026-09-25 05:58:02.449382+00` is accepted as well.
+ */
+internal fun parseTimestamp(value: String): Instant {
+    val iso = value.trim().replace(' ', 'T')
+    val withFullOffset = if (SHORT_OFFSET.containsMatchIn(iso)) "$iso:00" else iso
+    return OffsetDateTime.parse(withFullOffset).toInstant()
+}
+
+private val SHORT_OFFSET = Regex("[+-]\\d{2}$")
 
 internal fun parseRole(value: String): GroupRole =
     if (value == "owner") GroupRole.Owner else GroupRole.Member
