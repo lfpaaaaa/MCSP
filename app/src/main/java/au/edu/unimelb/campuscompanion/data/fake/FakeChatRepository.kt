@@ -1,12 +1,15 @@
 package au.edu.unimelb.campuscompanion.data.fake
 
 import au.edu.unimelb.campuscompanion.data.DataError
+import au.edu.unimelb.campuscompanion.data.model.ChatConnection
 import au.edu.unimelb.campuscompanion.data.model.ChatMessage
 import au.edu.unimelb.campuscompanion.data.model.MessageStatus
 import au.edu.unimelb.campuscompanion.data.repository.ChatRepository
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import java.time.Instant
@@ -25,6 +28,9 @@ class FakeChatRepository(
     var failSends: Boolean = false
 
     private val messages = MutableStateFlow(FakeData.messages(clock()))
+
+    /** The fake has no connection to lose. */
+    override val connection: StateFlow<ChatConnection> = MutableStateFlow(ChatConnection.Live).asStateFlow()
 
     override fun observeMessages(groupId: String): Flow<List<ChatMessage>> =
         messages.map { byGroup -> byGroup[groupId].orEmpty().sortedBy { it.createdAt } }

@@ -1,10 +1,15 @@
 package au.edu.unimelb.campuscompanion.data.repository
 
+import au.edu.unimelb.campuscompanion.data.model.ChatConnection
 import au.edu.unimelb.campuscompanion.data.model.ChatMessage
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.StateFlow
 
 /** Real-time group chat backed by an offline cache. */
 interface ChatRepository {
+    /** Whether the chat that is being observed is connected to the server. */
+    val connection: StateFlow<ChatConnection>
+
     /**
      * Messages of [groupId] in chronological order, including local messages that are still
      * sending or have failed.
