@@ -21,6 +21,8 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.ksp)
 }
 
 android {
@@ -81,8 +83,15 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
     implementation(platform(libs.supabase.bom))
     implementation(libs.supabase.auth)
-    implementation(libs.ktor.client.android)
+    implementation(libs.supabase.postgrest)
+    implementation(libs.supabase.realtime)
+    implementation(libs.supabase.storage)
+    implementation(libs.supabase.functions)
+    implementation(libs.ktor.client.okhttp)
     implementation(libs.ical4j)
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    ksp(libs.androidx.room.compiler)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
     testImplementation(libs.junit)
