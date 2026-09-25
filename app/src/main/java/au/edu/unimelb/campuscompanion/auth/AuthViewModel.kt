@@ -150,7 +150,7 @@ class AuthViewModel : ViewModel() {
             } catch (error: Throwable) {
                 _uiState.value = _uiState.value.copy(
                     isSubmitting = false,
-                    errorMessage = error.toFriendlyMessage()
+                    errorMessage = authErrorMessage(error)
                 )
             }
         }
@@ -210,8 +210,3 @@ private fun UserInfo.toAuthenticatedUser(): AuthenticatedUser {
 
 private fun kotlinx.serialization.json.JsonObject?.stringValue(key: String): String? =
     this?.get(key)?.jsonPrimitive?.contentOrNull
-
-private fun Throwable.toFriendlyMessage(): String {
-    val detail = message?.trim()?.takeIf { it.isNotEmpty() }
-    return detail ?: "Authentication failed. Check the connection and try again."
-}
