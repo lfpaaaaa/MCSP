@@ -44,6 +44,25 @@
                     android:host="login-callback"
                     android:scheme="campuscompanion" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data
+                    android:host="join"
+                    android:scheme="campuscompanion" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.nfc.action.NDEF_DISCOVERED" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+
+                <data
+                    android:host="join"
+                    android:scheme="campuscompanion" />
+            </intent-filter>
         </activity>
     </application>
 

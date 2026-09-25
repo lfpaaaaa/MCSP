@@ -7,13 +7,16 @@ enum class GroupRole {
     Member
 }
 
-/** A course group. Members join by invitation (QR code or NFC); [courseCode] is an optional tag. */
+/**
+ * A course group. Members join by invitation (QR code or NFC); [courseCode] is an optional tag.
+ * [createdBy] is null when the creator has deleted their account.
+ */
 data class Group(
     val id: String,
     val name: String,
     val courseCode: String?,
     val privateContentEnabled: Boolean,
-    val createdBy: String,
+    val createdBy: String?,
     val createdAt: Instant
 )
 
