@@ -4,7 +4,7 @@ import au.edu.unimelb.campuscompanion.ui.model.CourseGroup
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
-import io.ktor.client.engine.android.Android
+import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.HttpRequestTimeoutException
 import io.ktor.client.request.get
@@ -108,7 +108,7 @@ class TimetableImporter(
     companion object {
         private const val MAX_CALENDAR_BYTES = 2 * 1024 * 1024L
 
-        private fun defaultHttpClient() = HttpClient(Android) {
+        private fun defaultHttpClient() = HttpClient(OkHttp) {
             install(HttpTimeout) {
                 connectTimeoutMillis = 10_000
                 requestTimeoutMillis = 20_000

@@ -2,6 +2,7 @@
 .gradle/
 build/
 */build/
+.kotlin/
 
 # Node dependencies
 node_modules/
