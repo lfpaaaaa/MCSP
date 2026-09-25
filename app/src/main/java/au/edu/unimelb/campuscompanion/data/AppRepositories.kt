@@ -3,6 +3,7 @@ package au.edu.unimelb.campuscompanion.data
 import android.content.Context
 import au.edu.unimelb.campuscompanion.auth.SupabaseProvider
 import au.edu.unimelb.campuscompanion.data.fake.FakeChatRepository
+import au.edu.unimelb.campuscompanion.data.fake.FakeFileRepository
 import au.edu.unimelb.campuscompanion.data.fake.FakeGroupRepository
 import au.edu.unimelb.campuscompanion.data.fake.FakeInviteRepository
 import au.edu.unimelb.campuscompanion.data.invite.JoinLinkInbox
@@ -11,11 +12,14 @@ import au.edu.unimelb.campuscompanion.data.model.CurrentUser
 import au.edu.unimelb.campuscompanion.data.model.MessageStatus
 import au.edu.unimelb.campuscompanion.data.remote.GroupRemoteDataSource
 import au.edu.unimelb.campuscompanion.data.remote.SupabaseChatDataSource
+import au.edu.unimelb.campuscompanion.data.remote.SupabaseFileDataSource
 import au.edu.unimelb.campuscompanion.data.remote.SupabaseGroupDataSource
 import au.edu.unimelb.campuscompanion.data.repository.ChatRepository
 import au.edu.unimelb.campuscompanion.data.repository.DefaultChatRepository
+import au.edu.unimelb.campuscompanion.data.repository.DefaultFileRepository
 import au.edu.unimelb.campuscompanion.data.repository.DefaultGroupRepository
 import au.edu.unimelb.campuscompanion.data.repository.DefaultInviteRepository
+import au.edu.unimelb.campuscompanion.data.repository.FileRepository
 import au.edu.unimelb.campuscompanion.data.repository.GroupRepository
 import au.edu.unimelb.campuscompanion.data.repository.InviteRepository
 import io.github.jan.supabase.SupabaseClient
@@ -98,6 +102,15 @@ object AppRepositories {
                 messages = database.messageDao(),
                 currentUser = { client.currentUser() }
             )
+        }
+    }
+
+    val files: FileRepository by lazy {
+        val client = SupabaseProvider.client
+        if (client == null) {
+            FakeFileRepository()
+        } else {
+            DefaultFileRepository(SupabaseFileDataSource(client), currentUser = { client.currentUser() })
         }
     }
 }
