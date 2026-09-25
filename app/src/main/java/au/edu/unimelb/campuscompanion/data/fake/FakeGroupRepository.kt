@@ -6,6 +6,7 @@ import au.edu.unimelb.campuscompanion.data.model.GroupMember
 import au.edu.unimelb.campuscompanion.data.model.GroupRole
 import au.edu.unimelb.campuscompanion.data.model.GroupSummary
 import au.edu.unimelb.campuscompanion.data.repository.GroupRepository
+import au.edu.unimelb.campuscompanion.data.repository.NewGroupInput
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,22 +38,13 @@ class FakeGroupRepository(
     }
 
     override suspend fun createGroup(name: String, courseCode: String?): Result<Group> {
-        val trimmedName = name.trim()
-        if (trimmedName.isEmpty() || trimmedName.length > GroupRepository.MAX_NAME_LENGTH) {
-            return Result.failure(
-                DataError.Validation("Group names need 1 to ${GroupRepository.MAX_NAME_LENGTH} characters.")
-            )
-        }
-        val code = courseCode?.trim()?.uppercase()?.takeIf { it.isNotEmpty() }
-        if (code != null && !GroupRepository.COURSE_CODE_PATTERN.matches(code)) {
-            return Result.failure(DataError.Validation("Use a subject code such as COMP90018."))
-        }
+        val input = NewGroupInput.parse(name, courseCode).getOrElse { return Result.failure(it) }
         delay(latencyMillis)
         val now = clock()
         val group = Group(
             id = UUID.randomUUID().toString(),
-            name = trimmedName,
-            courseCode = code,
+            name = input.name,
+            courseCode = input.courseCode,
             privateContentEnabled = false,
             createdBy = currentUserId,
             createdAt = now

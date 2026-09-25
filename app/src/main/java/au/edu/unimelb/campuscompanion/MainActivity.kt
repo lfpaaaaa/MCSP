@@ -8,6 +8,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import au.edu.unimelb.campuscompanion.auth.AuthViewModel
 import au.edu.unimelb.campuscompanion.auth.SupabaseProvider
+import au.edu.unimelb.campuscompanion.data.AppRepositories
 import au.edu.unimelb.campuscompanion.ui.CampusCompanionApp
 
 class MainActivity : ComponentActivity() {
@@ -16,6 +17,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         SupabaseProvider.handleDeepLink(intent)
+        if (savedInstanceState == null) {
+            // A recreated activity must not bring back an invitation the user already dismissed.
+            AppRepositories.joinLinks.offer(intent?.dataString)
+        }
         enableEdgeToEdge()
         setContent {
             CampusCompanionApp(authViewModel = authViewModel)
@@ -26,5 +31,6 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         SupabaseProvider.handleDeepLink(intent)
+        AppRepositories.joinLinks.offer(intent.dataString)
     }
 }
