@@ -12,6 +12,7 @@ import androidx.activity.viewModels
 import androidx.core.content.ContextCompat
 import au.edu.unimelb.campuscompanion.auth.AuthViewModel
 import au.edu.unimelb.campuscompanion.auth.SupabaseProvider
+import au.edu.unimelb.campuscompanion.data.AppRepositories
 import au.edu.unimelb.campuscompanion.sensing.location.LocationTracker
 import au.edu.unimelb.campuscompanion.ui.CampusCompanionApp
 import android.util.Log
@@ -20,7 +21,6 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import au.edu.unimelb.campuscompanion.sensing.location.distanceMeters
 import au.edu.unimelb.campuscompanion.sensing.location.bearingDegrees
-import au.edu.unimelb.campuscompanion.sensing.location.LocationTrackingMode
 import au.edu.unimelb.campuscompanion.data.building.BuildingLocationRepository
 
 class MainActivity : ComponentActivity() {
@@ -40,10 +40,10 @@ class MainActivity : ComponentActivity() {
                 permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
 
             if (fineGranted || coarseGranted) {
-                //locationTracker.startTracking()
-                locationTracker.startTracking(
-                    LocationTrackingMode.PRE_CLASS
-                )
+                locationTracker.startTracking()
+                //locationTracker.startTracking(
+                //    LocationTrackingMode.PRE_CLASS
+                //)
             }
         }
 
@@ -103,6 +103,10 @@ class MainActivity : ComponentActivity() {
         }
 
         SupabaseProvider.handleDeepLink(intent)
+        if (savedInstanceState == null) {
+            // A recreated activity must not bring back an invitation the user already dismissed.
+            AppRepositories.joinLinks.offer(intent?.dataString)
+        }
 
         requestLocationPermissionIfNeeded()
 
@@ -137,9 +141,10 @@ class MainActivity : ComponentActivity() {
             )
         } else {
             //.startTracking()
-            locationTracker.startTracking(
-                LocationTrackingMode.PRE_CLASS
-            )
+            locationTracker.startTracking()
+            //locationTracker.startTracking(
+            //    LocationTrackingMode.PRE_CLASS
+            //)
         }
     }
 
@@ -148,6 +153,7 @@ class MainActivity : ComponentActivity() {
 
         setIntent(intent)
         SupabaseProvider.handleDeepLink(intent)
+        AppRepositories.joinLinks.offer(intent.dataString)
     }
 
     override fun onDestroy() {
