@@ -3,6 +3,7 @@ package au.edu.unimelb.campuscompanion.data.building
 import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
+import au.edu.unimelb.campuscompanion.data.model.GeoPoint
 
 class BuildingLocationRepository(
     private val context: Context
@@ -61,8 +62,10 @@ class BuildingLocationRepository(
                     campusCode = campusCode,
                     name = name,
                     address = address,
-                    latitude = centroid.first,
-                    longitude = centroid.second
+                    location = GeoPoint(
+                        latitude = centroid.first,
+                        longitude = centroid.second
+                    )
                 )
             )
         }

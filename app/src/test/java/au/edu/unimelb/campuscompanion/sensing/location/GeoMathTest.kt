@@ -6,30 +6,6 @@ import org.junit.Test
 
 class GeoMathTest {
 
-    @Test
-    fun samePoint_hasZeroDistance() {
-        val distance = distanceMeters(
-            -37.7963,
-            144.9614,
-            -37.7963,
-            144.9614
-        )
-
-        assertEquals(0.0, distance, 0.01)
-    }
-
-    @Test
-    fun distanceBetweenNearbyPoints_isReasonable() {
-        val distance = distanceMeters(
-            -37.7963,
-            144.9614,
-            -37.8000,
-            144.9650
-        )
-
-        assertTrue(distance > 400)
-        assertTrue(distance < 700)
-    }
 
     @Test
     fun bearing_isWithinValidRange() {

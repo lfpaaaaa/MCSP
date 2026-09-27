@@ -19,9 +19,12 @@ import android.util.Log
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import au.edu.unimelb.campuscompanion.sensing.location.distanceMeters
+import au.edu.unimelb.campuscompanion.data.geo.GeoMath
+import au.edu.unimelb.campuscompanion.data.model.GeoPoint
 import au.edu.unimelb.campuscompanion.sensing.location.bearingDegrees
 import au.edu.unimelb.campuscompanion.data.building.BuildingLocationRepository
+import au.edu.unimelb.campuscompanion.sensing.location.LocationTrackingMode
+import au.edu.unimelb.campuscompanion.sensing.location.ArrivalDetector
 
 class MainActivity : ComponentActivity() {
 
@@ -40,10 +43,10 @@ class MainActivity : ComponentActivity() {
                 permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
 
             if (fineGranted || coarseGranted) {
-                locationTracker.startTracking()
-                //locationTracker.startTracking(
-                //    LocationTrackingMode.PRE_CLASS
-                //)
+                //locationTracker.startTracking()
+                locationTracker.startTracking(
+                    LocationTrackingMode.PRE_CLASS
+                )
             }
         }
 
@@ -61,8 +64,8 @@ class MainActivity : ComponentActivity() {
             if (building != null) {
                 "Found: ${building.name}, " +
                         "code=${building.locCode}, " +
-                        "lat=${building.latitude}, " +
-                        "lon=${building.longitude}, " +
+                        "lat=${building.location.latitude}, " +
+                        "lon=${building.location.longitude}, " +
                         "address=${building.address}"
             } else {
                 "PAR-160 not found"
@@ -73,20 +76,24 @@ class MainActivity : ComponentActivity() {
             locationTracker.location.collectLatest { location ->
                 if (location != null && building != null) {
 
-                    val distance =
-                        distanceMeters(
-                            location.latitude,
-                            location.longitude,
-                            building.latitude,
-                            building.longitude
-                        )
+                    val currentPoint = GeoPoint(
+                        latitude = location.latitude,
+                        longitude = location.longitude
+                    )
+
+                    val distance = GeoMath.distanceMeters(
+                        from = currentPoint,
+                        to = building.location
+                    )
+
+                    val arrived = ArrivalDetector.hasArrived(distance)
 
                     val bearing =
                         bearingDegrees(
                             location.latitude,
                             location.longitude,
-                            building.latitude,
-                            building.longitude
+                            building.location.latitude,
+                            building.location.longitude
                         )
 
                     Log.d(
@@ -96,7 +103,8 @@ class MainActivity : ComponentActivity() {
                                 "lon=${location.longitude}, " +
                                 "accuracy=${location.accuracyMeters}, " +
                                 "distance=${distance.toInt()}m, " +
-                                "bearing=${bearing.toInt()}°"
+                                "bearing=${bearing.toInt()}°, " +
+                                "arrived=$arrived"
                     )
                 }
             }
@@ -141,10 +149,10 @@ class MainActivity : ComponentActivity() {
             )
         } else {
             //.startTracking()
-            locationTracker.startTracking()
-            //locationTracker.startTracking(
-            //    LocationTrackingMode.PRE_CLASS
-            //)
+            //locationTracker.startTracking()
+            locationTracker.startTracking(
+                LocationTrackingMode.PRE_CLASS
+            )
         }
     }
 
