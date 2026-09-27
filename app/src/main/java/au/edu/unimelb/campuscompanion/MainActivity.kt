@@ -24,7 +24,8 @@ import au.edu.unimelb.campuscompanion.data.model.GeoPoint
 import au.edu.unimelb.campuscompanion.sensing.location.bearingDegrees
 import au.edu.unimelb.campuscompanion.data.building.BuildingLocationRepository
 import au.edu.unimelb.campuscompanion.sensing.location.LocationTrackingMode
-import au.edu.unimelb.campuscompanion.sensing.location.ArrivalDetector
+import au.edu.unimelb.campuscompanion.sensing.location.TravelState
+import au.edu.unimelb.campuscompanion.sensing.location.TravelStateResolver
 
 class MainActivity : ComponentActivity() {
 
@@ -86,7 +87,10 @@ class MainActivity : ComponentActivity() {
                         to = building.location
                     )
 
-                    val arrived = ArrivalDetector.hasArrived(distance)
+                    val state = TravelStateResolver.resolve(
+                        currentState = TravelState.EN_ROUTE,
+                        distanceMeters = distance
+                    )
 
                     val bearing =
                         bearingDegrees(
@@ -104,7 +108,7 @@ class MainActivity : ComponentActivity() {
                                 "accuracy=${location.accuracyMeters}, " +
                                 "distance=${distance.toInt()}m, " +
                                 "bearing=${bearing.toInt()}°, " +
-                                "arrived=$arrived"
+                                "state=$state"
                     )
                 }
             }
