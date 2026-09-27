@@ -34,4 +34,63 @@ class TravelStateResolverTest {
 
         assertEquals(TravelState.ARRIVED, result)
     }
+
+    @Test
+    fun upcomingClassBeforeLeaveTime_staysUpcomingClass() {
+        val result = TravelStateResolver.resolve(
+            currentState = TravelState.UPCOMING_CLASS,
+            distanceMeters = 500.0,
+            minutesUntilClass = 40,
+            estimatedTravelMinutes = 24
+        )
+
+        assertEquals(
+            TravelState.UPCOMING_CLASS,
+            result
+        )
+    }
+
+    @Test
+    fun upcomingClassAtLeaveTime_becomesShouldLeaveSoon() {
+        val result = TravelStateResolver.resolve(
+            currentState = TravelState.UPCOMING_CLASS,
+            distanceMeters = 500.0,
+            minutesUntilClass = 29,
+            estimatedTravelMinutes = 24
+        )
+
+        assertEquals(
+            TravelState.SHOULD_LEAVE_SOON,
+            result
+        )
+    }
+
+    @Test
+    fun shouldLeaveSoonNotMoving_staysShouldLeaveSoon() {
+        val result = TravelStateResolver.resolve(
+            currentState = TravelState.SHOULD_LEAVE_SOON,
+            distanceMeters = 500.0,
+            isMoving = false
+        )
+
+        assertEquals(
+            TravelState.SHOULD_LEAVE_SOON,
+            result
+        )
+    }
+
+    @Test
+    fun shouldLeaveSoonWhenMoving_becomesEnRoute() {
+        val result = TravelStateResolver.resolve(
+            currentState = TravelState.SHOULD_LEAVE_SOON,
+            distanceMeters = 500.0,
+            isMoving = true
+        )
+
+        assertEquals(
+            TravelState.EN_ROUTE,
+            result
+        )
+    }
 }
+

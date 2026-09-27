@@ -26,12 +26,15 @@ import au.edu.unimelb.campuscompanion.data.building.BuildingLocationRepository
 import au.edu.unimelb.campuscompanion.sensing.location.LocationTrackingMode
 import au.edu.unimelb.campuscompanion.sensing.location.TravelState
 import au.edu.unimelb.campuscompanion.sensing.location.TravelStateResolver
+import au.edu.unimelb.campuscompanion.sensing.location.TravelStateManager
 
 class MainActivity : ComponentActivity() {
 
     private val authViewModel: AuthViewModel by viewModels()
 
     private lateinit var locationTracker: LocationTracker
+    private val travelStateManager =
+        TravelStateManager()
 
     private val locationPermissionLauncher =
         registerForActivityResult(
@@ -87,10 +90,11 @@ class MainActivity : ComponentActivity() {
                         to = building.location
                     )
 
-                    val state = TravelStateResolver.resolve(
-                        currentState = TravelState.EN_ROUTE,
+                    travelStateManager.update(
                         distanceMeters = distance
                     )
+
+                    val state = travelStateManager.state.value
 
                     val bearing =
                         bearingDegrees(
