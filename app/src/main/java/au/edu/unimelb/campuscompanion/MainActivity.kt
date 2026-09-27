@@ -21,6 +21,7 @@ import kotlinx.coroutines.launch
 import au.edu.unimelb.campuscompanion.sensing.location.distanceMeters
 import au.edu.unimelb.campuscompanion.sensing.location.bearingDegrees
 import au.edu.unimelb.campuscompanion.sensing.location.LocationTrackingMode
+import au.edu.unimelb.campuscompanion.data.building.BuildingLocationRepository
 
 class MainActivity : ComponentActivity() {
 
@@ -39,10 +40,10 @@ class MainActivity : ComponentActivity() {
                 permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
 
             if (fineGranted || coarseGranted) {
-                locationTracker.startTracking()
-                //locationTracker.startTracking(
-                //    LocationTrackingMode.PRE_CLASS
-                //)
+                //locationTracker.startTracking()
+                locationTracker.startTracking(
+                    LocationTrackingMode.PRE_CLASS
+                )
             }
         }
 
@@ -51,32 +52,47 @@ class MainActivity : ComponentActivity() {
 
         locationTracker = LocationTracker(this)
 
+        val buildingRepository = BuildingLocationRepository(this)
+
+        val building = buildingRepository.findByLocationCode("PAR-160")
+
+        Log.d(
+            "BuildingRepository",
+            if (building != null) {
+                "Found: ${building.name}, " +
+                        "code=${building.locCode}, " +
+                        "lat=${building.latitude}, " +
+                        "lon=${building.longitude}, " +
+                        "address=${building.address}"
+            } else {
+                "PAR-160 not found"
+            }
+        )
+
         lifecycleScope.launch {
             locationTracker.location.collectLatest { location ->
-                if (location != null) {
-
-                    val targetLat = -37.7963
-                    val targetLon = 144.9614
+                if (location != null && building != null) {
 
                     val distance =
                         distanceMeters(
                             location.latitude,
                             location.longitude,
-                            targetLat,
-                            targetLon
+                            building.latitude,
+                            building.longitude
                         )
 
                     val bearing =
                         bearingDegrees(
                             location.latitude,
                             location.longitude,
-                            targetLat,
-                            targetLon
+                            building.latitude,
+                            building.longitude
                         )
 
                     Log.d(
                         "LocationTracker",
-                        "lat=${location.latitude}, " +
+                        "building=${building.name}, " +
+                                "lat=${location.latitude}, " +
                                 "lon=${location.longitude}, " +
                                 "accuracy=${location.accuracyMeters}, " +
                                 "distance=${distance.toInt()}m, " +
@@ -120,10 +136,10 @@ class MainActivity : ComponentActivity() {
                 )
             )
         } else {
-            locationTracker.startTracking()
-            //locationTracker.startTracking(
-            //    LocationTrackingMode.PRE_CLASS
-            //)
+            //.startTracking()
+            locationTracker.startTracking(
+                LocationTrackingMode.PRE_CLASS
+            )
         }
     }
 
