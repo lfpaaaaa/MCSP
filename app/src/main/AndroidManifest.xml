@@ -8,6 +8,9 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.NFC" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+
 
     <uses-feature
         android:name="android.hardware.camera.any"
@@ -65,6 +68,15 @@
                     android:scheme="campuscompanion" />
             </intent-filter>
         </activity>
+
+        <receiver
+            android:name=".sensing.location.GeofenceBroadcastReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".sensing.activity.ActivityTransitionReceiver"
+            android:exported="false" />
+
     </application>
 
 </manifest>
