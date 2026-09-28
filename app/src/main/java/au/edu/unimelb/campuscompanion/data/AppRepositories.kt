@@ -3,6 +3,7 @@ package au.edu.unimelb.campuscompanion.data
 import android.content.Context
 import au.edu.unimelb.campuscompanion.auth.SupabaseProvider
 import au.edu.unimelb.campuscompanion.data.fake.FakeChatRepository
+import au.edu.unimelb.campuscompanion.data.fake.FakeEtaRepository
 import au.edu.unimelb.campuscompanion.data.fake.FakeFileRepository
 import au.edu.unimelb.campuscompanion.data.fake.FakeGroupRepository
 import au.edu.unimelb.campuscompanion.data.fake.FakeInviteRepository
@@ -14,14 +15,17 @@ import au.edu.unimelb.campuscompanion.data.remote.GroupRemoteDataSource
 import au.edu.unimelb.campuscompanion.data.remote.SupabaseChatDataSource
 import au.edu.unimelb.campuscompanion.data.remote.SupabaseFileDataSource
 import au.edu.unimelb.campuscompanion.data.remote.SupabaseGroupDataSource
+import au.edu.unimelb.campuscompanion.data.remote.SupabaseRouteDataSource
 import au.edu.unimelb.campuscompanion.data.repository.ChatRepository
 import au.edu.unimelb.campuscompanion.data.repository.DefaultChatRepository
 import au.edu.unimelb.campuscompanion.data.repository.DefaultFileRepository
 import au.edu.unimelb.campuscompanion.data.repository.DefaultGroupRepository
 import au.edu.unimelb.campuscompanion.data.repository.DefaultInviteRepository
+import au.edu.unimelb.campuscompanion.data.repository.EtaRepository
 import au.edu.unimelb.campuscompanion.data.repository.FileRepository
 import au.edu.unimelb.campuscompanion.data.repository.GroupRepository
 import au.edu.unimelb.campuscompanion.data.repository.InviteRepository
+import au.edu.unimelb.campuscompanion.data.repository.RoutedEtaRepository
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.status.SessionStatus
@@ -111,6 +115,16 @@ object AppRepositories {
             FakeFileRepository()
         } else {
             DefaultFileRepository(SupabaseFileDataSource(client), currentUser = { client.currentUser() })
+        }
+    }
+
+    /** One shared instance, so its cache and request limits apply across all screens. */
+    val eta: EtaRepository by lazy {
+        val client = SupabaseProvider.client
+        if (client == null) {
+            FakeEtaRepository()
+        } else {
+            RoutedEtaRepository(SupabaseRouteDataSource(client))
         }
     }
 }
