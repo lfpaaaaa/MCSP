@@ -85,6 +85,24 @@ npx supabase link --project-ref your-project-ref
 npx supabase db push
 ```
 
+### Travel times
+
+The `route-eta` Edge Function returns travel times for departure reminders. Walking and driving times come from the [FOSSGIS OSRM servers](https://routing.openstreetmap.de/about.html) and public transport times from [Transitous](https://transitous.org/api/); neither needs an API key. Both services are run by volunteers, so the function rounds positions to about 110 m, caches answers, starts calls to each service at least one second apart, and applies the fair-use limits in `private.route_limits`. When a limit is reached or a service is unavailable, the app shows an approximate offline estimate.
+
+Deploy the function after pushing the migrations:
+
+```bash
+npx supabase functions deploy route-eta
+```
+
+Transitous serves open-source, non-commercial projects and asks projects to contact its team before using its routing API. Public transport routing therefore stays off until it is switched on:
+
+```bash
+npx supabase secrets set TRANSITOUS_ENABLED=true
+```
+
+Screens that show routed times must credit the data: "© OpenStreetMap contributors" linked to <https://www.openstreetmap.org/copyright>, a "Fix the map" link to <https://www.openstreetmap.org/fixthemap>, and, for public transport, a link to <https://transitous.org/sources/>.
+
 Never commit `.env`, `local.properties`, OAuth secrets, or a Supabase service-role key.
 
 ## Front-end structure
