@@ -12,38 +12,43 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.lifecycleScope
 import au.edu.unimelb.campuscompanion.auth.AuthViewModel
 import au.edu.unimelb.campuscompanion.auth.SupabaseProvider
 import au.edu.unimelb.campuscompanion.data.AppRepositories
-import au.edu.unimelb.campuscompanion.data.building.BuildingLocationRepository
-import au.edu.unimelb.campuscompanion.data.geo.GeoMath
-import au.edu.unimelb.campuscompanion.data.model.GeoPoint
-import au.edu.unimelb.campuscompanion.sensing.activity.ActivityRecognitionManager
-import au.edu.unimelb.campuscompanion.sensing.location.GeofenceManager
-import au.edu.unimelb.campuscompanion.sensing.location.LocationTracker
-import au.edu.unimelb.campuscompanion.sensing.location.LocationTrackingMode
-import au.edu.unimelb.campuscompanion.sensing.location.TravelStateManager
-import au.edu.unimelb.campuscompanion.sensing.location.bearingDegrees
-import au.edu.unimelb.campuscompanion.sensing.motion.MotionDetector
+import au.edu.unimelb.campuscompanion.sensing.service.SensingForegroundService
 import au.edu.unimelb.campuscompanion.ui.CampusCompanionApp
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
     private val authViewModel: AuthViewModel by viewModels()
 
-    private lateinit var locationTracker: LocationTracker
-    private lateinit var motionDetector: MotionDetector
-    private lateinit var geofenceManager: GeofenceManager
-    private lateinit var buildingRepository: BuildingLocationRepository
-    private lateinit var activityRecognitionManager: ActivityRecognitionManager
+    // ---------------------------------------------------------
+    // Notification permission
+    // Android 13 / API 33+
+    // ---------------------------------------------------------
 
-    private val travelStateManager =
-        TravelStateManager()
+    private val notificationPermissionLauncher =
+        registerForActivityResult(
+            ActivityResultContracts.RequestPermission()
+        ) { granted ->
 
-    private var latestIsMoving: Boolean = false
+            if (granted) {
+
+                Log.d(
+                    "NotificationPermission",
+                    "Notification permission granted"
+                )
+
+            } else {
+
+                Log.w(
+                    "NotificationPermission",
+                    "Notification permission not granted"
+                )
+            }
+
+            requestLocationPermissionIfNeeded()
+        }
 
     // ---------------------------------------------------------
     // Location permission
@@ -55,30 +60,49 @@ class MainActivity : ComponentActivity() {
         ) { permissions ->
 
             val fineGranted =
-                permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true
+                permissions[
+                    Manifest.permission.ACCESS_FINE_LOCATION
+                ] == true
 
             val coarseGranted =
-                permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+                permissions[
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                ] == true
 
-            if (fineGranted || coarseGranted) {
-                locationTracker.startTracking(
-                    LocationTrackingMode.PRE_CLASS
+            if (
+                fineGranted ||
+                coarseGranted
+            ) {
+
+                Log.d(
+                    "LocationPermission",
+                    "Location permission granted"
                 )
-            }
 
-            if (fineGranted) {
-                registerArrivalGeofence()
+                /*
+                 * Location permission is available.
+                 *
+                 * We can now safely start the location
+                 * foreground service.
+                 */
+                startSensingForegroundService()
+
             } else {
+
                 Log.w(
-                    "Geofence",
-                    "Fine location permission not granted; geofence not registered"
+                    "LocationPermission",
+                    "Location permission not granted"
                 )
             }
+
+            /*
+             * Continue permission chain.
+             */
+            requestActivityRecognitionPermissionIfNeeded()
         }
 
     // ---------------------------------------------------------
     // Activity Recognition permission
-    // IMPORTANT: this must be a class property, not inside onCreate()
     // ---------------------------------------------------------
 
     private val activityRecognitionPermissionLauncher =
@@ -87,13 +111,21 @@ class MainActivity : ComponentActivity() {
         ) { granted ->
 
             if (granted) {
-                activityRecognitionManager.start()
 
                 Log.d(
                     "ActivityRecognition",
                     "Activity recognition permission granted"
                 )
+
+                /*
+                 * Restart/update service after the permission
+                 * becomes available so the service can register
+                 * activity transitions.
+                 */
+                startSensingForegroundService()
+
             } else {
+
                 Log.w(
                     "ActivityRecognition",
                     "Activity recognition permission not granted"
@@ -101,161 +133,51 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-    override fun onCreate(savedInstanceState: Bundle?) {
+    // ---------------------------------------------------------
+    // onCreate
+    // ---------------------------------------------------------
+
+    override fun onCreate(
+        savedInstanceState: Bundle?
+    ) {
+
         super.onCreate(savedInstanceState)
 
         // ---------------------------------------------------------
-        // Initialise sensing components
+        // Existing Deep Link logic
         // ---------------------------------------------------------
 
-        locationTracker =
-            LocationTracker(this)
-
-        motionDetector =
-            MotionDetector(this)
-
-        motionDetector.start()
-
-        geofenceManager =
-            GeofenceManager(this)
-
-        buildingRepository =
-            BuildingLocationRepository(this)
-
-        activityRecognitionManager =
-            ActivityRecognitionManager(this)
-
-        // ---------------------------------------------------------
-        // Temporary target building
-        // ---------------------------------------------------------
-
-        val building =
-            buildingRepository.findByLocationCode("PAR-160")
-
-        Log.d(
-            "BuildingRepository",
-            if (building != null) {
-                "Found: ${building.name}, " +
-                        "code=${building.locCode}, " +
-                        "lat=${building.location.latitude}, " +
-                        "lon=${building.location.longitude}, " +
-                        "address=${building.address}"
-            } else {
-                "PAR-160 not found"
-            }
+        SupabaseProvider.handleDeepLink(
+            intent
         )
 
-        // ---------------------------------------------------------
-        // GPS / location pipeline
-        // ---------------------------------------------------------
+        if (
+            savedInstanceState == null
+        ) {
 
-        lifecycleScope.launch {
-
-            locationTracker.location.collectLatest { location ->
-
-                if (location == null || building == null) {
-                    return@collectLatest
-                }
-
-                val currentPoint =
-                    GeoPoint(
-                        latitude = location.latitude,
-                        longitude = location.longitude
-                    )
-
-                val distance =
-                    GeoMath.distanceMeters(
-                        from = currentPoint,
-                        to = building.location
-                    )
-
-                travelStateManager.update(
-                    distanceMeters = distance,
-                    isMoving = latestIsMoving
+            AppRepositories
+                .joinLinks
+                .offer(
+                    intent?.dataString
                 )
-
-                val state =
-                    travelStateManager.state.value
-
-                val bearing =
-                    bearingDegrees(
-                        location.latitude,
-                        location.longitude,
-                        building.location.latitude,
-                        building.location.longitude
-                    )
-
-                Log.d(
-                    "LocationTracker",
-                    "building=${building.name}, " +
-                            "lat=${location.latitude}, " +
-                            "lon=${location.longitude}, " +
-                            "accuracy=${location.accuracyMeters}, " +
-                            "distance=${distance.toInt()}m, " +
-                            "bearing=${bearing.toInt()}°, " +
-                            "state=$state"
-                )
-            }
         }
 
         // ---------------------------------------------------------
-        // Accelerometer raw samples
+        // Runtime permission chain
         // ---------------------------------------------------------
 
-        lifecycleScope.launch {
-
-            motionDetector.motionSample.collectLatest { sample ->
-
-                if (sample == null) {
-                    return@collectLatest
-                }
-
-                Log.d(
-                    "MotionDetector",
-                    "x=${sample.x}, " +
-                            "y=${sample.y}, " +
-                            "z=${sample.z}, " +
-                            "magnitude=${sample.magnitude}"
-                )
-            }
-        }
-
-        // ---------------------------------------------------------
-        // Accelerometer movement classifier
-        // ---------------------------------------------------------
-
-        lifecycleScope.launch {
-
-            motionDetector.isMoving.collectLatest { isMoving ->
-
-                latestIsMoving = isMoving
-
-                Log.d(
-                    "MotionDetector",
-                    "isMoving=$isMoving"
-                )
-            }
-        }
-
-        // ---------------------------------------------------------
-        // Existing app logic
-        // ---------------------------------------------------------
-
-        SupabaseProvider.handleDeepLink(intent)
-
-        if (savedInstanceState == null) {
-            AppRepositories.joinLinks.offer(
-                intent?.dataString
-            )
-        }
-
-        // ---------------------------------------------------------
-        // Runtime permissions / sensing startup
-        // ---------------------------------------------------------
-
-        requestLocationPermissionIfNeeded()
-
-        requestActivityRecognitionPermissionIfNeeded()
+        /*
+         * Permission flow:
+         *
+         * Notification
+         *      ↓
+         * Location
+         *      ↓
+         * Foreground Service
+         *      ↓
+         * Activity Recognition
+         */
+        requestNotificationPermissionIfNeeded()
 
         // ---------------------------------------------------------
         // UI
@@ -264,8 +186,50 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         setContent {
+
             CampusCompanionApp(
-                authViewModel = authViewModel
+                authViewModel =
+                    authViewModel
+            )
+        }
+    }
+
+    // ---------------------------------------------------------
+    // Notification permission
+    // ---------------------------------------------------------
+
+    private fun requestNotificationPermissionIfNeeded() {
+
+        if (
+            Build.VERSION.SDK_INT <
+            Build.VERSION_CODES.TIRAMISU
+        ) {
+
+            requestLocationPermissionIfNeeded()
+
+            return
+        }
+
+        val granted =
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) ==
+                    PackageManager.PERMISSION_GRANTED
+
+        if (granted) {
+
+            Log.d(
+                "NotificationPermission",
+                "Notification permission already granted"
+            )
+
+            requestLocationPermissionIfNeeded()
+
+        } else {
+
+            notificationPermissionLauncher.launch(
+                Manifest.permission.POST_NOTIFICATIONS
             )
         }
     }
@@ -280,15 +244,37 @@ class MainActivity : ComponentActivity() {
             ContextCompat.checkSelfPermission(
                 this,
                 Manifest.permission.ACCESS_FINE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED
+            ) ==
+                    PackageManager.PERMISSION_GRANTED
 
         val coarseGranted =
             ContextCompat.checkSelfPermission(
                 this,
                 Manifest.permission.ACCESS_COARSE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED
+            ) ==
+                    PackageManager.PERMISSION_GRANTED
 
-        if (!fineGranted) {
+        if (
+            fineGranted ||
+            coarseGranted
+        ) {
+
+            Log.d(
+                "LocationPermission",
+                "Location permission already granted"
+            )
+
+            /*
+             * The service now owns all sensing.
+             */
+            startSensingForegroundService()
+
+            /*
+             * Continue permission chain.
+             */
+            requestActivityRecognitionPermissionIfNeeded()
+
+        } else {
 
             locationPermissionLauncher.launch(
                 arrayOf(
@@ -296,56 +282,7 @@ class MainActivity : ComponentActivity() {
                     Manifest.permission.ACCESS_COARSE_LOCATION
                 )
             )
-
-        } else {
-
-            // PRE_CLASS is currently used for higher-frequency
-            // location testing.
-            locationTracker.startTracking(
-                LocationTrackingMode.PRE_CLASS
-            )
-
-            registerArrivalGeofence()
         }
-
-        // Approximate location can still support basic tracking,
-        // but we do not register the geofence without fine location.
-        if (!fineGranted && coarseGranted) {
-            locationTracker.startTracking(
-                LocationTrackingMode.PRE_CLASS
-            )
-        }
-    }
-
-    // ---------------------------------------------------------
-    // Geofence registration
-    // ---------------------------------------------------------
-
-    private fun registerArrivalGeofence() {
-
-        val building =
-            buildingRepository.findByLocationCode("PAR-160")
-                ?: run {
-                    Log.e(
-                        "Geofence",
-                        "PAR-160 not found; geofence not registered"
-                    )
-                    return
-                }
-
-        geofenceManager.addArrivalGeofence(
-            id = building.locCode,
-            latitude = building.location.latitude,
-            longitude = building.location.longitude
-        )
-
-        Log.d(
-            "Geofence",
-            "Registering arrival geofence: " +
-                    "${building.locCode}, " +
-                    "lat=${building.location.latitude}, " +
-                    "lon=${building.location.longitude}"
-        )
     }
 
     // ---------------------------------------------------------
@@ -355,17 +292,15 @@ class MainActivity : ComponentActivity() {
     private fun requestActivityRecognitionPermissionIfNeeded() {
 
         /*
-         * ACTIVITY_RECOGNITION became a runtime permission
-         * from Android 10 / API 29.
+         * Runtime ACTIVITY_RECOGNITION permission
+         * is required from Android 10 / API 29.
          */
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+        if (
+            Build.VERSION.SDK_INT <
+            Build.VERSION_CODES.Q
+        ) {
 
-            activityRecognitionManager.start()
-
-            Log.d(
-                "ActivityRecognition",
-                "Android below API 29; starting without runtime permission"
-            )
+            startSensingForegroundService()
 
             return
         }
@@ -374,11 +309,17 @@ class MainActivity : ComponentActivity() {
             ContextCompat.checkSelfPermission(
                 this,
                 Manifest.permission.ACTIVITY_RECOGNITION
-            ) == PackageManager.PERMISSION_GRANTED
+            ) ==
+                    PackageManager.PERMISSION_GRANTED
 
         if (granted) {
 
-            activityRecognitionManager.start()
+            Log.d(
+                "ActivityRecognition",
+                "Activity recognition permission already granted"
+            )
+
+            startSensingForegroundService()
 
         } else {
 
@@ -389,33 +330,117 @@ class MainActivity : ComponentActivity() {
     }
 
     // ---------------------------------------------------------
-    // Deep links
+    // Start foreground sensing service
     // ---------------------------------------------------------
 
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
+    private fun startSensingForegroundService() {
 
-        setIntent(intent)
+        val fineGranted =
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) ==
+                    PackageManager.PERMISSION_GRANTED
 
-        SupabaseProvider.handleDeepLink(intent)
+        val coarseGranted =
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            ) ==
+                    PackageManager.PERMISSION_GRANTED
 
-        AppRepositories.joinLinks.offer(
-            intent.dataString
+        /*
+         * Do not attempt to start a location foreground
+         * service until a location permission exists.
+         */
+        if (
+            !fineGranted &&
+            !coarseGranted
+        ) {
+
+            Log.w(
+                "SensingService",
+                "Cannot start sensing service without location permission"
+            )
+
+            return
+        }
+
+        val serviceIntent =
+            Intent(
+                this,
+                SensingForegroundService::class.java
+            ).apply {
+
+                /*
+                 * Temporary testing mode.
+                 *
+                 * PRE_CLASS:
+                 * - high-frequency GPS
+                 * - accelerometer ON
+                 * - gyroscope ON
+                 * - compass ON
+                 *
+                 * Later the app can send NORMAL_MODE
+                 * when high-frequency sensing is not needed.
+                 */
+                action =
+                    SensingForegroundService.ACTION_PRE_CLASS_MODE
+            }
+
+        ContextCompat.startForegroundService(
+            this,
+            serviceIntent
+        )
+
+        Log.d(
+            "SensingService",
+            "Requested PRE_CLASS foreground sensing mode"
         )
     }
 
     // ---------------------------------------------------------
-    // Cleanup
+    // Deep Links
     // ---------------------------------------------------------
 
-    override fun onDestroy() {
+    override fun onNewIntent(
+        intent: Intent
+    ) {
 
-        locationTracker.stopTracking()
+        super.onNewIntent(
+            intent
+        )
 
-        motionDetector.stop()
+        setIntent(
+            intent
+        )
 
-        activityRecognitionManager.stop()
+        SupabaseProvider.handleDeepLink(
+            intent
+        )
 
-        super.onDestroy()
+        AppRepositories
+            .joinLinks
+            .offer(
+                intent.dataString
+            )
     }
+
+    // ---------------------------------------------------------
+    // Important
+    // ---------------------------------------------------------
+
+    /*
+     * There is intentionally NO sensing cleanup in onDestroy().
+     *
+     * MainActivity no longer owns:
+     *
+     * - LocationTracker
+     * - MotionDetector
+     * - GyroscopeDetector
+     * - CompassHeadingDetector
+     *
+     * The Foreground Service owns them and must continue
+     * running when the Activity goes to the background.
+     */
 }
