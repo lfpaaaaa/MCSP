@@ -10,6 +10,8 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
 
 
     <uses-feature
@@ -30,6 +32,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.CampusCompanion">
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -67,6 +70,7 @@
                     android:host="join"
                     android:scheme="campuscompanion" />
             </intent-filter>
+
         </activity>
 
         <receiver
@@ -76,6 +80,11 @@
         <receiver
             android:name=".sensing.activity.ActivityTransitionReceiver"
             android:exported="false" />
+
+        <service
+            android:name=".sensing.service.SensingForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
 
     </application>
 
