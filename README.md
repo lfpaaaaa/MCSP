@@ -89,6 +89,8 @@ npx supabase db push
 
 The `route-eta` Edge Function returns travel times for departure reminders. Walking and driving times come from the [FOSSGIS OSRM servers](https://routing.openstreetmap.de/about.html) and public transport times from [Transitous](https://transitous.org/api/); neither needs an API key. Both services are run by volunteers, so the function rounds positions to about 110 m, caches answers, starts calls to each service at least one second apart, and applies the fair-use limits in `private.route_limits`. When a limit is reached or a service is unavailable, the app shows an approximate offline estimate.
 
+On the device, `context/TravelEngine` joins the timetable, the location and motion sensors and these travel times into the travel state (upcoming, leave soon, en route, arrived) that the screens show. The building of each class is looked up from the location code in the timetable (for example `PAR-160`) in `assets/uom_building_outlines.geojson`.
+
 Deploy the function after pushing the migrations:
 
 ```bash

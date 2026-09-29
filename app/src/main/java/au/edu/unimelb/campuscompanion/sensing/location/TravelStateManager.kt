@@ -17,13 +17,15 @@ class TravelStateManager(
         distanceMeters: Double,
         minutesUntilClass: Int? = null,
         estimatedTravelMinutes: Int? = null,
-        isMoving: Boolean = false
+        isMoving: Boolean = false,
+        bufferMinutes: Int = TravelStateResolver.DEFAULT_BUFFER_MINUTES
     ) {
         _state.value = TravelStateResolver.resolve(
             currentState = _state.value,
             distanceMeters = distanceMeters,
             minutesUntilClass = minutesUntilClass,
             estimatedTravelMinutes = estimatedTravelMinutes,
+            bufferMinutes = bufferMinutes,
             isMoving = isMoving
         )
     }

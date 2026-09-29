@@ -7,13 +7,13 @@ import au.edu.unimelb.campuscompanion.data.model.GeoPoint
 
 class BuildingLocationRepository(
     private val context: Context
-) {
+) : BuildingLookup {
 
     private val buildings: List<BuildingLocation> by lazy {
         loadBuildings()
     }
 
-    fun findByLocationCode(locationCode: String): BuildingLocation? {
+    override fun findByLocationCode(locationCode: String): BuildingLocation? {
         val normalizedCode = normalizeLocationCode(locationCode)
 
         return buildings.firstOrNull {
@@ -21,7 +21,7 @@ class BuildingLocationRepository(
         }
     }
 
-    fun getAllBuildings(): List<BuildingLocation> {
+    override fun getAllBuildings(): List<BuildingLocation> {
         return buildings
     }
 

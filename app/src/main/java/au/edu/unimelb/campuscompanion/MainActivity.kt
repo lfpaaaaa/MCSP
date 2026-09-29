@@ -16,15 +16,12 @@ import androidx.lifecycle.lifecycleScope
 import au.edu.unimelb.campuscompanion.auth.AuthViewModel
 import au.edu.unimelb.campuscompanion.auth.SupabaseProvider
 import au.edu.unimelb.campuscompanion.data.AppRepositories
-import au.edu.unimelb.campuscompanion.data.building.BuildingLocationRepository
-import au.edu.unimelb.campuscompanion.data.geo.GeoMath
+import au.edu.unimelb.campuscompanion.data.building.BuildingLocation
 import au.edu.unimelb.campuscompanion.data.model.GeoPoint
 import au.edu.unimelb.campuscompanion.sensing.activity.ActivityRecognitionManager
 import au.edu.unimelb.campuscompanion.sensing.location.GeofenceManager
 import au.edu.unimelb.campuscompanion.sensing.location.LocationTracker
 import au.edu.unimelb.campuscompanion.sensing.location.LocationTrackingMode
-import au.edu.unimelb.campuscompanion.sensing.location.TravelStateManager
-import au.edu.unimelb.campuscompanion.sensing.location.bearingDegrees
 import au.edu.unimelb.campuscompanion.sensing.motion.MotionDetector
 import au.edu.unimelb.campuscompanion.ui.CampusCompanionApp
 import kotlinx.coroutines.flow.collectLatest
@@ -37,13 +34,10 @@ class MainActivity : ComponentActivity() {
     private lateinit var locationTracker: LocationTracker
     private lateinit var motionDetector: MotionDetector
     private lateinit var geofenceManager: GeofenceManager
-    private lateinit var buildingRepository: BuildingLocationRepository
     private lateinit var activityRecognitionManager: ActivityRecognitionManager
 
-    private val travelStateManager =
-        TravelStateManager()
-
-    private var latestIsMoving: Boolean = false
+    /** The building of the next class, which is where the arrival geofence is. */
+    private var geofenceBuilding: BuildingLocation? = null
 
     // ---------------------------------------------------------
     // Location permission
@@ -67,7 +61,7 @@ class MainActivity : ComponentActivity() {
             }
 
             if (fineGranted) {
-                registerArrivalGeofence()
+                geofenceBuilding?.let(::registerArrivalGeofence)
             } else {
                 Log.w(
                     "Geofence",
@@ -119,81 +113,31 @@ class MainActivity : ComponentActivity() {
         geofenceManager =
             GeofenceManager(this)
 
-        buildingRepository =
-            BuildingLocationRepository(this)
-
         activityRecognitionManager =
             ActivityRecognitionManager(this)
 
         // ---------------------------------------------------------
-        // Temporary target building
+        // Sensors -> travel engine
+        //
+        // The engine (AppRepositories.travel) joins the timetable, the
+        // position and the routing service; the screens read its snapshot.
         // ---------------------------------------------------------
 
-        val building =
-            buildingRepository.findByLocationCode("PAR-160")
-
-        Log.d(
-            "BuildingRepository",
-            if (building != null) {
-                "Found: ${building.name}, " +
-                        "code=${building.locCode}, " +
-                        "lat=${building.location.latitude}, " +
-                        "lon=${building.location.longitude}, " +
-                        "address=${building.address}"
-            } else {
-                "PAR-160 not found"
-            }
-        )
-
-        // ---------------------------------------------------------
-        // GPS / location pipeline
-        // ---------------------------------------------------------
+        val travel = AppRepositories.travel
 
         lifecycleScope.launch {
 
             locationTracker.location.collectLatest { location ->
 
-                if (location == null || building == null) {
+                if (location == null) {
                     return@collectLatest
                 }
 
-                val currentPoint =
+                travel.updateOrigin(
                     GeoPoint(
                         latitude = location.latitude,
                         longitude = location.longitude
                     )
-
-                val distance =
-                    GeoMath.distanceMeters(
-                        from = currentPoint,
-                        to = building.location
-                    )
-
-                travelStateManager.update(
-                    distanceMeters = distance,
-                    isMoving = latestIsMoving
-                )
-
-                val state =
-                    travelStateManager.state.value
-
-                val bearing =
-                    bearingDegrees(
-                        location.latitude,
-                        location.longitude,
-                        building.location.latitude,
-                        building.location.longitude
-                    )
-
-                Log.d(
-                    "LocationTracker",
-                    "building=${building.name}, " +
-                            "lat=${location.latitude}, " +
-                            "lon=${location.longitude}, " +
-                            "accuracy=${location.accuracyMeters}, " +
-                            "distance=${distance.toInt()}m, " +
-                            "bearing=${bearing.toInt()}°, " +
-                            "state=$state"
                 )
             }
         }
@@ -228,11 +172,44 @@ class MainActivity : ComponentActivity() {
 
             motionDetector.isMoving.collectLatest { isMoving ->
 
-                latestIsMoving = isMoving
+                travel.updateMoving(isMoving)
 
                 Log.d(
                     "MotionDetector",
                     "isMoving=$isMoving"
+                )
+            }
+        }
+
+        // ---------------------------------------------------------
+        // Travel engine -> arrival geofence
+        // ---------------------------------------------------------
+
+        lifecycleScope.launch {
+
+            travel.snapshot.collectLatest { snapshot ->
+
+                val building = snapshot.building
+
+                if (building?.locCode != geofenceBuilding?.locCode) {
+                    geofenceBuilding?.let { previous ->
+                        geofenceManager.removeArrivalGeofence(previous.locCode)
+                    }
+                    geofenceBuilding = building
+
+                    if (building != null && hasFineLocationPermission()) {
+                        registerArrivalGeofence(building)
+                    }
+                }
+
+                Log.d(
+                    "TravelEngine",
+                    "session=${snapshot.session?.code}, " +
+                            "building=${building?.name}, " +
+                            "distance=${snapshot.distanceMeters?.toInt()}m, " +
+                            "eta=${snapshot.estimate?.durationMinutes}min, " +
+                            "minutesUntilClass=${snapshot.minutesUntilClass}, " +
+                            "state=${snapshot.state}"
                 )
             }
         }
@@ -274,13 +251,15 @@ class MainActivity : ComponentActivity() {
     // Location permission
     // ---------------------------------------------------------
 
+    private fun hasFineLocationPermission(): Boolean =
+        ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+
     private fun requestLocationPermissionIfNeeded() {
 
-        val fineGranted =
-            ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED
+        val fineGranted = hasFineLocationPermission()
 
         val coarseGranted =
             ContextCompat.checkSelfPermission(
@@ -305,7 +284,7 @@ class MainActivity : ComponentActivity() {
                 LocationTrackingMode.PRE_CLASS
             )
 
-            registerArrivalGeofence()
+            geofenceBuilding?.let(::registerArrivalGeofence)
         }
 
         // Approximate location can still support basic tracking,
@@ -321,17 +300,7 @@ class MainActivity : ComponentActivity() {
     // Geofence registration
     // ---------------------------------------------------------
 
-    private fun registerArrivalGeofence() {
-
-        val building =
-            buildingRepository.findByLocationCode("PAR-160")
-                ?: run {
-                    Log.e(
-                        "Geofence",
-                        "PAR-160 not found; geofence not registered"
-                    )
-                    return
-                }
+    private fun registerArrivalGeofence(building: BuildingLocation) {
 
         geofenceManager.addArrivalGeofence(
             id = building.locCode,
@@ -341,10 +310,7 @@ class MainActivity : ComponentActivity() {
 
         Log.d(
             "Geofence",
-            "Registering arrival geofence: " +
-                    "${building.locCode}, " +
-                    "lat=${building.location.latitude}, " +
-                    "lon=${building.location.longitude}"
+            "Registering arrival geofence: ${building.locCode}"
         )
     }
 
