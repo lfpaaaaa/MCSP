@@ -18,6 +18,7 @@ import au.edu.unimelb.campuscompanion.data.remote.OpenMeteoWeatherDataSource
 import au.edu.unimelb.campuscompanion.data.remote.SupabaseChatDataSource
 import au.edu.unimelb.campuscompanion.data.remote.SupabaseFileDataSource
 import au.edu.unimelb.campuscompanion.data.remote.SupabaseGroupDataSource
+import au.edu.unimelb.campuscompanion.data.remote.SupabasePushDataSource
 import au.edu.unimelb.campuscompanion.data.remote.SupabaseRouteDataSource
 import au.edu.unimelb.campuscompanion.data.repository.ChatRepository
 import au.edu.unimelb.campuscompanion.data.repository.DefaultChatRepository
@@ -31,6 +32,8 @@ import au.edu.unimelb.campuscompanion.data.repository.GroupRepository
 import au.edu.unimelb.campuscompanion.data.repository.InviteRepository
 import au.edu.unimelb.campuscompanion.data.repository.RoutedEtaRepository
 import au.edu.unimelb.campuscompanion.data.repository.WeatherRepository
+import au.edu.unimelb.campuscompanion.push.FirebaseTokenSource
+import au.edu.unimelb.campuscompanion.push.PushTokens
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.status.SessionStatus
@@ -64,9 +67,11 @@ object AppRepositories {
         SupabaseProvider.client?.let { client ->
             applicationScope.launch {
                 client.auth.sessionStatus.collect { status ->
-                    // Cached group data belongs to the user who was signed in.
-                    if (status is SessionStatus.NotAuthenticated) {
-                        database.messageDao().deleteAll()
+                    when (status) {
+                        is SessionStatus.Authenticated -> push.onSignedIn()
+                        // Cached group data belongs to the user who was signed in.
+                        is SessionStatus.NotAuthenticated -> database.messageDao().deleteAll()
+                        else -> Unit
                     }
                 }
             }
@@ -132,6 +137,17 @@ object AppRepositories {
         } else {
             RoutedEtaRepository(SupabaseRouteDataSource(client))
         }
+    }
+
+    /** This device's push token on the server; does nothing when Firebase or Supabase is not configured. */
+    val push: PushTokens by lazy {
+        val client = SupabaseProvider.client
+        PushTokens(
+            remote = client?.let { SupabasePushDataSource(it) },
+            source = FirebaseTokenSource.ifConfigured(appContext),
+            isSignedIn = { client?.auth?.currentSessionOrNull() != null },
+            scope = applicationScope
+        )
     }
 
     /** Weather at the class's building; Open-Meteo needs no key, so it is always the real service. */

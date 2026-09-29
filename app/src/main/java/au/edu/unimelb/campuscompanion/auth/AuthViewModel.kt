@@ -2,6 +2,7 @@ package au.edu.unimelb.campuscompanion.auth
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import au.edu.unimelb.campuscompanion.data.AppRepositories
 import io.github.jan.supabase.auth.OtpType
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.Apple
@@ -120,6 +121,8 @@ class AuthViewModel : ViewModel() {
 
     fun signOut() {
         runAuthRequest {
+            // While the session is still valid: this device stops receiving this user's messages.
+            AppRepositories.push.beforeSignOut()
             clientOrThrow().auth.signOut()
         }
     }
