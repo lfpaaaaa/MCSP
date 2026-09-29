@@ -25,6 +25,12 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+// Firebase Cloud Messaging is configured by app/google-services.json, which is kept out of git.
+// Without the file the app still builds and runs, with push notifications switched off.
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 android {
     namespace = "au.edu.unimelb.campuscompanion"
     compileSdk = 35
@@ -93,6 +99,8 @@ dependencies {
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
     implementation(libs.google.play.services.location)
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
     testImplementation(libs.junit)
