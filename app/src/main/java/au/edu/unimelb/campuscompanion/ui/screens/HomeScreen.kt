@@ -6,14 +6,22 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.DirectionsWalk
+import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.DirectionsCar
+import androidx.compose.material.icons.outlined.DirectionsTransit
+import androidx.compose.material.icons.outlined.LocationOn
+import androidx.compose.material.icons.outlined.Route
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -25,16 +33,31 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import au.edu.unimelb.campuscompanion.data.TravelMode
+import au.edu.unimelb.campuscompanion.data.TravelPreferences
 import au.edu.unimelb.campuscompanion.ui.components.CourseSessionRow
 import au.edu.unimelb.campuscompanion.ui.components.GroupUpdateRow
 import au.edu.unimelb.campuscompanion.ui.components.SectionHeader
+import au.edu.unimelb.campuscompanion.ui.components.StatusPill
+import au.edu.unimelb.campuscompanion.ui.components.displayName
 import au.edu.unimelb.campuscompanion.ui.components.TimetableUrlDialog
+import au.edu.unimelb.campuscompanion.ui.model.CourseSession
 import au.edu.unimelb.campuscompanion.ui.model.TimetableState
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import kotlin.math.roundToInt
+
+private val homeTimeFormatter = DateTimeFormatter.ofPattern("h:mm a")
+private val nextClassDateFormatter = DateTimeFormatter.ofPattern("EEEE, d MMM")
 
 @Composable
 fun HomeScreen(
     timetableState: TimetableState,
+    travelPreferences: TravelPreferences,
     onTimetableUrlSave: suspend (String) -> Result<Unit>,
     modifier: Modifier = Modifier
 ) {
@@ -85,23 +108,44 @@ fun HomeScreen(
                 onConnect = { showTimetableDialog = true }
             )
             else -> {
-                ImportSummaryCard(
-                    detectedEventCount = timetableState.detectedEventCount,
-                    groupCount = timetableState.groups.size
+                val now = ZonedDateTime.now()
+                val agenda = buildHomeAgenda(
+                    sessions = timetableState.sessions,
+                    now = now
                 )
+                val nextClassIsToday = agenda.nextClass?.let { nextClass ->
+                    val localNow = now.withZoneSameInstant(nextClass.start.zone)
+                    nextClass.startDate == localNow.toLocalDate()
+                } == true
 
-                SectionHeader(title = "Upcoming classes")
-                if (timetableState.sessions.isEmpty()) {
+                if (agenda.nextClass != null) {
+                    NextClassCard(
+                        session = agenda.nextClass,
+                        travelPreferences = travelPreferences
+                    )
+                }
+
+                SectionHeader(title = "Today's classes")
+                if (agenda.todayClasses.isEmpty()) {
                     EmptyImportedSection(
-                        text = "No classes for now."
+                        text = if (nextClassIsToday) {
+                            "No other classes today."
+                        } else {
+                            "Your timetable has no classes remaining today."
+                        }
                     )
                 } else {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        timetableState.sessions.take(3).forEach { session ->
+                        agenda.todayClasses.forEach { session ->
                             CourseSessionRow(session = session)
                         }
                     }
                 }
+
+                ImportSummaryCard(
+                    detectedEventCount = timetableState.detectedEventCount,
+                    groupCount = timetableState.groups.size
+                )
 
                 SectionHeader(title = "Course groups")
                 if (timetableState.groups.isEmpty()) {
@@ -118,6 +162,198 @@ fun HomeScreen(
             }
         }
     }
+}
+
+@Composable
+private fun NextClassCard(
+    session: CourseSession,
+    travelPreferences: TravelPreferences,
+    modifier: Modifier = Modifier
+) {
+    val status = session.statusAt()
+    val travel = selectTravelSummary(session, travelPreferences)
+    val locationText = listOf(session.location, session.room)
+        .filter(String::isNotBlank)
+        .joinToString(" - ")
+
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = "NEXT CLASS",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = session.code,
+                        style = MaterialTheme.typography.titleLarge,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = session.title,
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "${session.startDate.format(nextClassDateFormatter)}  ${session.startTime.format(homeTimeFormatter)} - ${session.endTime.format(homeTimeFormatter)}",
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+                }
+                StatusPill(
+                    label = status.displayName(),
+                    status = status
+                )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Outlined.LocationOn,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Text(
+                    text = locationText,
+                    modifier = Modifier.padding(start = 6.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.2f))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                TravelMetric(
+                    icon = Icons.Outlined.Route,
+                    label = "Distance",
+                    value = travel.distanceMeters?.let(::formatTravelDistance) ?: "Waiting for location",
+                    modifier = Modifier.weight(1f)
+                )
+                TravelMetric(
+                    icon = travel.mode?.icon() ?: Icons.Outlined.AccessTime,
+                    label = travel.mode?.displayName ?: "Travel time",
+                    value = travel.durationMinutes?.let { "$it min" } ?: "Route pending",
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TravelMetric(
+    icon: ImageVector,
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            modifier = Modifier.size(20.dp)
+        )
+        Column {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+internal data class HomeAgenda(
+    val nextClass: CourseSession?,
+    val todayClasses: List<CourseSession>
+)
+
+internal fun buildHomeAgenda(
+    sessions: List<CourseSession>,
+    now: ZonedDateTime
+): HomeAgenda {
+    val upcomingSessions = sessions
+        .filter { session ->
+            val localNow = now.withZoneSameInstant(session.start.zone)
+            session.end.isAfter(localNow)
+        }
+        .sortedBy { it.start.toInstant() }
+    val nextClass = upcomingSessions.firstOrNull()
+    val remainingToday = upcomingSessions.filter { session ->
+        val localNow = now.withZoneSameInstant(session.start.zone)
+        session.startDate == localNow.toLocalDate() && session.id != nextClass?.id
+    }
+
+    return HomeAgenda(
+        nextClass = nextClass,
+        todayClasses = remainingToday
+    )
+}
+
+internal data class SelectedTravelSummary(
+    val distanceMeters: Int?,
+    val mode: TravelMode?,
+    val durationMinutes: Int?
+)
+
+internal fun selectTravelSummary(
+    session: CourseSession,
+    preferences: TravelPreferences
+): SelectedTravelSummary {
+    val estimate = session.routeEstimate
+        ?: return SelectedTravelSummary(null, null, session.etaMinutes)
+    val mode = preferences.preferredMode(estimate.distanceMeters)
+    val durationMinutes = when (mode) {
+        TravelMode.Walking -> estimate.walkingMinutes
+        TravelMode.PublicTransport -> estimate.publicTransportMinutes
+        TravelMode.Driving -> estimate.drivingMinutes
+    } ?: session.etaMinutes
+
+    return SelectedTravelSummary(
+        distanceMeters = estimate.distanceMeters,
+        mode = mode,
+        durationMinutes = durationMinutes
+    )
+}
+
+private fun formatTravelDistance(distanceMeters: Int): String {
+    if (distanceMeters < 1_000) return "$distanceMeters m"
+    val roundedTenths = (distanceMeters / 100f).roundToInt()
+    return if (roundedTenths % 10 == 0) {
+        "${roundedTenths / 10} km"
+    } else {
+        "${roundedTenths / 10}.${roundedTenths % 10} km"
+    }
+}
+
+private fun TravelMode.icon(): ImageVector = when (this) {
+    TravelMode.Walking -> Icons.AutoMirrored.Outlined.DirectionsWalk
+    TravelMode.PublicTransport -> Icons.Outlined.DirectionsTransit
+    TravelMode.Driving -> Icons.Outlined.DirectionsCar
 }
 
 @Composable

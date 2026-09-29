@@ -30,8 +30,11 @@ import au.edu.unimelb.campuscompanion.auth.AuthenticatedUser
 import au.edu.unimelb.campuscompanion.data.AppRepositories
 import au.edu.unimelb.campuscompanion.data.TimetableImporter
 import au.edu.unimelb.campuscompanion.data.TimetableSubscriptionStore
+import au.edu.unimelb.campuscompanion.data.TravelPreferences
+import au.edu.unimelb.campuscompanion.data.TravelPreferencesStore
 import au.edu.unimelb.campuscompanion.ui.model.TimetableState
 import au.edu.unimelb.campuscompanion.ui.navigation.CampusDestination
+import au.edu.unimelb.campuscompanion.ui.components.RequestLocationPermissionOnFirstUse
 import au.edu.unimelb.campuscompanion.ui.screens.AuthLoadingScreen
 import au.edu.unimelb.campuscompanion.ui.screens.CompleteProfileScreen
 import au.edu.unimelb.campuscompanion.ui.screens.GroupsScreen
@@ -81,9 +84,15 @@ private fun AuthenticatedCampusApp(
     user: AuthenticatedUser,
     onSignOut: () -> Unit
 ) {
+    RequestLocationPermissionOnFirstUse()
+
     val context = LocalContext.current
     val timetableStore = remember(context) { TimetableSubscriptionStore(context) }
     val timetableImporter = remember { TimetableImporter() }
+    val travelPreferencesStore = remember(context) { TravelPreferencesStore(context) }
+    var travelPreferences by remember(user.id) {
+        mutableStateOf(travelPreferencesStore.load())
+    }
     val savedTimetableUrl = remember(user.id) { timetableStore.loadUrl(user.id) }
     var timetableState by remember(user.id) {
         mutableStateOf(
@@ -158,6 +167,10 @@ private fun AuthenticatedCampusApp(
         timetableStore.clear(user.id)
         timetableState = TimetableState()
     }
+    val updateTravelPreferences: (TravelPreferences) -> Unit = { updatedPreferences ->
+        travelPreferencesStore.save(updatedPreferences)
+        travelPreferences = updatedPreferences
+    }
     val navController = rememberNavController()
     val destinations = CampusDestination.topLevelDestinations
     val backStackEntry by navController.currentBackStackEntryAsState()
@@ -206,7 +219,8 @@ private fun AuthenticatedCampusApp(
         ) {
             composable(CampusDestination.Home.route) {
                 HomeScreen(
-                    timetableState = displayedTimetable,
+                    timetableState = timetableState,
+                    travelPreferences = travelPreferences,
                     onTimetableUrlSave = connectTimetable
                 )
             }
@@ -234,9 +248,11 @@ private fun AuthenticatedCampusApp(
             composable(CampusDestination.Profile.route) {
                 ProfileScreen(
                     user = user,
-                    timetableState = displayedTimetable,
+                    timetableState = timetableState,
+                    travelPreferences = travelPreferences,
                     onTimetableUrlSave = connectTimetable,
                     onTimetableUrlRemove = removeTimetable,
+                    onTravelPreferencesChange = updateTravelPreferences,
                     onSignOut = onSignOut
                 )
             }

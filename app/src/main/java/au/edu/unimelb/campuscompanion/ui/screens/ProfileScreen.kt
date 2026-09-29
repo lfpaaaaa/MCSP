@@ -50,13 +50,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import au.edu.unimelb.campuscompanion.auth.AuthenticatedUser
 import au.edu.unimelb.campuscompanion.data.TravelMode
 import au.edu.unimelb.campuscompanion.data.TravelPreferences
-import au.edu.unimelb.campuscompanion.data.TravelPreferencesStore
 import au.edu.unimelb.campuscompanion.ui.components.IconTextLine
 import au.edu.unimelb.campuscompanion.ui.components.SectionHeader
 import au.edu.unimelb.campuscompanion.ui.components.TimetableUrlDialog
@@ -67,21 +65,18 @@ import kotlin.math.roundToInt
 fun ProfileScreen(
     user: AuthenticatedUser,
     timetableState: TimetableState,
+    travelPreferences: TravelPreferences,
     onTimetableUrlSave: suspend (String) -> Result<Unit>,
     onTimetableUrlRemove: () -> Unit,
+    onTravelPreferencesChange: (TravelPreferences) -> Unit,
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
-    val travelPreferencesStore = remember(context) { TravelPreferencesStore(context) }
-    val savedTravelPreferences = remember(travelPreferencesStore) {
-        travelPreferencesStore.load()
+    var walkingThresholdKm by rememberSaveable(travelPreferences.walkingThresholdMeters) {
+        mutableFloatStateOf(travelPreferences.walkingThresholdMeters / 1_000f)
     }
-    var walkingThresholdKm by rememberSaveable {
-        mutableFloatStateOf(savedTravelPreferences.walkingThresholdMeters / 1_000f)
-    }
-    var longerDistanceMode by rememberSaveable {
-        mutableStateOf(savedTravelPreferences.longerDistanceMode)
+    var longerDistanceMode by rememberSaveable(travelPreferences.longerDistanceMode) {
+        mutableStateOf(travelPreferences.longerDistanceMode)
     }
     var showTimetableDialog by rememberSaveable { mutableStateOf(false) }
     var showRemoveTimetableDialog by rememberSaveable { mutableStateOf(false) }
@@ -123,7 +118,7 @@ fun ProfileScreen(
         thresholdKm: Float = walkingThresholdKm,
         mode: TravelMode = longerDistanceMode
     ) {
-        travelPreferencesStore.save(
+        onTravelPreferencesChange(
             TravelPreferences(
                 walkingThresholdMeters = (thresholdKm * 1_000).roundToInt(),
                 longerDistanceMode = mode
