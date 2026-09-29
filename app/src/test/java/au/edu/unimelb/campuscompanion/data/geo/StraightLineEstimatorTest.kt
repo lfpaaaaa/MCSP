@@ -23,4 +23,19 @@ class StraightLineEstimatorTest {
         assertTrue(estimate.isApproximate)
         assertEquals(now, estimate.computedAt)
     }
+
+    @Test
+    fun otherTravelModesUseTheirOwnAverageSpeed() {
+        val now = Instant.parse("2026-09-25T04:00:00Z")
+        val tenKilometresNorth = GeoPoint(0.09, 0.0)
+
+        val transit = StraightLineEstimator.estimate(GeoPoint(0.0, 0.0), tenKilometresNorth, now, TravelMode.PublicTransport)
+        val driving = StraightLineEstimator.estimate(GeoPoint(0.0, 0.0), tenKilometresNorth, now, TravelMode.Driving)
+
+        assertEquals(TravelMode.PublicTransport, transit.mode)
+        assertEquals(34, transit.durationMinutes)
+        assertEquals(TravelMode.Driving, driving.mode)
+        assertEquals(21, driving.durationMinutes)
+        assertTrue(transit.isApproximate && driving.isApproximate)
+    }
 }

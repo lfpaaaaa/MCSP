@@ -13,7 +13,8 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import au.edu.unimelb.campuscompanion.R
-import au.edu.unimelb.campuscompanion.data.building.BuildingLocationRepository
+import au.edu.unimelb.campuscompanion.data.AppRepositories
+import au.edu.unimelb.campuscompanion.data.building.BuildingLocation
 import au.edu.unimelb.campuscompanion.data.geo.GeoMath
 import au.edu.unimelb.campuscompanion.data.model.GeoPoint
 import au.edu.unimelb.campuscompanion.sensing.activity.ActivityRecognitionManager
@@ -23,7 +24,6 @@ import au.edu.unimelb.campuscompanion.sensing.location.EnRouteFusionDetector
 import au.edu.unimelb.campuscompanion.sensing.location.GeofenceManager
 import au.edu.unimelb.campuscompanion.sensing.location.LocationTracker
 import au.edu.unimelb.campuscompanion.sensing.location.LocationTrackingMode
-import au.edu.unimelb.campuscompanion.sensing.location.TravelStateManager
 import au.edu.unimelb.campuscompanion.sensing.location.bearingDegrees
 import au.edu.unimelb.campuscompanion.sensing.motion.GyroscopeDetector
 import au.edu.unimelb.campuscompanion.sensing.motion.MotionDetector
@@ -33,6 +33,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
@@ -57,9 +59,6 @@ class SensingForegroundService : Service() {
 
         const val ACTION_PRE_CLASS_MODE =
             "au.edu.unimelb.campuscompanion.action.PRE_CLASS_MODE"
-
-        private const val TARGET_BUILDING_CODE =
-            "PAR-160"
     }
 
     // ---------------------------------------------------------
@@ -94,15 +93,30 @@ class SensingForegroundService : Service() {
     private lateinit var geofenceManager:
             GeofenceManager
 
-    private lateinit var buildingRepository:
-            BuildingLocationRepository
+    // ---------------------------------------------------------
+    // Travel engine
+    //
+    // AppRepositories.travel joins the timetable, these sensors and
+    // the routing service. It decides which building to travel to
+    // and owns the travel state; this service feeds it the position
+    // and movement and runs the EN_ROUTE fusion for that building.
+    // ---------------------------------------------------------
+
+    private val travel =
+        AppRepositories.travel
+
+    /** The building whose arrival geofence is registered. */
+    @Volatile
+    private var geofenceBuilding: BuildingLocation? =
+        null
+
+    /** The building the fusion history belongs to. */
+    private var fusionBuildingCode: String? =
+        null
 
     // ---------------------------------------------------------
     // Fusion components
     // ---------------------------------------------------------
-
-    private val travelStateManager =
-        TravelStateManager()
 
     private val distanceTrendDetector =
         DistanceTrendDetector()
@@ -168,9 +182,6 @@ class SensingForegroundService : Service() {
         geofenceManager =
             GeofenceManager(this)
 
-        buildingRepository =
-            BuildingLocationRepository(this)
-
         // ---------------------------------------------------------
         // Start collectors
         // ---------------------------------------------------------
@@ -182,6 +193,8 @@ class SensingForegroundService : Service() {
         observeCompass()
 
         observeLocation()
+
+        observeArrivalGeofence()
 
         Log.d(
             "SensingService",
@@ -316,6 +329,10 @@ class SensingForegroundService : Service() {
 
         enRouteFusionDetector.reset()
 
+        travel.updateMoving(
+            false
+        )
+
         updateNotification(
             "Background sensing — battery saving mode"
         )
@@ -376,6 +393,10 @@ class SensingForegroundService : Service() {
 
                     latestIsMoving =
                         isMoving
+
+                    travel.updateMoving(
+                        isMoving
+                    )
 
                     Log.d(
                         "SensingService",
@@ -443,31 +464,6 @@ class SensingForegroundService : Service() {
 
     private fun observeLocation() {
 
-        val building =
-            buildingRepository
-                .findByLocationCode(
-                    TARGET_BUILDING_CODE
-                )
-
-        if (
-            building == null
-        ) {
-
-            Log.e(
-                "SensingService",
-                "$TARGET_BUILDING_CODE not found"
-            )
-
-            return
-        }
-
-        Log.d(
-            "SensingService",
-            "Target building: " +
-                    "${building.name}, " +
-                    "code=${building.locCode}"
-        )
-
         serviceScope.launch {
 
             locationTracker
@@ -481,7 +477,7 @@ class SensingForegroundService : Service() {
                     }
 
                     // -------------------------------------------------
-                    // Current location
+                    // Current location -> travel engine
                     // -------------------------------------------------
 
                     val currentPoint =
@@ -491,6 +487,45 @@ class SensingForegroundService : Service() {
                             longitude =
                                 location.longitude
                         )
+
+                    travel.updateOrigin(
+                        currentPoint
+                    )
+
+                    // -------------------------------------------------
+                    // Destination: the building of the next class
+                    // -------------------------------------------------
+
+                    val building =
+                        travel.snapshot.value.building
+
+                    if (
+                        building == null
+                    ) {
+
+                        Log.d(
+                            "SensingFusion",
+                            "No class to travel to; fusion idle"
+                        )
+
+                        return@collectLatest
+                    }
+
+                    if (
+                        building.locCode != fusionBuildingCode
+                    ) {
+
+                        /*
+                         * A new destination: the trend and fusion
+                         * history of the previous one does not apply.
+                         */
+                        fusionBuildingCode =
+                            building.locCode
+
+                        distanceTrendDetector.reset()
+
+                        enRouteFusionDetector.reset()
+                    }
 
                     // -------------------------------------------------
                     // Distance
@@ -505,20 +540,11 @@ class SensingForegroundService : Service() {
                         )
 
                     // -------------------------------------------------
-                    // Travel state
+                    // Travel state (owned by the engine)
                     // -------------------------------------------------
 
-                    travelStateManager.update(
-                        distanceMeters =
-                            distance,
-                        isMoving =
-                            latestIsMoving
-                    )
-
                     val state =
-                        travelStateManager
-                            .state
-                            .value
+                        travel.snapshot.value.state
 
                     // -------------------------------------------------
                     // Distance trend
@@ -714,6 +740,36 @@ class SensingForegroundService : Service() {
     // Arrival geofence
     // ---------------------------------------------------------
 
+    /*
+     * The geofence moves with the building of the next class.
+     */
+    private fun observeArrivalGeofence() {
+
+        serviceScope.launch {
+
+            travel.snapshot
+                .map { snapshot ->
+                    snapshot.building
+                }
+                .distinctUntilChanged { previous, next ->
+                    previous?.locCode == next?.locCode
+                }
+                .collectLatest { building ->
+
+                    geofenceBuilding?.let { previous ->
+                        geofenceManager.removeArrivalGeofence(
+                            previous.locCode
+                        )
+                    }
+
+                    geofenceBuilding =
+                        building
+
+                    registerArrivalGeofenceIfAllowed()
+                }
+        }
+    }
+
     private fun registerArrivalGeofenceIfAllowed() {
 
         val fineGranted =
@@ -736,10 +792,7 @@ class SensingForegroundService : Service() {
         }
 
         val building =
-            buildingRepository
-                .findByLocationCode(
-                    TARGET_BUILDING_CODE
-                )
+            geofenceBuilding
                 ?: return
 
         geofenceManager
@@ -856,6 +909,10 @@ class SensingForegroundService : Service() {
         distanceTrendDetector.reset()
 
         enRouteFusionDetector.reset()
+
+        travel.updateMoving(
+            false
+        )
 
         latestIsMoving =
             false

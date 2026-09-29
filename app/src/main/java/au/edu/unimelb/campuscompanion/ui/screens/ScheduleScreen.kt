@@ -29,6 +29,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -37,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import au.edu.unimelb.campuscompanion.data.AppRepositories
 import au.edu.unimelb.campuscompanion.ui.components.CourseSessionRow
 import au.edu.unimelb.campuscompanion.ui.components.SectionHeader
 import au.edu.unimelb.campuscompanion.ui.components.TimetableUrlDialog
@@ -59,6 +61,11 @@ fun ScheduleScreen(
     var remindersEnabled by rememberSaveable { mutableStateOf(true) }
     var leadMinutes by rememberSaveable { mutableIntStateOf(10) }
     var showTimetableDialog by rememberSaveable { mutableStateOf(false) }
+
+    // The lead time is the buffer the travel engine keeps on top of the travel time.
+    LaunchedEffect(leadMinutes) {
+        AppRepositories.travel.updateLeadMinutes(leadMinutes)
+    }
 
     if (showTimetableDialog) {
         TimetableUrlDialog(

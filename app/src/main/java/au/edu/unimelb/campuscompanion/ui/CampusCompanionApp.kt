@@ -27,6 +27,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import au.edu.unimelb.campuscompanion.auth.AuthViewModel
 import au.edu.unimelb.campuscompanion.auth.AuthenticatedUser
+import au.edu.unimelb.campuscompanion.data.AppRepositories
 import au.edu.unimelb.campuscompanion.data.TimetableImporter
 import au.edu.unimelb.campuscompanion.data.TimetableSubscriptionStore
 import au.edu.unimelb.campuscompanion.ui.model.TimetableState
@@ -95,6 +96,19 @@ private fun AuthenticatedCampusApp(
 
     DisposableEffect(timetableImporter) {
         onDispose(timetableImporter::close)
+    }
+
+    val travel = AppRepositories.travel
+    val travelSnapshot by travel.snapshot.collectAsState()
+    LaunchedEffect(timetableState.sessions) {
+        travel.updateSessions(timetableState.sessions)
+    }
+    DisposableEffect(travel) {
+        onDispose { travel.updateSessions(emptyList()) }
+    }
+    // The screens see the next class with its travel time filled in.
+    val displayedTimetable = remember(timetableState, travelSnapshot) {
+        timetableState.copy(sessions = travelSnapshot.applyTo(timetableState.sessions))
     }
 
     LaunchedEffect(user.id, savedTimetableUrl) {
@@ -192,20 +206,20 @@ private fun AuthenticatedCampusApp(
         ) {
             composable(CampusDestination.Home.route) {
                 HomeScreen(
-                    timetableState = timetableState,
+                    timetableState = displayedTimetable,
                     onTimetableUrlSave = connectTimetable
                 )
             }
             composable(CampusDestination.Schedule.route) {
                 ScheduleScreen(
-                    timetableState = timetableState,
+                    timetableState = displayedTimetable,
                     onTimetableUrlSave = connectTimetable,
                     onTimetableUrlRemove = removeTimetable
                 )
             }
             composable(CampusDestination.Groups.route) {
                 GroupsScreen(
-                    timetableState = timetableState,
+                    timetableState = displayedTimetable,
                     onOpenTimetableSetup = {
                         navController.navigate(CampusDestination.Home.route) {
                             popUpTo(navController.graph.findStartDestination().id) {
@@ -220,7 +234,7 @@ private fun AuthenticatedCampusApp(
             composable(CampusDestination.Profile.route) {
                 ProfileScreen(
                     user = user,
-                    timetableState = timetableState,
+                    timetableState = displayedTimetable,
                     onTimetableUrlSave = connectTimetable,
                     onTimetableUrlRemove = removeTimetable,
                     onSignOut = onSignOut

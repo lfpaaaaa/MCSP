@@ -2,6 +2,8 @@ package au.edu.unimelb.campuscompanion.data
 
 import android.content.Context
 import au.edu.unimelb.campuscompanion.auth.SupabaseProvider
+import au.edu.unimelb.campuscompanion.context.TravelEngine
+import au.edu.unimelb.campuscompanion.data.building.BuildingLocationRepository
 import au.edu.unimelb.campuscompanion.data.fake.FakeChatRepository
 import au.edu.unimelb.campuscompanion.data.fake.FakeEtaRepository
 import au.edu.unimelb.campuscompanion.data.fake.FakeFileRepository
@@ -55,6 +57,7 @@ object AppRepositories {
             // Messages that were still sending when the app stopped can now be retried by the user.
             database.messageDao().replaceStatus(MessageStatus.Sending.name, MessageStatus.Failed.name)
         }
+        applicationScope.launch { travel.run() }
         SupabaseProvider.client?.let { client ->
             applicationScope.launch {
                 client.auth.sessionStatus.collect { status ->
@@ -126,6 +129,15 @@ object AppRepositories {
         } else {
             RoutedEtaRepository(SupabaseRouteDataSource(client))
         }
+    }
+
+    /** Tracks the trip to the next class from the timetable, the sensors and [eta]; runs from [init]. */
+    val travel: TravelEngine by lazy {
+        TravelEngine(
+            eta = eta,
+            buildings = BuildingLocationRepository(appContext),
+            preferences = { TravelPreferencesStore(appContext).load() }
+        )
     }
 }
 

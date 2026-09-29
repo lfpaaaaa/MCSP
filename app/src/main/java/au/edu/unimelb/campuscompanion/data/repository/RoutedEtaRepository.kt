@@ -87,7 +87,7 @@ class RoutedEtaRepository(
     /** A recent routed time for the destination, or else the offline estimate from the exact origin. */
     private fun fallback(key: DestinationKey, origin: GeoPoint, destination: GeoPoint, now: Instant): TravelEstimate =
         latestByDestination[key]?.takeIf { now.isBefore(it.computedAt.plus(RECENT_ESTIMATE_AGE)) }
-            ?: StraightLineEstimator.estimate(origin, destination, now)
+            ?: StraightLineEstimator.estimate(origin, destination, now, key.mode)
 
     private fun cacheLifetime(mode: TravelMode): Duration = when (mode) {
         TravelMode.PublicTransport -> TRANSIT_CACHE_LIFETIME

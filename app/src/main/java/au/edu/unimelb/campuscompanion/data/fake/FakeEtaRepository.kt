@@ -20,6 +20,6 @@ class FakeEtaRepository(
         mode: TravelMode
     ): Result<TravelEstimate> {
         delay(latencyMillis)
-        return Result.success(StraightLineEstimator.estimate(origin, destination, clock()))
+        return Result.success(StraightLineEstimator.estimate(origin, destination, clock(), mode))
     }
 }
