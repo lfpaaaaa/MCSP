@@ -85,6 +85,53 @@ npx supabase link --project-ref your-project-ref
 npx supabase db push
 ```
 
+### Travel times
+
+The `route-eta` Edge Function returns travel times for departure reminders. Walking and driving times come from the [FOSSGIS OSRM servers](https://routing.openstreetmap.de/about.html) and public transport times from [Transitous](https://transitous.org/api/); neither needs an API key. Both services are run by volunteers, so the function rounds positions to about 110 m, caches answers, starts calls to each service at least one second apart, and applies the fair-use limits in `private.route_limits`. When a limit is reached or a service is unavailable, the app shows an approximate offline estimate.
+
+On the device, `context/TravelEngine` joins the timetable, the location and motion sensors and these travel times into the travel state (upcoming, leave soon, en route, arrived) that the screens show. The building of each class is looked up from the location code in the timetable (for example `PAR-160`) in `assets/uom_building_outlines.geojson`. Rain or heat at the class's building adds a few minutes to the departure buffer; the weather comes from [Open-Meteo](https://open-meteo.com), which needs no key, is free for non-commercial use and licenses its data CC BY 4.0, so screens that show it must say "Weather data by Open-Meteo.com".
+
+Deploy the function after pushing the migrations:
+
+```bash
+npx supabase functions deploy route-eta
+```
+
+Transitous serves open-source, non-commercial projects and asks projects to contact its team before using its routing API. Public transport routing therefore stays off until it is switched on:
+
+```bash
+npx supabase secrets set TRANSITOUS_ENABLED=true
+```
+
+### Push notifications
+
+New group messages are pushed to the other members' devices through Firebase Cloud Messaging. Devices register their token with `register_device_token`; a trigger on `messages` asks the `notify-message` Edge Function (through `pg_net`) to send one data message per device, and the app shows the notification. The message body is only sent as a short preview. Without the configuration below the app builds and runs with push notifications switched off.
+
+1. In the Firebase console, add an Android app with the package name `au.edu.unimelb.campuscompanion` and put its `google-services.json` in `app/` (kept out of git; share it privately and include it in the submitted code).
+2. Firebase console > Project settings > Service accounts > Generate new private key, then, from the folder holding the downloaded JSON:
+
+   ```bash
+   npx supabase secrets set FCM_SERVICE_ACCOUNT="$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))))' service-account.json)"
+   ```
+
+3. Create a shared key for the database-to-function call and store it in both places:
+
+   ```bash
+   openssl rand -hex 32                       # the key
+   npx supabase secrets set NOTIFY_MESSAGE_KEY=the-key
+   ```
+
+   and in the SQL editor of the dashboard:
+
+   ```sql
+   select vault.create_secret('https://your-project.supabase.co', 'project_url');
+   select vault.create_secret('the-key', 'notify_message_key');
+   ```
+
+4. Deploy: `npx supabase db push` and `npx supabase functions deploy notify-message`.
+
+Screens that show routed times must credit the data: "© OpenStreetMap contributors" linked to <https://www.openstreetmap.org/copyright>, a "Fix the map" link to <https://www.openstreetmap.org/fixthemap>, and, for public transport, a link to <https://transitous.org/sources/>.
+
 Never commit `.env`, `local.properties`, OAuth secrets, or a Supabase service-role key.
 
 ## Front-end structure
