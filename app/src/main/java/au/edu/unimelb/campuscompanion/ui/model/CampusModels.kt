@@ -13,7 +13,8 @@ data class CourseSession(
     val room: String,
     val start: ZonedDateTime,
     val end: ZonedDateTime,
-    val etaMinutes: Int? = null
+    val etaMinutes: Int? = null,
+    val routeEstimate: RouteEstimate? = null
 ) {
     val startDate: LocalDate get() = start.toLocalDate()
     val startTime: LocalTime get() = start.toLocalTime()
@@ -31,6 +32,13 @@ data class CourseSession(
         }
     }
 }
+
+data class RouteEstimate(
+    val distanceMeters: Int,
+    val walkingMinutes: Int? = null,
+    val publicTransportMinutes: Int? = null,
+    val drivingMinutes: Int? = null
+)
 
 fun CourseSession.departureReminderTime(leadMinutes: Int): ZonedDateTime {
     require(leadMinutes >= 0) { "Lead time cannot be negative" }
