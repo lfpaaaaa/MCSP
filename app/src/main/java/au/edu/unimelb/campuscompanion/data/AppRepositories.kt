@@ -14,6 +14,7 @@ import au.edu.unimelb.campuscompanion.data.local.CampusDatabase
 import au.edu.unimelb.campuscompanion.data.model.CurrentUser
 import au.edu.unimelb.campuscompanion.data.model.MessageStatus
 import au.edu.unimelb.campuscompanion.data.remote.GroupRemoteDataSource
+import au.edu.unimelb.campuscompanion.data.remote.OpenMeteoWeatherDataSource
 import au.edu.unimelb.campuscompanion.data.remote.SupabaseChatDataSource
 import au.edu.unimelb.campuscompanion.data.remote.SupabaseFileDataSource
 import au.edu.unimelb.campuscompanion.data.remote.SupabaseGroupDataSource
@@ -23,11 +24,13 @@ import au.edu.unimelb.campuscompanion.data.repository.DefaultChatRepository
 import au.edu.unimelb.campuscompanion.data.repository.DefaultFileRepository
 import au.edu.unimelb.campuscompanion.data.repository.DefaultGroupRepository
 import au.edu.unimelb.campuscompanion.data.repository.DefaultInviteRepository
+import au.edu.unimelb.campuscompanion.data.repository.DefaultWeatherRepository
 import au.edu.unimelb.campuscompanion.data.repository.EtaRepository
 import au.edu.unimelb.campuscompanion.data.repository.FileRepository
 import au.edu.unimelb.campuscompanion.data.repository.GroupRepository
 import au.edu.unimelb.campuscompanion.data.repository.InviteRepository
 import au.edu.unimelb.campuscompanion.data.repository.RoutedEtaRepository
+import au.edu.unimelb.campuscompanion.data.repository.WeatherRepository
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.status.SessionStatus
@@ -131,12 +134,16 @@ object AppRepositories {
         }
     }
 
-    /** Tracks the trip to the next class from the timetable, the sensors and [eta]; runs from [init]. */
+    /** Weather at the class's building; Open-Meteo needs no key, so it is always the real service. */
+    val weather: WeatherRepository by lazy { DefaultWeatherRepository(OpenMeteoWeatherDataSource()) }
+
+    /** Tracks the trip to the next class from the timetable, the sensors, [eta] and [weather]; runs from [init]. */
     val travel: TravelEngine by lazy {
         TravelEngine(
             eta = eta,
             buildings = BuildingLocationRepository(appContext),
-            preferences = { TravelPreferencesStore(appContext).load() }
+            preferences = { TravelPreferencesStore(appContext).load() },
+            weather = weather
         )
     }
 }

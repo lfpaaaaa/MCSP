@@ -6,7 +6,9 @@ import au.edu.unimelb.campuscompanion.data.building.BuildingLookup
 import au.edu.unimelb.campuscompanion.data.geo.GeoMath
 import au.edu.unimelb.campuscompanion.data.model.GeoPoint
 import au.edu.unimelb.campuscompanion.data.model.TravelEstimate
+import au.edu.unimelb.campuscompanion.data.model.WeatherSnapshot
 import au.edu.unimelb.campuscompanion.data.repository.EtaRepository
+import au.edu.unimelb.campuscompanion.data.repository.WeatherRepository
 import au.edu.unimelb.campuscompanion.sensing.location.TravelStateManager
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
 import kotlinx.coroutines.delay
@@ -32,7 +34,8 @@ import kotlin.math.roundToInt
  *   chosen by the user's [TravelPreferences];
  * - the travel state (upcoming, leave soon, en route, arrived) comes from [TravelStateManager],
  *   fed with the distance, the minutes until the class, the travel time and whether the user is
- *   moving. The lead time set on the schedule screen is the buffer before departure.
+ *   moving. The lead time set on the schedule screen is the buffer before departure, and rain or
+ *   heat at the class's building ([WeatherBuffer]) adds to it.
  *
  * Inputs arrive through the update functions; [run] keeps the snapshot current.
  */
@@ -40,6 +43,7 @@ class TravelEngine(
     private val eta: EtaRepository,
     private val buildings: BuildingLookup,
     private val preferences: () -> TravelPreferences,
+    private val weather: WeatherRepository? = null,
     private val clock: () -> Instant = Instant::now,
     private val tickInterval: Duration = TICK_INTERVAL
 ) {
@@ -117,16 +121,21 @@ class TravelEngine(
         val from = inputs.origin
         var distance: Double? = null
         var estimate: TravelEstimate? = null
+        var weatherNow: WeatherSnapshot? = null
+        var weatherBuffer = 0
         if (destination != null && from != null) {
             distance = GeoMath.distanceMeters(from, destination.location)
             val mode = preferences().preferredMode(distance.roundToInt())
             estimate = eta.estimate(from, destination.location, mode).getOrNull()
+            // Weather is checked at the class, a public place; the repository rounds and caches it.
+            weatherNow = weather?.currentWeather(destination.location)?.getOrNull()
+            weatherBuffer = WeatherBuffer.extraMinutes(weatherNow)
             stateManager.update(
                 distanceMeters = distance,
                 minutesUntilClass = minutesUntilClass.coerceIn(MINUTES_RANGE).toInt(),
                 estimatedTravelMinutes = estimate?.durationMinutes,
                 isMoving = inputs.moving,
-                bufferMinutes = inputs.leadMinutes
+                bufferMinutes = inputs.leadMinutes + weatherBuffer
             )
         }
 
@@ -136,7 +145,9 @@ class TravelEngine(
             state = stateManager.state.value,
             estimate = estimate,
             distanceMeters = distance,
-            minutesUntilClass = minutesUntilClass
+            minutesUntilClass = minutesUntilClass,
+            weather = weatherNow,
+            weatherBufferMinutes = weatherBuffer
         )
     }
 
