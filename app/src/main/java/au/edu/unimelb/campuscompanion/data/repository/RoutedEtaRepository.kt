@@ -11,6 +11,7 @@ import kotlinx.coroutines.CancellationException
 import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.pow
 import kotlin.math.roundToLong
 
 /**
@@ -108,8 +109,14 @@ class RoutedEtaRepository(
     }
 }
 
-/** Rounds to three decimal places, about 110 m, before a position is sent anywhere. */
-internal fun GeoPoint.coarsened(): GeoPoint =
-    GeoPoint(roundToThreeDecimals(latitude), roundToThreeDecimals(longitude))
+/**
+ * Rounds a position before it is sent anywhere: three decimal places are about 110 m, two about
+ * 1.1 km.
+ */
+internal fun GeoPoint.coarsened(decimals: Int = 3): GeoPoint =
+    GeoPoint(roundTo(latitude, decimals), roundTo(longitude, decimals))
 
-private fun roundToThreeDecimals(value: Double): Double = (value * 1_000).roundToLong() / 1_000.0
+private fun roundTo(value: Double, decimals: Int): Double {
+    val factor = 10.0.pow(decimals)
+    return (value * factor).roundToLong() / factor
+}

@@ -5,7 +5,9 @@ import au.edu.unimelb.campuscompanion.data.TravelPreferences
 import au.edu.unimelb.campuscompanion.data.model.EstimateSource
 import au.edu.unimelb.campuscompanion.data.model.GeoPoint
 import au.edu.unimelb.campuscompanion.data.model.TravelEstimate
+import au.edu.unimelb.campuscompanion.data.model.WeatherSnapshot
 import au.edu.unimelb.campuscompanion.data.repository.EtaRepository
+import au.edu.unimelb.campuscompanion.data.repository.WeatherRepository
 import au.edu.unimelb.campuscompanion.sensing.location.TravelState
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
 import kotlinx.coroutines.runBlocking
@@ -22,10 +24,12 @@ class TravelEngineTest {
     private var now: Instant = Instant.parse("2026-10-05T00:00:00Z")
     private val eta = RecordingEtaRepository { now }
     private var preferences = TravelPreferences()
+    private val weather = FixedWeatherRepository { now }
     private val engine = TravelEngine(
         eta = eta,
         buildings = FakeBuildingLookup(),
         preferences = { preferences },
+        weather = weather,
         clock = { now }
     )
 
@@ -79,6 +83,23 @@ class TravelEngineTest {
         now = now.plus(Duration.ofMinutes(9))
         engine.refresh()
         assertEquals(TravelState.SHOULD_LEAVE_SOON, engine.snapshot.value.state)
+    }
+
+    @Test
+    fun rainAtTheClassMakesTheReminderEarlier() = runBlocking<Unit> {
+        engine.updateSessions(listOf(lecture))
+        engine.updateOrigin(HOME)
+        weather.precipitationMillimetres = 0.4
+
+        now = now.plus(Duration.ofMinutes(31))
+        engine.refresh()
+        val snapshot = engine.snapshot.value
+
+        // 29 minutes to go: travel 15 + lead 10 would still be fine, but rain adds 5.
+        assertEquals(5, snapshot.weatherBufferMinutes)
+        assertEquals(0.4, snapshot.weather?.precipitationMillimetres)
+        assertEquals(TravelState.SHOULD_LEAVE_SOON, snapshot.state)
+        assertEquals(listOf(FakeBuildingLookup.PETER_HALL.location), weather.requests)
     }
 
     @Test
@@ -165,6 +186,24 @@ class TravelEngineTest {
     private companion object {
         /** About 1.2 km south of Peter Hall. */
         val HOME = GeoPoint(-37.8100, 144.9630)
+    }
+}
+
+/** Answers the set rainfall and records where it was asked. */
+private class FixedWeatherRepository(private val clock: () -> Instant) : WeatherRepository {
+    val requests = mutableListOf<GeoPoint>()
+    var precipitationMillimetres = 0.0
+
+    override suspend fun currentWeather(location: GeoPoint): Result<WeatherSnapshot> {
+        requests += location
+        return Result.success(
+            WeatherSnapshot(
+                temperatureCelsius = 16.0,
+                precipitationMillimetres = precipitationMillimetres,
+                precipitationProbabilityPercent = 10,
+                observedAt = clock()
+            )
+        )
     }
 }
 
