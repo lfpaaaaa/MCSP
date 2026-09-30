@@ -45,6 +45,7 @@ import au.edu.unimelb.campuscompanion.ui.components.SectionHeader
 import au.edu.unimelb.campuscompanion.ui.components.StatusPill
 import au.edu.unimelb.campuscompanion.ui.components.displayName
 import au.edu.unimelb.campuscompanion.ui.components.TimetableUrlDialog
+import au.edu.unimelb.campuscompanion.ui.model.CourseGroup
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
 import au.edu.unimelb.campuscompanion.ui.model.TimetableState
 import java.time.ZonedDateTime
@@ -59,6 +60,7 @@ fun HomeScreen(
     timetableState: TimetableState,
     travelPreferences: TravelPreferences,
     onTimetableUrlSave: suspend (String) -> Result<Unit>,
+    onOpenGroup: (CourseGroup) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var showTimetableDialog by rememberSaveable(
@@ -155,7 +157,10 @@ fun HomeScreen(
                 } else {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         timetableState.groups.take(2).forEach { group ->
-                            GroupUpdateRow(group = group)
+                            GroupUpdateRow(
+                                group = group,
+                                onClick = { onOpenGroup(group) }
+                            )
                         }
                     }
                 }
