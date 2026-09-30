@@ -1,8 +1,14 @@
 package au.edu.unimelb.campuscompanion.ui
 
+import android.net.Uri
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
@@ -21,10 +27,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import au.edu.unimelb.campuscompanion.auth.AuthViewModel
 import au.edu.unimelb.campuscompanion.auth.AuthenticatedUser
 import au.edu.unimelb.campuscompanion.data.AppRepositories
@@ -37,12 +45,17 @@ import au.edu.unimelb.campuscompanion.ui.navigation.CampusDestination
 import au.edu.unimelb.campuscompanion.ui.components.RequestLocationPermissionOnFirstUse
 import au.edu.unimelb.campuscompanion.ui.screens.AuthLoadingScreen
 import au.edu.unimelb.campuscompanion.ui.screens.CompleteProfileScreen
+import au.edu.unimelb.campuscompanion.ui.screens.GroupChatScreen
 import au.edu.unimelb.campuscompanion.ui.screens.GroupsScreen
 import au.edu.unimelb.campuscompanion.ui.screens.HomeScreen
 import au.edu.unimelb.campuscompanion.ui.screens.LoginScreen
 import au.edu.unimelb.campuscompanion.ui.screens.ProfileScreen
 import au.edu.unimelb.campuscompanion.ui.screens.ScheduleScreen
 import au.edu.unimelb.campuscompanion.ui.theme.CampusCompanionTheme
+
+private const val GROUP_CHAT_ROUTE = "group_chat/{groupId}"
+
+private fun groupChatRoute(groupId: String): String = "group_chat/${Uri.encode(groupId)}"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -177,37 +190,73 @@ private fun AuthenticatedCampusApp(
     val currentDestination = backStackEntry?.destination
     val currentRoute = currentDestination?.route ?: CampusDestination.Home.route
     val currentScreen = destinations.firstOrNull { it.route == currentRoute } ?: CampusDestination.Home
+    val isGroupChat = currentRoute == GROUP_CHAT_ROUTE
+    val selectedGroup = backStackEntry
+        ?.arguments
+        ?.getString("groupId")
+        ?.let { groupId -> timetableState.groups.firstOrNull { it.id == groupId } }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(currentScreen.title) },
+                title = {
+                    if (isGroupChat) {
+                        Column {
+                            Text(selectedGroup?.courseCode ?: "Group")
+                            selectedGroup?.let { group ->
+                                Text(
+                                    text = if (group.members > 0) {
+                                        "${group.members} members"
+                                    } else {
+                                        group.name
+                                    },
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    } else {
+                        Text(currentScreen.title)
+                    }
+                },
+                navigationIcon = {
+                    if (isGroupChat) {
+                        IconButton(onClick = { navController.navigateUp() }) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                                contentDescription = "Back to groups"
+                            )
+                        }
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors()
             )
         },
         bottomBar = {
-            NavigationBar {
-                destinations.forEach { destination ->
-                    val selected = currentDestination?.hierarchy?.any { it.route == destination.route } == true
-                    NavigationBarItem(
-                        selected = selected,
-                        onClick = {
-                            navController.navigate(destination.route) {
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = true
+            if (!isGroupChat) {
+                NavigationBar {
+                    destinations.forEach { destination ->
+                        val selected = currentDestination?.hierarchy?.any { it.route == destination.route } == true
+                        NavigationBarItem(
+                            selected = selected,
+                            onClick = {
+                                navController.navigate(destination.route) {
+                                    popUpTo(navController.graph.findStartDestination().id) {
+                                        saveState = true
+                                    }
+                                    launchSingleTop = true
+                                    restoreState = true
                                 }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        },
-                        icon = {
-                            Icon(
-                                imageVector = if (selected) destination.selectedIcon else destination.unselectedIcon,
-                                contentDescription = destination.title
-                            )
-                        },
-                        label = { Text(destination.title) }
-                    )
+                            },
+                            icon = {
+                                Icon(
+                                    imageVector = if (selected) destination.selectedIcon else destination.unselectedIcon,
+                                    contentDescription = destination.title
+                                )
+                            },
+                            label = { Text(destination.title) }
+                        )
+                    }
                 }
             }
         }
@@ -221,7 +270,10 @@ private fun AuthenticatedCampusApp(
                 HomeScreen(
                     timetableState = timetableState,
                     travelPreferences = travelPreferences,
-                    onTimetableUrlSave = connectTimetable
+                    onTimetableUrlSave = connectTimetable,
+                    onOpenGroup = { group ->
+                        navController.navigate(groupChatRoute(group.id))
+                    }
                 )
             }
             composable(CampusDestination.Schedule.route) {
@@ -234,6 +286,9 @@ private fun AuthenticatedCampusApp(
             composable(CampusDestination.Groups.route) {
                 GroupsScreen(
                     timetableState = displayedTimetable,
+                    onOpenGroup = { group ->
+                        navController.navigate(groupChatRoute(group.id))
+                    },
                     onOpenTimetableSetup = {
                         navController.navigate(CampusDestination.Home.route) {
                             popUpTo(navController.graph.findStartDestination().id) {
@@ -244,6 +299,22 @@ private fun AuthenticatedCampusApp(
                         }
                     }
                 )
+            }
+            composable(
+                route = GROUP_CHAT_ROUTE,
+                arguments = listOf(
+                    navArgument("groupId") { type = NavType.StringType }
+                )
+            ) { entry ->
+                val groupId = entry.arguments?.getString("groupId")
+                val group = timetableState.groups.firstOrNull { it.id == groupId }
+                if (group != null) {
+                    GroupChatScreen(group = group)
+                } else {
+                    LaunchedEffect(groupId) {
+                        navController.navigateUp()
+                    }
+                }
             }
             composable(CampusDestination.Profile.route) {
                 ProfileScreen(

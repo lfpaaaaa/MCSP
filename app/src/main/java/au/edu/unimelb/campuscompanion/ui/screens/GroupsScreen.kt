@@ -30,12 +30,14 @@ import androidx.compose.ui.unit.dp
 import au.edu.unimelb.campuscompanion.ui.components.GroupUpdateRow
 import au.edu.unimelb.campuscompanion.ui.components.QuickActionChip
 import au.edu.unimelb.campuscompanion.ui.components.SectionHeader
+import au.edu.unimelb.campuscompanion.ui.model.CourseGroup
 import au.edu.unimelb.campuscompanion.ui.model.TimetableState
 
 @Composable
 fun GroupsScreen(
     timetableState: TimetableState,
     onOpenTimetableSetup: () -> Unit,
+    onOpenGroup: (CourseGroup) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -123,7 +125,10 @@ fun GroupsScreen(
                 SectionHeader(title = "Detected course groups")
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     timetableState.groups.forEach { group ->
-                        GroupUpdateRow(group = group)
+                        GroupUpdateRow(
+                            group = group,
+                            onClick = { onOpenGroup(group) }
+                        )
                     }
                 }
             }
