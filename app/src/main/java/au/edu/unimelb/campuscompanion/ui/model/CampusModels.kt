@@ -1,6 +1,5 @@
 package au.edu.unimelb.campuscompanion.ui.model
 
-import java.time.Duration
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZonedDateTime
@@ -25,11 +24,15 @@ data class CourseSession(
         return when {
             !localNow.isBefore(end) -> SessionStatus.Finished
             !localNow.isBefore(start) -> SessionStatus.InProgress
-            Duration.between(localNow, start).toMinutes() <= (etaMinutes ?: 0) + 10L -> {
+            startDate != localNow.toLocalDate() -> SessionStatus.Upcoming
+            !localNow.isBefore(departureReminderTime(DEFAULT_REMINDER_LEAD_MINUTES)) ->
                 SessionStatus.LeaveSoon
-            }
             else -> SessionStatus.Upcoming
         }
+    }
+
+    private companion object {
+        const val DEFAULT_REMINDER_LEAD_MINUTES = 10
     }
 }
 
@@ -42,7 +45,8 @@ data class RouteEstimate(
 
 fun CourseSession.departureReminderTime(leadMinutes: Int): ZonedDateTime {
     require(leadMinutes >= 0) { "Lead time cannot be negative" }
-    return start.minusMinutes(((etaMinutes ?: 0) + leadMinutes).toLong())
+    val safeEtaMinutes = (etaMinutes ?: 0).coerceAtLeast(0)
+    return start.minusMinutes((safeEtaMinutes + leadMinutes).toLong())
 }
 
 enum class SessionStatus {
@@ -54,6 +58,12 @@ enum class SessionStatus {
     Finished
 }
 
+enum class GroupOrigin {
+    Timetable,
+    CreatedByUser,
+    Joined
+}
+
 data class CourseGroup(
     val id: String,
     val courseCode: String,
@@ -62,7 +72,8 @@ data class CourseGroup(
     val unreadCount: Int,
     val latestMessage: String,
     val latestFileName: String?,
-    val privateContentEnabled: Boolean
+    val privateContentEnabled: Boolean,
+    val origin: GroupOrigin = GroupOrigin.Timetable
 )
 
 data class TimetableState(

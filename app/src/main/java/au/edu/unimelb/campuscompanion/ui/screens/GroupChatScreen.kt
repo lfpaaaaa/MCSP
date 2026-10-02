@@ -75,6 +75,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import au.edu.unimelb.campuscompanion.ui.model.CourseGroup
+import au.edu.unimelb.campuscompanion.ui.model.GroupOrigin
 import au.edu.unimelb.campuscompanion.ui.model.MAX_PENDING_DOCUMENTS
 import au.edu.unimelb.campuscompanion.ui.model.PendingDocument
 import java.io.File
@@ -116,6 +117,7 @@ private enum class AttachmentKind {
 @Composable
 fun GroupChatScreen(
     group: CourseGroup,
+    myDisplayName: String,
     pendingDocuments: List<PendingDocument>,
     pendingDocumentError: String?,
     capturedCameraUri: String?,
@@ -174,7 +176,7 @@ fun GroupChatScreen(
         val sentAt = LocalTime.now().format(chatTimeFormatter)
         messages += ChatUiMessage(
             id = System.nanoTime(),
-            sender = "You",
+            sender = myDisplayName,
             body = "",
             time = sentAt,
             isMine = true,
@@ -223,7 +225,7 @@ fun GroupChatScreen(
 
         messages += ChatUiMessage(
             id = System.nanoTime(),
-            sender = "You",
+            sender = myDisplayName,
             body = message,
             time = LocalTime.now().format(chatTimeFormatter),
             isMine = true,
@@ -456,7 +458,13 @@ private fun GroupNotice(
             color = MaterialTheme.colorScheme.surfaceContainerHighest
         ) {
             Text(
-                text = "You joined ${group.courseCode} from your timetable",
+                text = when (group.origin) {
+                    GroupOrigin.Timetable -> {
+                        "You joined ${group.courseCode} from your timetable"
+                    }
+                    GroupOrigin.CreatedByUser -> "You created this group"
+                    GroupOrigin.Joined -> "You joined this group"
+                },
                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant

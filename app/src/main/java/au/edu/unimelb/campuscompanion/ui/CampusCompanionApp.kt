@@ -1,8 +1,15 @@
 package au.edu.unimelb.campuscompanion.ui
 
+import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.nfc.NfcAdapter
+import android.nfc.NfcManager
 import android.provider.OpenableColumns
+import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -12,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -30,6 +38,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -46,28 +55,48 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import au.edu.unimelb.campuscompanion.auth.AuthViewModel
 import au.edu.unimelb.campuscompanion.auth.AuthenticatedUser
+import au.edu.unimelb.campuscompanion.auth.SupabaseProvider
 import au.edu.unimelb.campuscompanion.data.AppRepositories
 import au.edu.unimelb.campuscompanion.data.TimetableImporter
 import au.edu.unimelb.campuscompanion.data.TimetableSubscriptionStore
 import au.edu.unimelb.campuscompanion.data.TravelPreferences
 import au.edu.unimelb.campuscompanion.data.TravelPreferencesStore
+import au.edu.unimelb.campuscompanion.data.toUserMessage
+import au.edu.unimelb.campuscompanion.data.model.GroupSummary
+import au.edu.unimelb.campuscompanion.nfc.NfcInviteHostSession
+import au.edu.unimelb.campuscompanion.nfc.NfcInviteReader
 import au.edu.unimelb.campuscompanion.ui.model.CourseGroup
+import au.edu.unimelb.campuscompanion.ui.model.GroupChatPreferences
+import au.edu.unimelb.campuscompanion.ui.model.GroupOrigin
 import au.edu.unimelb.campuscompanion.ui.model.MAX_PENDING_DOCUMENTS
+import au.edu.unimelb.campuscompanion.ui.model.NfcJoinUiState
+import au.edu.unimelb.campuscompanion.ui.model.NfcShareUiState
 import au.edu.unimelb.campuscompanion.ui.model.PendingDocument
+import au.edu.unimelb.campuscompanion.ui.model.StartedGroupAccess
 import au.edu.unimelb.campuscompanion.ui.model.TimetableState
+import au.edu.unimelb.campuscompanion.ui.model.foldedOverrideAfterEdit
+import au.edu.unimelb.campuscompanion.ui.model.isFolded
+import au.edu.unimelb.campuscompanion.ui.model.isValidGroupJoinCode
 import au.edu.unimelb.campuscompanion.ui.model.mergePendingDocuments
 import au.edu.unimelb.campuscompanion.ui.navigation.CampusDestination
 import au.edu.unimelb.campuscompanion.ui.components.RequestLocationPermissionOnFirstUse
 import au.edu.unimelb.campuscompanion.ui.screens.AuthLoadingScreen
 import au.edu.unimelb.campuscompanion.ui.screens.CompleteProfileScreen
 import au.edu.unimelb.campuscompanion.ui.screens.GroupChatScreen
+import au.edu.unimelb.campuscompanion.ui.screens.GroupSettingsDialog
 import au.edu.unimelb.campuscompanion.ui.screens.GroupsScreen
 import au.edu.unimelb.campuscompanion.ui.screens.HomeScreen
 import au.edu.unimelb.campuscompanion.ui.screens.LoginScreen
+import au.edu.unimelb.campuscompanion.ui.screens.NfcShareDialog
 import au.edu.unimelb.campuscompanion.ui.screens.ProfileScreen
 import au.edu.unimelb.campuscompanion.ui.screens.ScheduleScreen
 import au.edu.unimelb.campuscompanion.ui.theme.CampusCompanionTheme
 import java.io.File
+import java.time.Duration
+import java.time.Instant
+import java.time.ZonedDateTime
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private const val GROUP_CHAT_ROUTE = "group_chat/{groupId}"
 
@@ -83,6 +112,7 @@ fun CampusCompanionApp(authViewModel: AuthViewModel) {
     var openGroupName by rememberSaveable { mutableStateOf<String?>(null) }
     var openGroupMembers by rememberSaveable { mutableStateOf(0) }
     var openGroupLatestMessage by rememberSaveable { mutableStateOf("") }
+    var openGroupOrigin by rememberSaveable { mutableStateOf(GroupOrigin.Timetable.name) }
     var pendingDocumentUris by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
     var pendingDocumentNames by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
     var pendingDocumentSizes by rememberSaveable { mutableStateOf(arrayListOf<Long>()) }
@@ -129,6 +159,7 @@ fun CampusCompanionApp(authViewModel: AuthViewModel) {
         openGroupName = null
         openGroupMembers = 0
         openGroupLatestMessage = ""
+        openGroupOrigin = GroupOrigin.Timetable.name
         clearPendingDocuments()
         clearCameraCapture()
     }
@@ -141,6 +172,7 @@ fun CampusCompanionApp(authViewModel: AuthViewModel) {
         openGroupName = group.name
         openGroupMembers = group.members
         openGroupLatestMessage = group.latestMessage
+        openGroupOrigin = group.origin.name
     }
 
     val restoredGroup = openGroupId?.let { groupId ->
@@ -154,7 +186,9 @@ fun CampusCompanionApp(authViewModel: AuthViewModel) {
             unreadCount = 0,
             latestMessage = openGroupLatestMessage,
             latestFileName = null,
-            privateContentEnabled = false
+            privateContentEnabled = false,
+            origin = GroupOrigin.entries.firstOrNull { it.name == openGroupOrigin }
+                ?: GroupOrigin.Timetable
         )
     }
 
@@ -315,6 +349,83 @@ private fun AuthenticatedCampusApp(
         timetableState.copy(sessions = travelSnapshot.applyTo(timetableState.sessions))
     }
 
+    val groupRepository = remember { AppRepositories.groups }
+    val inviteRepository = remember { AppRepositories.invites }
+    val pendingJoinToken by AppRepositories.joinLinks.pendingToken.collectAsState()
+    val nfcInviteDelivered by NfcInviteHostSession.delivered.collectAsState()
+    val nfcAdapter = remember(context) {
+        context.getSystemService(NfcManager::class.java)?.defaultAdapter
+    }
+    val activity = remember(context) { context.findActivity() }
+    val supportsNfcHostCardEmulation = remember(context) {
+        context.packageManager.hasSystemFeature(PackageManager.FEATURE_NFC_HOST_CARD_EMULATION)
+    }
+    val scope = rememberCoroutineScope()
+    var nfcJoinState by remember(user.id) {
+        mutableStateOf<NfcJoinUiState>(NfcJoinUiState.Idle)
+    }
+    var nfcShareState by remember(user.id) {
+        mutableStateOf<NfcShareUiState>(NfcShareUiState.Idle)
+    }
+    val syncedGroupSummaries by groupRepository.observeMyGroups()
+        .collectAsState(initial = emptyList())
+    var groupSyncReady by remember(user.id) { mutableStateOf(false) }
+    LaunchedEffect(user.id) {
+        if (SupabaseProvider.isConfigured) {
+            groupSyncReady = false
+            groupRepository.refresh().onSuccess {
+                groupSyncReady = true
+            }
+        }
+    }
+    val syncedGroups = remember(syncedGroupSummaries, user.id, groupSyncReady) {
+        if (!SupabaseProvider.isConfigured || !groupSyncReady) {
+            emptyList()
+        } else {
+            syncedGroupSummaries.map { summary -> summary.toCourseGroup(user.id) }
+        }
+    }
+    val allGroups = remember(timetableState.groups, syncedGroups) {
+        (timetableState.groups + syncedGroups).distinctBy(CourseGroup::id)
+    }
+    val groupPreferencesStore = remember(context, user.id) {
+        GroupChatPreferencesStore(context, user.id)
+    }
+    var groupPreferencesVersion by remember(user.id) { mutableStateOf(0) }
+    var currentTime by remember { mutableStateOf(ZonedDateTime.now()) }
+    LaunchedEffect(user.id) {
+        while (true) {
+            delay(60_000)
+            currentTime = ZonedDateTime.now()
+        }
+    }
+    val groupPreferences = remember(allGroups, groupPreferencesVersion, user.id) {
+        allGroups.associate { group ->
+            group.id to groupPreferencesStore.load(group.id)
+        }
+    }
+    val foldedGroups = remember(
+        allGroups,
+        groupPreferences,
+        displayedTimetable.sessions,
+        currentTime
+    ) {
+        allGroups.filter { group ->
+            group.isFolded(
+                preferences = groupPreferences[group.id] ?: GroupChatPreferences(),
+                sessions = displayedTimetable.sessions,
+                now = currentTime
+            )
+        }
+    }
+    val foldedGroupIds = remember(foldedGroups) { foldedGroups.mapTo(mutableSetOf(), CourseGroup::id) }
+    val activeGroups = remember(allGroups, foldedGroupIds) {
+        allGroups.filterNot { it.id in foldedGroupIds }
+    }
+    val mutedGroupIds = remember(groupPreferences) {
+        groupPreferences.filterValues(GroupChatPreferences::muted).keys
+    }
+
     LaunchedEffect(user.id, savedTimetableUrl) {
         if (savedTimetableUrl.isBlank()) return@LaunchedEffect
 
@@ -377,18 +488,93 @@ private fun AuthenticatedCampusApp(
     val currentRoute = currentDestination?.route ?: homeDestination.route
     val currentScreen = destinations.firstOrNull { it.route == currentRoute } ?: homeDestination
     val isGroupChat = currentRoute == GROUP_CHAT_ROUTE
+    var showGroupSettings by rememberSaveable { mutableStateOf(false) }
     val selectedGroup = backStackEntry
         ?.arguments
         ?.getString("groupId")
         ?.let { groupId ->
-            timetableState.groups.firstOrNull { it.id == groupId }
+            allGroups.firstOrNull { it.id == groupId }
                 ?: restoredGroup?.takeIf { it.id == groupId }
         }
+    val selectedPreferences = selectedGroup?.let { group ->
+        groupPreferences[group.id] ?: groupPreferencesStore.load(group.id)
+    }
 
     fun openGroup(group: CourseGroup) {
         onGroupOpened(group)
         navController.navigate(groupChatRoute(group.id)) {
             launchSingleTop = true
+        }
+    }
+
+    fun navigateToGroups() {
+        navController.navigate(CampusDestination.Groups.route) {
+            popUpTo(navController.graph.findStartDestination().id) {
+                saveState = true
+            }
+            launchSingleTop = true
+            restoreState = true
+        }
+    }
+
+    fun startNfcJoin() {
+        NfcInviteHostSession.clear()
+        nfcShareState = NfcShareUiState.Idle
+        nfcJoinState = when {
+            nfcAdapter == null -> NfcJoinUiState.Unsupported
+            !nfcAdapter.isEnabled -> NfcJoinUiState.Disabled
+            else -> NfcJoinUiState.Waiting
+        }
+    }
+
+    fun stopNfcShare() {
+        NfcInviteHostSession.clear()
+        nfcShareState = NfcShareUiState.Idle
+    }
+
+    fun startNfcShare(group: CourseGroup) {
+        showGroupSettings = false
+        nfcJoinState = NfcJoinUiState.Idle
+        NfcInviteHostSession.clear()
+
+        when {
+            nfcAdapter == null || !supportsNfcHostCardEmulation -> {
+                nfcShareState = NfcShareUiState.Unsupported
+            }
+            !nfcAdapter.isEnabled -> {
+                nfcShareState = NfcShareUiState.Disabled
+            }
+            else -> {
+                nfcShareState = NfcShareUiState.CreatingInvite
+                scope.launch {
+                    inviteRepository.createInvite(group.id).fold(
+                        onSuccess = { invite ->
+                            NfcInviteHostSession.publish(invite.joinUri)
+                            nfcShareState = NfcShareUiState.Ready(
+                                groupName = group.name,
+                                expiresAt = invite.expiresAt
+                            )
+                        },
+                        onFailure = { error ->
+                            val message = error.toUserMessage()
+                            nfcShareState = NfcShareUiState.Failed(
+                                title = message.title,
+                                message = message.body
+                            )
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    fun openNfcSettings() {
+        nfcJoinState = NfcJoinUiState.Idle
+        stopNfcShare()
+        runCatching {
+            context.startActivity(Intent(Settings.ACTION_NFC_SETTINGS))
+        }.recoverCatching {
+            context.startActivity(Intent(Settings.ACTION_WIRELESS_SETTINGS))
         }
     }
 
@@ -408,6 +594,98 @@ private fun AuthenticatedCampusApp(
         closeGroup()
     }
 
+    DisposableEffect(nfcJoinState, nfcAdapter, activity) {
+        val shouldRead = nfcJoinState is NfcJoinUiState.Waiting
+        if (!shouldRead || nfcAdapter == null || activity == null) {
+            onDispose { }
+        } else {
+            val callback = NfcAdapter.ReaderCallback { tag ->
+                NfcInviteReader.readInviteUri(tag).fold(
+                    onSuccess = { inviteUri ->
+                        AppRepositories.joinLinks.offer(inviteUri)
+                    },
+                    onFailure = { error ->
+                        activity.runOnUiThread {
+                            nfcJoinState = NfcJoinUiState.Failed(
+                                title = "Could not read invitation",
+                                message = error.message
+                                    ?: "Hold the phones together and try again."
+                            )
+                        }
+                    }
+                )
+            }
+            val readerEnabled = runCatching {
+                nfcAdapter.enableReaderMode(
+                    activity,
+                    callback,
+                    NfcAdapter.FLAG_READER_NFC_A or NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK,
+                    null
+                )
+            }.isSuccess
+            if (!readerEnabled) {
+                nfcJoinState = NfcJoinUiState.Failed(
+                    title = "NFC could not start",
+                    message = "Keep Campus Companion open and try again."
+                )
+            }
+            onDispose {
+                if (readerEnabled) {
+                    runCatching { nfcAdapter.disableReaderMode(activity) }
+                }
+            }
+        }
+    }
+
+    DisposableEffect(user.id) {
+        onDispose { NfcInviteHostSession.clear() }
+    }
+
+    val readyNfcShare = nfcShareState as? NfcShareUiState.Ready
+    LaunchedEffect(readyNfcShare?.expiresAt) {
+        val ready = readyNfcShare ?: return@LaunchedEffect
+        val remainingMillis = Duration.between(Instant.now(), ready.expiresAt)
+            .toMillis()
+            .coerceAtLeast(0L)
+        delay(remainingMillis)
+        if (nfcShareState == ready) {
+            NfcInviteHostSession.clear()
+            nfcShareState = NfcShareUiState.Failed(
+                title = "Invitation expired",
+                message = "Create a new NFC invitation and try again."
+            )
+        }
+    }
+
+    LaunchedEffect(nfcInviteDelivered) {
+        if (!nfcInviteDelivered) return@LaunchedEffect
+        val ready = nfcShareState as? NfcShareUiState.Ready ?: return@LaunchedEffect
+        NfcInviteHostSession.clear()
+        nfcShareState = NfcShareUiState.Shared(ready.groupName)
+    }
+
+    LaunchedEffect(pendingJoinToken, user.id) {
+        val token = pendingJoinToken ?: return@LaunchedEffect
+        onGroupClosed()
+        navigateToGroups()
+        nfcJoinState = NfcJoinUiState.Joining
+
+        inviteRepository.joinWithToken(token).fold(
+            onSuccess = { group ->
+                groupSyncReady = true
+                nfcJoinState = NfcJoinUiState.Joined(group.name)
+            },
+            onFailure = { error ->
+                val message = error.toUserMessage()
+                nfcJoinState = NfcJoinUiState.Failed(
+                    title = message.title,
+                    message = message.body
+                )
+            }
+        )
+        AppRepositories.joinLinks.clear()
+    }
+
     LaunchedEffect(openGroupId, currentRoute) {
         val groupId = openGroupId ?: return@LaunchedEffect
         if (currentRoute != GROUP_CHAT_ROUTE) {
@@ -417,13 +695,60 @@ private fun AuthenticatedCampusApp(
         }
     }
 
+    LaunchedEffect(currentRoute) {
+        if (!isGroupChat) showGroupSettings = false
+    }
+
+    if (nfcShareState !is NfcShareUiState.Idle) {
+        NfcShareDialog(
+            state = nfcShareState,
+            onDismiss = ::stopNfcShare,
+            onTryAgain = {
+                selectedGroup?.let(::startNfcShare) ?: stopNfcShare()
+            },
+            onOpenNfcSettings = ::openNfcSettings
+        )
+    }
+
+    if (showGroupSettings && selectedGroup != null && selectedPreferences != null) {
+        GroupSettingsDialog(
+            group = selectedGroup,
+            initialFolded = selectedGroup.id in foldedGroupIds,
+            initialMuted = selectedPreferences.muted,
+            initialDisplayName = selectedPreferences.displayName.ifBlank { user.profileName },
+            onDismiss = { showGroupSettings = false },
+            onInviteWithNfc = { startNfcShare(selectedGroup) },
+            onSave = { folded, muted, displayName ->
+                val foldedOverride = foldedOverrideAfterEdit(
+                    existingOverride = selectedPreferences.foldedOverride,
+                    initialFolded = selectedGroup.id in foldedGroupIds,
+                    selectedFolded = folded
+                )
+                groupPreferencesStore.save(
+                    groupId = selectedGroup.id,
+                    foldedOverride = foldedOverride,
+                    muted = muted,
+                    displayName = displayName
+                )
+                groupPreferencesVersion += 1
+                showGroupSettings = false
+                if (folded) closeGroup()
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
                     if (isGroupChat) {
                         Column {
-                            Text(selectedGroup?.courseCode ?: "Group")
+                            Text(
+                                selectedGroup?.courseCode
+                                    ?.takeIf(String::isNotBlank)
+                                    ?: selectedGroup?.name
+                                    ?: "Group"
+                            )
                             selectedGroup?.let { group ->
                                 Text(
                                     text = if (group.members > 0) {
@@ -446,6 +771,16 @@ private fun AuthenticatedCampusApp(
                             Icon(
                                 imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
                                 contentDescription = "Back to groups"
+                            )
+                        }
+                    }
+                },
+                actions = {
+                    if (isGroupChat && selectedGroup != null) {
+                        IconButton(onClick = { showGroupSettings = true }) {
+                            Icon(
+                                imageVector = Icons.Outlined.MoreVert,
+                                contentDescription = "Group settings"
                             )
                         }
                     }
@@ -489,7 +824,9 @@ private fun AuthenticatedCampusApp(
         ) {
             composable(CampusDestination.Home.route) {
                 HomeScreen(
-                    timetableState = timetableState,
+                    timetableState = displayedTimetable.copy(
+                        groups = activeGroups.filter { it.origin == GroupOrigin.Timetable }
+                    ),
                     travelPreferences = travelPreferences,
                     onTimetableUrlSave = connectTimetable,
                     onOpenGroup = { group ->
@@ -507,9 +844,55 @@ private fun AuthenticatedCampusApp(
             composable(CampusDestination.Groups.route) {
                 GroupsScreen(
                     timetableState = displayedTimetable,
+                    activeGroups = activeGroups,
+                    foldedGroups = foldedGroups,
+                    mutedGroupIds = mutedGroupIds,
                     onOpenGroup = { group ->
                         openGroup(group)
                     },
+                    onStartGroup = { name, courseCode ->
+                        groupRepository.createGroup(name, courseCode).fold(
+                            onSuccess = { group ->
+                                inviteRepository.createInvite(group.id).fold(
+                                    onSuccess = { invite ->
+                                        val validCode = invite.token
+                                            .takeIf(::isValidGroupJoinCode)
+                                        Result.success(
+                                            StartedGroupAccess(
+                                                groupName = group.name,
+                                                joinCode = validCode,
+                                                expiresAt = invite.expiresAt.takeIf {
+                                                    validCode != null
+                                                }
+                                            )
+                                        )
+                                    },
+                                    onFailure = {
+                                        Result.success(
+                                            StartedGroupAccess(
+                                                groupName = group.name,
+                                                joinCode = null,
+                                                expiresAt = null
+                                            )
+                                        )
+                                    }
+                                )
+                            },
+                            onFailure = { error -> Result.failure(error) }
+                        )
+                    },
+                    onJoinGroup = { code ->
+                        inviteRepository.joinWithToken(code).map {
+                            groupSyncReady = true
+                            Unit
+                        }
+                    },
+                    nfcJoinState = nfcJoinState,
+                    onStartNfcJoin = ::startNfcJoin,
+                    onDismissNfcJoin = {
+                        nfcJoinState = NfcJoinUiState.Idle
+                    },
+                    onOpenNfcSettings = ::openNfcSettings,
                     onOpenTimetableSetup = {
                         navController.navigate(CampusDestination.Home.route) {
                             popUpTo(navController.graph.findStartDestination().id) {
@@ -528,11 +911,15 @@ private fun AuthenticatedCampusApp(
                 )
             ) { entry ->
                 val groupId = entry.arguments?.getString("groupId")
-                val group = timetableState.groups.firstOrNull { it.id == groupId }
+                val group = allGroups.firstOrNull { it.id == groupId }
                 val cachedGroup = restoredGroup?.takeIf { it.id == groupId }
                 when {
                     group != null -> GroupChatScreen(
                         group = group,
+                        myDisplayName = groupPreferences[group.id]
+                            ?.displayName
+                            ?.takeIf(String::isNotBlank)
+                            ?: user.profileName,
                         pendingDocuments = pendingDocuments,
                         pendingDocumentError = pendingDocumentError,
                         capturedCameraUri = capturedCameraUri,
@@ -544,6 +931,10 @@ private fun AuthenticatedCampusApp(
                     )
                     timetableState.isLoading && cachedGroup != null -> GroupChatScreen(
                         group = cachedGroup,
+                        myDisplayName = groupPreferencesStore.load(cachedGroup.id)
+                            .displayName
+                            .takeIf(String::isNotBlank)
+                            ?: user.profileName,
                         pendingDocuments = pendingDocuments,
                         pendingDocumentError = pendingDocumentError,
                         capturedCameraUri = capturedCameraUri,
@@ -579,6 +970,28 @@ private fun AuthenticatedCampusApp(
             }
         }
     }
+}
+
+private fun GroupSummary.toCourseGroup(currentUserId: String): CourseGroup = CourseGroup(
+    id = group.id,
+    courseCode = group.courseCode.orEmpty(),
+    name = group.name,
+    members = memberCount,
+    unreadCount = unreadCount,
+    latestMessage = latestMessagePreview ?: "No messages yet.",
+    latestFileName = latestFileName,
+    privateContentEnabled = group.privateContentEnabled,
+    origin = if (group.createdBy == currentUserId) {
+        GroupOrigin.CreatedByUser
+    } else {
+        GroupOrigin.Joined
+    }
+)
+
+private fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }
 
 private fun createCameraImageUri(context: Context): Uri {

@@ -123,7 +123,8 @@ fun HomeScreen(
                 if (agenda.nextClass != null) {
                     NextClassCard(
                         session = agenda.nextClass,
-                        travelPreferences = travelPreferences
+                        travelPreferences = travelPreferences,
+                        now = now
                     )
                 }
 
@@ -173,9 +174,10 @@ fun HomeScreen(
 private fun NextClassCard(
     session: CourseSession,
     travelPreferences: TravelPreferences,
+    now: ZonedDateTime,
     modifier: Modifier = Modifier
 ) {
-    val status = session.statusAt()
+    val status = session.statusAt(now)
     val travel = selectTravelSummary(session, travelPreferences)
     val locationText = listOf(session.location, session.room)
         .filter(String::isNotBlank)
