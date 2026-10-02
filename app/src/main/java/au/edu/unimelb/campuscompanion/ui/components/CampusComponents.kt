@@ -18,6 +18,7 @@ import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.NearMe
+import androidx.compose.material.icons.outlined.NotificationsOff
 import androidx.compose.material.icons.outlined.People
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
@@ -36,6 +37,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import au.edu.unimelb.campuscompanion.ui.model.CourseGroup
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
+import au.edu.unimelb.campuscompanion.ui.model.GroupOrigin
 import au.edu.unimelb.campuscompanion.ui.model.SessionStatus
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -243,6 +245,7 @@ fun CourseSessionRow(
 fun GroupUpdateRow(
     group: CourseGroup,
     onClick: () -> Unit,
+    muted: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -258,16 +261,19 @@ fun GroupUpdateRow(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "${group.courseCode} ${group.name}",
+                        text = listOf(group.courseCode, group.name)
+                            .filter(String::isNotBlank)
+                            .joinToString(" "),
                         style = MaterialTheme.typography.titleMedium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = if (group.members > 0) {
-                            "${group.members} members"
-                        } else {
-                            "Detected from timetable"
+                        text = when {
+                            group.members > 0 -> "${group.members} members"
+                            group.origin == GroupOrigin.Timetable -> "Detected from timetable"
+                            group.origin == GroupOrigin.CreatedByUser -> "Created by you"
+                            else -> "Joined group"
                         },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -277,6 +283,15 @@ fun GroupUpdateRow(
                     StatusPill(
                         label = "${group.unreadCount} new",
                         status = SessionStatus.EnRoute
+                    )
+                }
+                if (muted) {
+                    Spacer(Modifier.width(8.dp))
+                    Icon(
+                        imageVector = Icons.Outlined.NotificationsOff,
+                        contentDescription = "Muted",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
                 Spacer(Modifier.width(8.dp))
