@@ -1,7 +1,6 @@
 package au.edu.unimelb.campuscompanion.context
 
 import au.edu.unimelb.campuscompanion.data.TravelMode
-import au.edu.unimelb.campuscompanion.sensing.location.TravelState
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
 import au.edu.unimelb.campuscompanion.ui.model.CourseReminderPreference
 import au.edu.unimelb.campuscompanion.ui.model.reminderSeriesKey
@@ -15,7 +14,7 @@ import java.util.Locale
 data class DepartureReminder(
     val sessionId: String,
     val courseKey: String,
-    val state: TravelState,
+    val state: ContextState,
     val title: String,
     val text: String
 ) {
@@ -36,7 +35,7 @@ class DepartureReminders(
     private val cancelCourse: (String) -> Unit = {}
 ) {
     private var remindedSessionId: String? = null
-    private val remindedStates = mutableSetOf<TravelState>()
+    private val remindedStates = mutableSetOf<ContextState>()
 
     suspend fun run() {
         combine(snapshots, preferenceChanges) { snapshot, _ -> snapshot }
@@ -67,7 +66,7 @@ class DepartureReminders(
             courseKey = session.reminderSeriesKey(),
             state = snapshot.state,
             title = when (snapshot.state) {
-                TravelState.RUNNING_LATE -> "Running late for ${session.code}"
+                ContextState.RUNNING_LATE -> "Running late for ${session.code}"
                 else -> "Time to leave for ${session.code}"
             },
             text = describe(snapshot, session)
@@ -96,7 +95,7 @@ class DepartureReminders(
     }
 
     private companion object {
-        val REMINDED_STATES = setOf(TravelState.SHOULD_LEAVE_SOON, TravelState.RUNNING_LATE)
+        val REMINDED_STATES = setOf(ContextState.LEAVE_SOON, ContextState.RUNNING_LATE)
         val timeFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH)
     }
 }
