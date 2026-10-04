@@ -8,7 +8,6 @@ import au.edu.unimelb.campuscompanion.data.model.TravelEstimate
 import au.edu.unimelb.campuscompanion.data.model.WeatherSnapshot
 import au.edu.unimelb.campuscompanion.data.repository.EtaRepository
 import au.edu.unimelb.campuscompanion.data.repository.WeatherRepository
-import au.edu.unimelb.campuscompanion.sensing.location.TravelState
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -48,7 +47,9 @@ class TravelEngineTest {
         assertEquals(FakeBuildingLookup.PETER_HALL, snapshot.building)
         assertEquals(15, snapshot.estimate?.durationMinutes)
         assertEquals(60L, snapshot.minutesUntilClass)
-        assertEquals(TravelState.UPCOMING_CLASS, snapshot.state)
+        assertEquals(ContextState.UPCOMING, snapshot.state)
+        // 15 min travel + the default 10 min buffer before the start.
+        assertEquals(lecture.start.minusMinutes(25), snapshot.leaveBy)
         assertEquals(listOf(15, null), snapshot.applyTo(listOf(lecture, tutorial)).map { it.etaMinutes })
     }
 
@@ -59,15 +60,21 @@ class TravelEngineTest {
 
         now = now.plus(Duration.ofMinutes(36))
         engine.refresh()
-        assertEquals(TravelState.SHOULD_LEAVE_SOON, engine.snapshot.value.state)
+        assertEquals(ContextState.LEAVE_SOON, engine.snapshot.value.state)
 
+        // Walking on the spot is not setting off.
         engine.updateMoving(true)
         engine.refresh()
-        assertEquals(TravelState.EN_ROUTE, engine.snapshot.value.state)
+        assertEquals(ContextState.LEAVE_SOON, engine.snapshot.value.state)
+
+        // About 110 m closer to Peter Hall while walking.
+        engine.updateOrigin(GeoPoint(-37.8090, 144.9628))
+        engine.refresh()
+        assertEquals(ContextState.EN_ROUTE, engine.snapshot.value.state)
 
         engine.updateOrigin(GeoPoint(-37.7996, 144.9610))
         engine.refresh()
-        assertEquals(TravelState.ARRIVED, engine.snapshot.value.state)
+        assertEquals(ContextState.ARRIVED, engine.snapshot.value.state)
     }
 
     @Test
@@ -78,11 +85,13 @@ class TravelEngineTest {
 
         now = now.plus(Duration.ofMinutes(36))
         engine.refresh()
-        assertEquals(TravelState.UPCOMING_CLASS, engine.snapshot.value.state)
+        assertEquals(ContextState.UPCOMING, engine.snapshot.value.state)
+        assertEquals(0, engine.snapshot.value.leadMinutes)
 
         now = now.plus(Duration.ofMinutes(9))
         engine.refresh()
-        assertEquals(TravelState.SHOULD_LEAVE_SOON, engine.snapshot.value.state)
+        assertEquals(ContextState.LEAVE_SOON, engine.snapshot.value.state)
+        assertEquals(lecture.start.minusMinutes(15), engine.snapshot.value.leaveBy)
     }
 
     @Test
@@ -98,7 +107,8 @@ class TravelEngineTest {
         // 29 minutes to go: travel 15 + lead 10 would still be fine, but rain adds 5.
         assertEquals(5, snapshot.weatherBufferMinutes)
         assertEquals(0.4, snapshot.weather?.precipitationMillimetres)
-        assertEquals(TravelState.SHOULD_LEAVE_SOON, snapshot.state)
+        assertEquals(ContextState.LEAVE_SOON, snapshot.state)
+        assertEquals(lecture.start.minusMinutes(30), snapshot.leaveBy)
         assertEquals(listOf(FakeBuildingLookup.PETER_HALL.location), weather.requests)
     }
 
@@ -128,6 +138,7 @@ class TravelEngineTest {
         assertEquals("lecture", snapshot.session?.id)
         assertEquals(FakeBuildingLookup.PETER_HALL, snapshot.building)
         assertNull(snapshot.estimate)
+        assertNull(snapshot.leaveBy)
         assertTrue(eta.requests.isEmpty())
     }
 
@@ -136,7 +147,7 @@ class TravelEngineTest {
         engine.updateSessions(listOf(lecture, tutorial))
         engine.updateOrigin(FakeBuildingLookup.PETER_HALL.location)
         engine.refresh()
-        assertEquals(TravelState.ARRIVED, engine.snapshot.value.state)
+        assertEquals(ContextState.ARRIVED, engine.snapshot.value.state)
 
         now = now.plus(Duration.ofMinutes(121))
         engine.refresh()
@@ -144,7 +155,51 @@ class TravelEngineTest {
 
         assertEquals("tutorial", snapshot.session?.id)
         assertEquals(FakeBuildingLookup.ALAN_GILBERT, snapshot.building)
-        assertEquals(TravelState.UPCOMING_CLASS, snapshot.state)
+        // The lecture has just finished; being at Peter Hall does not count as arriving at the tutorial.
+        assertEquals(ContextState.POST_CLASS, snapshot.state)
+        assertEquals("lecture", snapshot.finishedSession?.id)
+
+        now = now.plus(Duration.ofMinutes(15))
+        engine.refresh()
+        assertEquals(ContextState.UPCOMING, engine.snapshot.value.state)
+    }
+
+    @Test
+    fun aClassInProgressIsInClass() = runBlocking<Unit> {
+        engine.updateSessions(listOf(lecture))
+        engine.updateOrigin(FakeBuildingLookup.PETER_HALL.location)
+
+        now = now.plus(Duration.ofMinutes(65))
+        engine.refresh()
+
+        assertEquals(ContextState.IN_CLASS, engine.snapshot.value.state)
+    }
+
+    @Test
+    fun theSensingServicesEnRouteSignalCounts() = runBlocking<Unit> {
+        engine.updateSessions(listOf(lecture))
+        engine.updateOrigin(HOME)
+        now = now.plus(Duration.ofMinutes(36))
+        engine.refresh()
+
+        engine.updateEnRouteSignal(true)
+        engine.refresh()
+
+        assertEquals(ContextState.EN_ROUTE, engine.snapshot.value.state)
+    }
+
+    @Test
+    fun enteringTheArrivalGeofenceCountsAsArrived() = runBlocking<Unit> {
+        engine.updateSessions(listOf(lecture))
+        // About 100 m from Peter Hall: outside the 75 m radius.
+        engine.updateOrigin(GeoPoint(-37.8003, 144.9608))
+        engine.refresh()
+        assertEquals(ContextState.UPCOMING, engine.snapshot.value.state)
+
+        engine.reportGeofenceEntered(FakeBuildingLookup.PETER_HALL.locCode)
+        engine.refresh()
+
+        assertEquals(ContextState.ARRIVED, engine.snapshot.value.state)
     }
 
     @Test
