@@ -85,6 +85,10 @@ npx supabase link --project-ref your-project-ref
 npx supabase db push
 ```
 
+### Group codes and invitations
+
+Every group gets a six-character join code when it is created (`groups.join_code`, letters and digits that are hard to confuse). Members see it and pass it on; typing it joins the group, and an owner can replace it with `reset_group_code`. QR codes and NFC tags carry short-lived invite tokens instead; `join_group_with_token` accepts both. A wrong code costs a one-second wait on the server, which keeps guessing impractical.
+
 ### Travel times
 
 The `route-eta` Edge Function returns travel times for departure reminders. Walking and driving times come from the [FOSSGIS OSRM servers](https://routing.openstreetmap.de/about.html) and public transport times from [Transitous](https://transitous.org/api/); neither needs an API key. Both services are run by volunteers, so the function rounds positions to about 110 m, caches answers, starts calls to each service at least one second apart, and applies the fair-use limits in `private.route_limits`. When a limit is reached or a service is unavailable, the app shows an approximate offline estimate.

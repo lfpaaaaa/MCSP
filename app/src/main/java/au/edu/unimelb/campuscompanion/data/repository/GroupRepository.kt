@@ -18,6 +18,9 @@ interface GroupRepository {
 
     fun observeMembers(groupId: String): Flow<List<GroupMember>>
 
+    /** Replaces the group's join code (owners only); the old code stops working. */
+    suspend fun resetJoinCode(groupId: String): Result<String>
+
     suspend fun leaveGroup(groupId: String): Result<Unit>
 
     companion object {

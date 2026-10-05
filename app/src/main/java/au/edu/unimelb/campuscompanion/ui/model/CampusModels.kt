@@ -73,7 +73,9 @@ data class CourseGroup(
     val latestMessage: String,
     val latestFileName: String?,
     val privateContentEnabled: Boolean,
-    val origin: GroupOrigin = GroupOrigin.Timetable
+    val origin: GroupOrigin = GroupOrigin.Timetable,
+    /** The six-character code other people type to join; null for timetable groups. */
+    val joinCode: String? = null
 )
 
 data class TimetableState(

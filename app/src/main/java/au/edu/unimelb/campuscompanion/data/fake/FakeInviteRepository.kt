@@ -41,6 +41,12 @@ class FakeInviteRepository(
 
     override suspend fun joinWithToken(token: String): Result<Group> {
         delay(latencyMillis)
+        GroupInvite.joinCodeFromText(token)?.let { code ->
+            val group = groups.findGroupByJoinCode(code)
+                ?: return Result.failure(DataError.InvalidInvite(DataError.InvalidInvite.Reason.Unknown))
+            groups.addCurrentUser(group)
+            return Result.success(group)
+        }
         val invite = invites[token.trim()]
             ?: return Result.failure(DataError.InvalidInvite(DataError.InvalidInvite.Reason.Unknown))
         if (invite.isExpired(clock())) {

@@ -21,7 +21,7 @@ class DefaultInviteRepository(
 
     /** Accepts either a bare token or a full join link, such as the text of a scanned QR code. */
     override suspend fun joinWithToken(token: String): Result<Group> {
-        val normalized = GroupInvite.tokenFromUri(token) ?: token.trim()
+        val normalized = GroupInvite.tokenFromUri(token) ?: GroupInvite.joinCodeFromText(token) ?: token.trim()
         if (normalized.isEmpty() || normalized.any(Char::isWhitespace)) {
             return Result.failure(DataError.InvalidInvite(DataError.InvalidInvite.Reason.Unknown))
         }

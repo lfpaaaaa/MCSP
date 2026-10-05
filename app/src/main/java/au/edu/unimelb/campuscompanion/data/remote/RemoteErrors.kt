@@ -28,7 +28,7 @@ fun dataErrorFor(statusCode: Int, message: String?, cause: Throwable? = null): D
         "invite_expired" -> DataError.InvalidInvite(DataError.InvalidInvite.Reason.Expired, cause)
         "invite_used_up" -> DataError.InvalidInvite(DataError.InvalidInvite.Reason.UsedUp, cause)
         "not_authenticated" -> DataError.Unauthenticated(cause)
-        "not_a_member" -> DataError.Forbidden(cause)
+        "not_a_member", "not_an_owner" -> DataError.Forbidden(cause)
         else -> when (statusCode) {
             401 -> DataError.Unauthenticated(cause)
             403 -> DataError.Forbidden(cause)

@@ -851,35 +851,14 @@ private fun AuthenticatedCampusApp(
                         openGroup(group)
                     },
                     onStartGroup = { name, courseCode ->
-                        groupRepository.createGroup(name, courseCode).fold(
-                            onSuccess = { group ->
-                                inviteRepository.createInvite(group.id).fold(
-                                    onSuccess = { invite ->
-                                        val validCode = invite.token
-                                            .takeIf(::isValidGroupJoinCode)
-                                        Result.success(
-                                            StartedGroupAccess(
-                                                groupName = group.name,
-                                                joinCode = validCode,
-                                                expiresAt = invite.expiresAt.takeIf {
-                                                    validCode != null
-                                                }
-                                            )
-                                        )
-                                    },
-                                    onFailure = {
-                                        Result.success(
-                                            StartedGroupAccess(
-                                                groupName = group.name,
-                                                joinCode = null,
-                                                expiresAt = null
-                                            )
-                                        )
-                                    }
-                                )
-                            },
-                            onFailure = { error -> Result.failure(error) }
-                        )
+                        // The server gives every new group a six-character code that does not expire.
+                        groupRepository.createGroup(name, courseCode).map { group ->
+                            StartedGroupAccess(
+                                groupName = group.name,
+                                joinCode = group.joinCode?.takeIf(::isValidGroupJoinCode),
+                                expiresAt = null
+                            )
+                        }
                     },
                     onJoinGroup = { code ->
                         inviteRepository.joinWithToken(code).map {
@@ -985,7 +964,8 @@ private fun GroupSummary.toCourseGroup(currentUserId: String): CourseGroup = Cou
         GroupOrigin.CreatedByUser
     } else {
         GroupOrigin.Joined
-    }
+    },
+    joinCode = group.joinCode
 )
 
 private fun Context.findActivity(): Activity? = when (this) {
