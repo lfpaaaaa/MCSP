@@ -25,6 +25,15 @@ class GroupInviteTest {
     }
 
     @Test
+    fun typedGroupCodesAreTidiedUp() {
+        assertEquals("ABC234", GroupInvite.joinCodeFromText(" abc 234 "))
+        assertEquals("ABC234", GroupInvite.joinCodeFromText("abc-234"))
+        assertNull(GroupInvite.joinCodeFromText("abc23"))
+        assertNull(GroupInvite.joinCodeFromText("abc2345"))
+        assertNull(GroupInvite.joinCodeFromText("a".repeat(64)))
+    }
+
+    @Test
     fun expiresAtTheDeadline() {
         assertFalse(invite.isExpired(expiresAt.minusSeconds(1)))
         assertTrue(invite.isExpired(expiresAt))

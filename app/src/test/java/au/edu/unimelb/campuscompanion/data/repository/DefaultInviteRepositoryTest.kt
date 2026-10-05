@@ -28,9 +28,17 @@ class DefaultInviteRepositoryTest {
     @Test
     fun joiningAcceptsATokenOrAScannedJoinLink() = runBlocking<Unit> {
         invites.joinWithToken("campuscompanion://join?token=abc123").getOrThrow()
-        invites.joinWithToken("  def456  ").getOrThrow()
+        invites.joinWithToken("  def4567  ").getOrThrow()
 
-        assertEquals(listOf("abc123", "def456"), remote.joinedTokens)
+        assertEquals(listOf("abc123", "def4567"), remote.joinedTokens)
+    }
+
+    @Test
+    fun typedGroupCodesAreSentUpperCaseWithoutSpaces() = runBlocking<Unit> {
+        invites.joinWithToken(" abc 234 ").getOrThrow()
+        invites.joinWithToken("abc-234").getOrThrow()
+
+        assertEquals(listOf("ABC234", "ABC234"), remote.joinedTokens)
     }
 
     @Test

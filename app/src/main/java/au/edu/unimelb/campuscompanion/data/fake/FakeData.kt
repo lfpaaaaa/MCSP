@@ -23,6 +23,11 @@ object FakeData {
     /** Always joins [JOINABLE_GROUP_ID]; handy for demonstrating QR and NFC joining. */
     const val DEMO_INVITE_TOKEN = "demo-invite-token"
 
+    /** The join code of [JOINABLE_GROUP_ID]; typing it joins that group in the fakes. */
+    const val JOINABLE_GROUP_CODE = "LIBRRY"
+
+    private const val JOIN_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
     private const val ALEX_ID = "00000000-0000-4000-8000-000000000002"
     private const val PRIYA_ID = "00000000-0000-4000-8000-000000000003"
     private const val SAM_ID = "00000000-0000-4000-8000-000000000004"
@@ -35,7 +40,8 @@ object FakeData {
                 courseCode = "COMP90018",
                 privateContentEnabled = true,
                 createdBy = CURRENT_USER_ID,
-                createdAt = now.minus(Duration.ofDays(14))
+                createdAt = now.minus(Duration.ofDays(14)),
+                joinCode = "TEAM42"
             ),
             myRole = GroupRole.Owner,
             memberCount = 4,
@@ -51,7 +57,8 @@ object FakeData {
                 courseCode = "SWEN90006",
                 privateContentEnabled = false,
                 createdBy = ALEX_ID,
-                createdAt = now.minus(Duration.ofDays(7))
+                createdAt = now.minus(Duration.ofDays(7)),
+                joinCode = "REV1SE"
             ),
             myRole = GroupRole.Member,
             memberCount = 3,
@@ -69,8 +76,13 @@ object FakeData {
         courseCode = null,
         privateContentEnabled = false,
         createdBy = PRIYA_ID,
-        createdAt = now.minus(Duration.ofDays(2))
+        createdAt = now.minus(Duration.ofDays(2)),
+        joinCode = JOINABLE_GROUP_CODE
     )
+
+    /** Letters and digits that are hard to confuse, as the server uses. */
+    fun randomJoinCode(): String =
+        (1..6).map { JOIN_CODE_ALPHABET.random() }.joinToString("")
 
     fun members(now: Instant): Map<String, List<GroupMember>> = mapOf(
         TEAM_GROUP_ID to listOf(

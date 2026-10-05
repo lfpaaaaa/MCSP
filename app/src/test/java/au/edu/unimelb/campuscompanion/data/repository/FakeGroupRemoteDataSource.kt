@@ -21,6 +21,8 @@ class FakeGroupRemoteDataSource : GroupRemoteDataSource {
     val createdGroups = mutableListOf<Pair<String, String?>>()
     val deletedMemberships = mutableListOf<Pair<String, String>>()
     val joinedTokens = mutableListOf<String>()
+    val resetGroups = mutableListOf<String>()
+    var nextJoinCode = "NEWC0D"
 
     override suspend fun fetchMyGroups(): List<GroupSummaryRow> {
         failIfRequested()
@@ -45,6 +47,12 @@ class FakeGroupRemoteDataSource : GroupRemoteDataSource {
         return deletedRowCount
     }
 
+    override suspend fun resetJoinCode(groupId: String): String {
+        failIfRequested()
+        resetGroups += groupId
+        return nextJoinCode
+    }
+
     override suspend fun createInvite(groupId: String): InviteRow {
         failIfRequested()
         return InviteRow(token = inviteToken, expiresAt = inviteExpiresAt)
@@ -66,7 +74,8 @@ fun groupRow(id: String, name: String = "Group $id", courseCode: String? = null)
     name = name,
     courseCode = courseCode,
     createdBy = "user-1",
-    createdAt = "2026-09-20T00:00:00+00:00"
+    createdAt = "2026-09-20T00:00:00+00:00",
+    joinCode = "ABC234"
 )
 
 fun summaryRow(id: String, latestActivityAt: String? = null, role: String = "member") = GroupSummaryRow(
@@ -76,5 +85,6 @@ fun summaryRow(id: String, latestActivityAt: String? = null, role: String = "mem
     createdAt = "2026-09-20T00:00:00+00:00",
     myRole = role,
     memberCount = 2,
-    latestActivityAt = latestActivityAt
+    latestActivityAt = latestActivityAt,
+    joinCode = "ABC234"
 )

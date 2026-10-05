@@ -49,6 +49,16 @@ class DefaultGroupRepository(
         emit(remoteCall { remote.fetchMembers(groupId).map(GroupMemberRow::toModel) })
     }
 
+    override suspend fun resetJoinCode(groupId: String): Result<String> = dataResult {
+        val code = remote.resetJoinCode(groupId)
+        groups.update { list ->
+            list?.map { summary ->
+                if (summary.group.id == groupId) summary.copy(group = summary.group.copy(joinCode = code)) else summary
+            }
+        }
+        code
+    }
+
     override suspend fun leaveGroup(groupId: String): Result<Unit> {
         val userId = currentUserId() ?: return Result.failure(DataError.Unauthenticated())
         return dataResult {

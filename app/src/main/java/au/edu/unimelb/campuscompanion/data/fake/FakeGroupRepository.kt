@@ -47,7 +47,8 @@ class FakeGroupRepository(
             courseCode = input.courseCode,
             privateContentEnabled = false,
             createdBy = currentUserId,
-            createdAt = now
+            createdAt = now,
+            joinCode = FakeData.randomJoinCode()
         )
         members.update { byGroup ->
             byGroup + (group.id to listOf(currentMember(GroupRole.Owner, now)))
@@ -64,6 +65,18 @@ class FakeGroupRepository(
             )
         }
         return Result.success(group)
+    }
+
+    override suspend fun resetJoinCode(groupId: String): Result<String> {
+        delay(latencyMillis)
+        val summary = summaries.value.firstOrNull { it.group.id == groupId }
+            ?: return Result.failure(DataError.NotFound())
+        if (summary.myRole != GroupRole.Owner) return Result.failure(DataError.Forbidden())
+        val code = FakeData.randomJoinCode()
+        summaries.update { list ->
+            list.map { if (it.group.id == groupId) it.copy(group = it.group.copy(joinCode = code)) else it }
+        }
+        return Result.success(code)
     }
 
     override fun observeMembers(groupId: String): Flow<List<GroupMember>> =
@@ -89,6 +102,10 @@ class FakeGroupRepository(
     fun isMember(groupId: String): Boolean = summaries.value.any { it.group.id == groupId }
 
     /** Finds a group by id, including sample groups the user has not joined yet. */
+    /** A group, joined or not, whose join code matches. */
+    fun findGroupByJoinCode(code: String): Group? =
+        (summaries.value.map { it.group } + otherGroups.values).firstOrNull { it.joinCode == code }
+
     fun findGroup(groupId: String): Group? =
         summaries.value.firstOrNull { it.group.id == groupId }?.group ?: otherGroups[groupId]
 
