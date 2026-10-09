@@ -333,17 +333,21 @@ internal fun selectTravelSummary(
 ): SelectedTravelSummary {
     val estimate = session.routeEstimate
         ?: return SelectedTravelSummary(null, null, session.etaMinutes)
-    val mode = preferences.preferredMode(estimate.distanceMeters)
-    val durationMinutes = when (mode) {
-        TravelMode.Walking -> estimate.walkingMinutes
-        TravelMode.PublicTransport -> estimate.publicTransportMinutes
-        TravelMode.Driving -> estimate.drivingMinutes
-    } ?: session.etaMinutes
+    val minutesByMode = listOf(
+        TravelMode.Walking to estimate.walkingMinutes,
+        TravelMode.PublicTransport to estimate.publicTransportMinutes,
+        TravelMode.Driving to estimate.drivingMinutes
+    )
+    val preferred = preferences.preferredMode(estimate.distanceMeters)
+    // The travel engine only times the mode it chose; show that mode rather than a label without a time.
+    val (mode, minutes) = minutesByMode.firstOrNull { (mode, minutes) -> mode == preferred && minutes != null }
+        ?: minutesByMode.firstOrNull { (_, minutes) -> minutes != null }
+        ?: (preferred to session.etaMinutes)
 
     return SelectedTravelSummary(
         distanceMeters = estimate.distanceMeters,
         mode = mode,
-        durationMinutes = durationMinutes
+        durationMinutes = minutes
     )
 }
 
