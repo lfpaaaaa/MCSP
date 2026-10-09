@@ -718,6 +718,7 @@ private fun AuthenticatedCampusApp(
             initialDisplayName = selectedPreferences.displayName.ifBlank { user.profileName },
             onDismiss = { showGroupSettings = false },
             onInviteWithNfc = { startNfcShare(selectedGroup) },
+            onReplaceJoinCode = { groupRepository.resetJoinCode(selectedGroup.id) },
             onSave = { folded, muted, displayName ->
                 val foldedOverride = foldedOverrideAfterEdit(
                     existingOverride = selectedPreferences.foldedOverride,
