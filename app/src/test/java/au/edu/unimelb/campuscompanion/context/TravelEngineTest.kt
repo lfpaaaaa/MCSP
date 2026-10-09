@@ -10,6 +10,7 @@ import au.edu.unimelb.campuscompanion.data.repository.EtaRepository
 import au.edu.unimelb.campuscompanion.data.repository.WeatherRepository
 import au.edu.unimelb.campuscompanion.sensing.location.TravelState
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
+import au.edu.unimelb.campuscompanion.ui.model.RouteEstimate
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -49,7 +50,14 @@ class TravelEngineTest {
         assertEquals(15, snapshot.estimate?.durationMinutes)
         assertEquals(60L, snapshot.minutesUntilClass)
         assertEquals(TravelState.UPCOMING_CLASS, snapshot.state)
-        assertEquals(listOf(15, null), snapshot.applyTo(listOf(lecture, tutorial)).map { it.etaMinutes })
+        val applied = snapshot.applyTo(listOf(lecture, tutorial))
+        assertEquals(listOf(15, null), applied.map { it.etaMinutes })
+        // 1.2 km is beyond the walking threshold, so the default public transport mode was timed.
+        assertEquals(
+            RouteEstimate(distanceMeters = 1_500, publicTransportMinutes = 15),
+            applied.first().routeEstimate
+        )
+        assertNull(applied[1].routeEstimate)
     }
 
     @Test

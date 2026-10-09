@@ -93,6 +93,23 @@ class HomeScreenTest {
     }
 
     @Test
+    fun theModeWithATimeWinsOverAPreferredModeWithoutOne() {
+        // The travel engine times one mode; the card shows that one even if the threshold would pick another.
+        val session = session("edge", 10, 11).copy(
+            routeEstimate = RouteEstimate(distanceMeters = 1_100, walkingMinutes = 14)
+        )
+
+        val travel = selectTravelSummary(
+            session = session,
+            preferences = TravelPreferences(walkingThresholdMeters = 1_000, longerDistanceMode = TravelMode.Driving)
+        )
+
+        assertEquals(TravelMode.Walking, travel.mode)
+        assertEquals(14, travel.durationMinutes)
+        assertEquals(1_100, travel.distanceMeters)
+    }
+
+    @Test
     fun missingRouteDataDoesNotInventDistanceOrMode() {
         val travel = selectTravelSummary(
             session = session("pending", 10, 11),

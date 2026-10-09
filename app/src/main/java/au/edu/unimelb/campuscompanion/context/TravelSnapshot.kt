@@ -1,10 +1,12 @@
 package au.edu.unimelb.campuscompanion.context
 
+import au.edu.unimelb.campuscompanion.data.TravelMode
 import au.edu.unimelb.campuscompanion.data.building.BuildingLocation
 import au.edu.unimelb.campuscompanion.data.model.TravelEstimate
 import au.edu.unimelb.campuscompanion.data.model.WeatherSnapshot
 import au.edu.unimelb.campuscompanion.sensing.location.TravelState
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
+import au.edu.unimelb.campuscompanion.ui.model.RouteEstimate
 
 /** What the app currently knows about the trip to the next class. */
 data class TravelSnapshot(
@@ -24,10 +26,19 @@ data class TravelSnapshot(
     /** Extra minutes added to the departure buffer because of the weather. */
     val weatherBufferMinutes: Int = 0
 ) {
-    /** The sessions with the tracked one carrying its travel time, for the screens. */
+    /** The sessions with the tracked one carrying its travel time and route, for the screens. */
     fun applyTo(sessions: List<CourseSession>): List<CourseSession> {
         val tracked = session ?: return sessions
-        val minutes = estimate?.durationMinutes ?: return sessions
-        return sessions.map { if (it.id == tracked.id) it.copy(etaMinutes = minutes) else it }
+        val travel = estimate ?: return sessions
+        val minutes = travel.durationMinutes
+        val route = RouteEstimate(
+            distanceMeters = travel.distanceMeters,
+            walkingMinutes = minutes.takeIf { travel.mode == TravelMode.Walking },
+            publicTransportMinutes = minutes.takeIf { travel.mode == TravelMode.PublicTransport },
+            drivingMinutes = minutes.takeIf { travel.mode == TravelMode.Driving }
+        )
+        return sessions.map { current ->
+            if (current.id == tracked.id) current.copy(etaMinutes = minutes, routeEstimate = route) else current
+        }
     }
 }
