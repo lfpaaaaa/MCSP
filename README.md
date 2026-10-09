@@ -1,6 +1,13 @@
 # MCSP Campus Companion
 
-Campus Companion is a native Android app scaffold for COMP90018. It includes the Compose interface, Supabase authentication, bottom navigation, a Material 3 theme, mock campus data, and first-pass screens for Home, Schedule, Groups, and Profile.
+Campus Companion is a context-aware Android app built for COMP90018 (University of Melbourne, 2026 Semester 2). It reads the student's timetable, follows the trip to the next class with the phone's location and motion sensors and routed travel times, and gives each class a group with real-time chat, shared files, six-character join codes and NFC invitations. The app is Kotlin and Jetpack Compose; the backend is Supabase (Postgres with row-level security, Realtime, Storage and Edge Functions).
+
+Two commands check a fresh clone:
+
+```bash
+./gradlew testDebugUnitTest assembleDebug   # JVM unit tests and the debug APK
+npm install && npm run backend:test         # database migrations and pgTAP tests (needs Docker)
+```
 
 ## Prerequisites
 
@@ -138,6 +145,24 @@ Screens that show routed times must credit the data: "© OpenStreetMap contribut
 
 Never commit `.env`, `local.properties`, OAuth secrets, or a Supabase service-role key.
 
+## Continuous integration
+
+Two GitHub Actions workflows in `.github/workflows/` run on every pull request and on pushes to `main`:
+
+- `android.yml` runs the JVM unit tests and assembles the debug APK on a clean runner, without `local.properties` or `google-services.json` (the app then builds with the in-memory fakes and push notifications off). The test report and the APK are attached to the run.
+- `backend.yml` starts the local Supabase database, applies every migration from scratch and runs the pgTAP tests in `supabase/tests/database/`; a second job type-checks the Edge Functions with `deno check`. It runs when anything under `supabase/` changes.
+
+Both are the same commands as in the quick check above, so a green run means a fresh clone builds and the backend schema is consistent.
+
+## Security notes
+
+- Every table has row-level security; members only ever read their own groups. Writes that must cross groups (joining with a code or token, counting members, marking messages as read) go through `SECURITY DEFINER` functions in the `private` schema, exposed through thin `SECURITY INVOKER` wrappers in `public`. The pgTAP tests exercise the policies as different users.
+- The app only ever holds the publishable key; the service-role key stays in the dashboard and in Edge Function secrets. Invite tokens expire after ten minutes and have a use limit; a wrong join code costs a one-second server-side wait.
+- Positions are coarsened before they leave the device (about 110 m for routing, about 1 km for weather). The server keeps travel times in a cache keyed by the rounded points and a per-user request count per day, never a user's positions; the sensor readings themselves stay on the phone, and only the derived travel state is shown.
+- `allowBackup` is off, so the on-device message cache and the sign-in session are not copied into cloud backups or device transfers; everything is re-fetched after sign-in.
+- Permissions are limited to what the features use: location (travel context and geofencing), activity recognition (motion state), camera (photos for the chat and, later, QR codes), NFC (invitations), notifications and the foreground-service permissions for the sensing service. The app does not record audio.
+- Nothing secret is committed: `.env`, `local.properties`, `google-services.json` and OAuth or service-role keys are ignored by git.
+
 ## Front-end structure
 
 - `app/src/main/java/au/edu/unimelb/campuscompanion/MainActivity.kt` starts the Compose app.
@@ -146,7 +171,8 @@ Never commit `.env`, `local.properties`, OAuth secrets, or a Supabase service-ro
 - `ui/screens/` contains the first front-end pages.
 - `ui/chat/` holds the state of an open group chat (`GroupChatSession`: the timeline of messages and shared files, uploads, connection state and latency samples) that `GroupChatScreen` renders; `ChatLatency` log lines record send round trips and delivery times for the responsiveness measurements.
 - `ui/components/` contains reusable UI building blocks.
-- `ui/model/` contains mock models and demo data until backend, timetable, and sensing layers are connected.
+- `ui/model/` contains the models the screens render; `data/fake/` holds the in-memory repositories and sample data used when no backend is configured.
+- `data/` holds the repositories (groups, invites, chat with its Room cache, files, routed travel times, weather, push tokens) and the Supabase data sources behind them; `context/` the travel engine; `sensing/` the sensor pipeline and foreground service; `push/` Firebase Cloud Messaging.
 - `ui/theme/` contains the Material 3 color and typography setup.
 
 ## Main screens
@@ -157,10 +183,19 @@ Never commit `.env`, `local.properties`, OAuth secrets, or a Supabase service-ro
 - Groups: course groups, join by code or NFC, and the group chat: messages and shared files come from Supabase (realtime feed plus the Room cache, so saved messages stay readable offline), with optimistic sending, retry of failed messages, paging of older history, upload progress and photo previews.
 - Profile: authenticated account summary, sign-out, permissions, privacy, and notification preferences.
 
-## Next implementation steps
+## Status and next steps
 
-1. Connect Home to a real context engine state model.
-2. Fetch the saved timetable URL, parse ICS events, and cache them with Room.
-3. Wire Groups to Supabase repositories.
-4. Add CameraX QR scanner screen and navigation route.
-5. Add previews and UI tests once the first visual direction is stable.
+Working end to end: sign-in (Google and email code), timetable import from a MyTimetable subscription URL, the next-class card with travel state, routed travel times with weather buffers, groups with join codes and NFC invitations, real-time chat with an offline cache, shared files and photos, and push notifications for new messages.
+
+Still to do, in order:
+
+1. QR invitations: scan a code with the camera and show one in the invite dialog (the "Scan QR" button is a placeholder).
+2. A local notification when the travel state becomes "leave soon", and persisting the reminder switch and lead time from the Schedule screen.
+3. An attribution page (OpenStreetMap/OSRM, Transitous, Open-Meteo, building data) and Profile permission rows that reflect the real permission state.
+4. Cache the timetable on the device so the Schedule screen opens offline.
+5. Strip sensor debug logging from release builds and ask Transitous for permission before switching public transport routing on.
+6. Apple sign-in once an Apple developer account is available.
+
+## Licence
+
+The code is released under the MIT Licence (see `LICENSE`). The app shows data from [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors routed by the FOSSGIS OSRM servers, from [Transitous](https://transitous.org/sources/) when public transport routing is enabled, and weather by [Open-Meteo](https://open-meteo.com) (CC BY 4.0); screens that show these must carry the credits described above.
