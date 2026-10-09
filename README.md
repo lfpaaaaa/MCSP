@@ -143,7 +143,7 @@ New group messages are pushed to the other members' devices through Firebase Clo
 
 4. Deploy: `npx supabase db push` and `npx supabase functions deploy notify-message`.
 
-Screens that show routed times must credit the data: "© OpenStreetMap contributors" linked to <https://www.openstreetmap.org/copyright>, a "Fix the map" link to <https://www.openstreetmap.org/fixthemap>, and, for public transport, a link to <https://transitous.org/sources/>.
+Screens that show routed times must credit the data: "© OpenStreetMap contributors" linked to <https://www.openstreetmap.org/copyright>, a "Fix the map" link to <https://www.openstreetmap.org/fixthemap>, and, for public transport, a link to <https://transitous.org/sources/>. The next-class card carries the OpenStreetMap credit under its travel times, and the About section of the Profile screen lists every data source with its links; `ui/about/DataSources.kt` is the one place the wording lives.
 
 Never commit `.env`, `local.properties`, OAuth secrets, or a Supabase service-role key.
 
@@ -162,7 +162,7 @@ Both are the same commands as in the quick check above, so a green run means a f
 - The app only ever holds the publishable key; the service-role key stays in the dashboard and in Edge Function secrets. Invite tokens expire after ten minutes and have a use limit; a wrong join code costs a one-second server-side wait.
 - Positions are coarsened before they leave the device (about 110 m for routing, about 1 km for weather). The server keeps travel times in a cache keyed by the rounded points and a per-user request count per day, never a user's positions; the sensor readings themselves stay on the phone, and only the derived travel state is shown.
 - `allowBackup` is off, so the on-device message cache and the sign-in session are not copied into cloud backups or device transfers; everything is re-fetched after sign-in.
-- Permissions are limited to what the features use: location (travel context and geofencing), activity recognition (motion state), camera (photos for the chat and, later, QR codes), NFC (invitations), notifications and the foreground-service permissions for the sensing service. The app does not record audio.
+- Permissions are limited to what the features use: location (travel context and geofencing), activity recognition (motion state), camera (photos for the chat and QR codes), NFC (invitations), notifications and the foreground-service permissions for the sensing service. The app does not record audio. The Profile screen shows the real state of each permission (`ui/profile/AppPermissions.kt`); tapping a row asks for the permission or opens the app's system settings when the system no longer shows the dialog.
 - Nothing secret is committed: `.env`, `local.properties`, `google-services.json` and OAuth or service-role keys are ignored by git.
 
 ## Front-end structure
@@ -183,17 +183,17 @@ Both are the same commands as in the quick check above, so a green run means a f
 - Schedule: timetable list with sync/manual edit entry points.
 - Timetable connection: prompts on Home after sign-in, then saves and validates a MyTimetable calendar subscription URL on device; network fetching and ICS parsing are the next data-layer step.
 - Groups: course groups, join by code, QR code or NFC, and the group chat: messages and shared files come from Supabase (realtime feed plus the Room cache, so saved messages stay readable offline), with optimistic sending, retry of failed messages, paging of older history, upload progress and photo previews.
-- Profile: authenticated account summary, sign-out, permissions, privacy, and notification preferences.
+- Profile: account summary, travel preferences (walking range and the mode for longer trips), the timetable URL, the real state of each permission with a note on where location data goes, credits for the data sources, the app version, and sign-out.
 
 ## Status and next steps
 
-Working end to end: sign-in (Google and email code), timetable import from a MyTimetable subscription URL, the next-class card with travel state, routed travel times with weather buffers, departure reminders ("time to leave" and "running late" notifications, with the lead time and switch saved from the Schedule screen), groups with join codes, QR and NFC invitations, real-time chat with an offline cache, shared files and photos, and push notifications for new messages.
+Working end to end: sign-in (Google and email code), timetable import from a MyTimetable subscription URL, the next-class card with travel state, routed travel times with weather buffers, departure reminders ("time to leave" and "running late" notifications, with the lead time and switch saved from the Schedule screen), groups with join codes, QR and NFC invitations, real-time chat with an offline cache, shared files and photos, push notifications for new messages, and a Profile screen with the real permission state and the data credits.
 
 Still to do, in order:
 
-1. An attribution page (OpenStreetMap/OSRM, Transitous, Open-Meteo, building data) and Profile permission rows that reflect the real permission state.
-2. Cache the timetable on the device so the Schedule screen opens offline.
-3. Strip sensor debug logging from release builds and ask Transitous for permission before switching public transport routing on.
+1. Cache the timetable on the device so the Schedule screen opens offline.
+2. Strip sensor debug logging from release builds and ask Transitous for permission before switching public transport routing on.
+3. Confirm the source and licence of the bundled campus building outlines and name them in the About section.
 4. Apple sign-in once an Apple developer account is available.
 
 ## Licence
