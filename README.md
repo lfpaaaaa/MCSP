@@ -187,14 +187,17 @@ Both are the same commands as in the quick check above, so a green run means a f
 
 ## Status and next steps
 
-Working end to end: sign-in (Google and email code), timetable import from a MyTimetable subscription URL, the next-class card with travel state, routed travel times with weather buffers, departure reminders ("time to leave" and "running late" notifications, with the lead time and switch saved from the Schedule screen), groups with join codes, QR and NFC invitations, real-time chat with an offline cache, shared files and photos, push notifications for new messages, and a Profile screen with the real permission state and the data credits.
+Working end to end: sign-in (Google and email code), timetable import from a MyTimetable subscription URL, the next-class card with travel state, routed travel times with weather buffers, departure reminders ("time to leave" and "running late" notifications, with the lead time and switch saved from the Schedule screen), groups with join codes, QR and NFC invitations, real-time chat with an offline cache, shared files and photos, push notifications for new messages, and a Profile screen with the real permission state and the data credits. A fresh clone with `local.properties` and `google-services.json` added builds, installs and signs in (checked 9 October 2026).
+
+Measured on 9 October 2026 with two emulators on one laptop and the Supabase project in Sydney, 50 one-character messages in one group: the insert round trip (`send()` until the server confirmed, logged under the `ChatLatency` tag) had a median of 58 ms and a 95th percentile of 77 ms; delivery to the second device through Realtime took about 0.1 to 0.6 s after correcting the emulators' clock offsets, and every message arrived.
 
 Still to do, in order:
 
 1. Cache the timetable on the device so the Schedule screen opens offline.
-2. Strip sensor debug logging from release builds and ask Transitous for permission before switching public transport routing on.
-3. Confirm the source and licence of the bundled campus building outlines and name them in the About section.
-4. Apple sign-in once an Apple developer account is available.
+2. Restore the open screen when the system has killed the app in the background (it currently comes back on Home unless a chat was open).
+3. Strip sensor debug logging from release builds and ask Transitous for permission before switching public transport routing on.
+4. Confirm the source and licence of the bundled campus building outlines and name them in the About section.
+5. Apple sign-in once an Apple developer account is available.
 
 ## Licence
 
