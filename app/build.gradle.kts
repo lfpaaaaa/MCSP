@@ -101,6 +101,8 @@ dependencies {
     implementation(libs.google.play.services.location)
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.messaging)
+    implementation(libs.zxing.android.embedded)
+    implementation(libs.zxing.core)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
     testImplementation(libs.junit)
