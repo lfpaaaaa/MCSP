@@ -100,7 +100,7 @@ Every group gets a six-character join code when it is created (`groups.join_code
 
 The `route-eta` Edge Function returns travel times for departure reminders. Walking and driving times come from the [FOSSGIS OSRM servers](https://routing.openstreetmap.de/about.html) and public transport times from [Transitous](https://transitous.org/api/); neither needs an API key. Both services are run by volunteers, so the function rounds positions to about 110 m, caches answers, starts calls to each service at least one second apart, and applies the fair-use limits in `private.route_limits`. When a limit is reached or a service is unavailable, the app shows an approximate offline estimate.
 
-On the device, `context/TravelEngine` joins the timetable, the location and motion sensors and these travel times into the travel state (upcoming, leave soon, en route, arrived) that the screens show. The building of each class is looked up from the location code in the timetable (for example `PAR-160`) in `assets/uom_building_outlines.geojson`. Rain or heat at the class's building adds a few minutes to the departure buffer; the weather comes from [Open-Meteo](https://open-meteo.com), which needs no key, is free for non-commercial use and licenses its data CC BY 4.0, so screens that show it must say "Weather data by Open-Meteo.com".
+On the device, `context/TravelEngine` joins the timetable, the location and motion sensors and these travel times into the travel state (upcoming, leave soon, en route, running late, arrived) that the screens show; `context/DepartureReminders` turns the "leave soon" and "running late" states into one notification each per class, which the Schedule screen's reminder switch and lead-time slider control. The building of each class is looked up from the location code in the timetable (for example `PAR-160`) in `assets/uom_building_outlines.geojson`. Rain or heat at the class's building adds a few minutes to the departure buffer; the weather comes from [Open-Meteo](https://open-meteo.com), which needs no key, is free for non-commercial use and licenses its data CC BY 4.0, so screens that show it must say "Weather data by Open-Meteo.com".
 
 Deploy the function after pushing the migrations:
 
@@ -185,16 +185,15 @@ Both are the same commands as in the quick check above, so a green run means a f
 
 ## Status and next steps
 
-Working end to end: sign-in (Google and email code), timetable import from a MyTimetable subscription URL, the next-class card with travel state, routed travel times with weather buffers, groups with join codes and NFC invitations, real-time chat with an offline cache, shared files and photos, and push notifications for new messages.
+Working end to end: sign-in (Google and email code), timetable import from a MyTimetable subscription URL, the next-class card with travel state, routed travel times with weather buffers, departure reminders ("time to leave" and "running late" notifications, with the lead time and switch saved from the Schedule screen), groups with join codes and NFC invitations, real-time chat with an offline cache, shared files and photos, and push notifications for new messages.
 
 Still to do, in order:
 
 1. QR invitations: scan a code with the camera and show one in the invite dialog (the "Scan QR" button is a placeholder).
-2. A local notification when the travel state becomes "leave soon", and persisting the reminder switch and lead time from the Schedule screen.
-3. An attribution page (OpenStreetMap/OSRM, Transitous, Open-Meteo, building data) and Profile permission rows that reflect the real permission state.
-4. Cache the timetable on the device so the Schedule screen opens offline.
-5. Strip sensor debug logging from release builds and ask Transitous for permission before switching public transport routing on.
-6. Apple sign-in once an Apple developer account is available.
+2. An attribution page (OpenStreetMap/OSRM, Transitous, Open-Meteo, building data) and Profile permission rows that reflect the real permission state.
+3. Cache the timetable on the device so the Schedule screen opens offline.
+4. Strip sensor debug logging from release builds and ask Transitous for permission before switching public transport routing on.
+5. Apple sign-in once an Apple developer account is available.
 
 ## Licence
 

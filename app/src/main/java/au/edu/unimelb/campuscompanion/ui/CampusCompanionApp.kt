@@ -66,6 +66,7 @@ import au.edu.unimelb.campuscompanion.data.model.Group
 import au.edu.unimelb.campuscompanion.data.model.GroupSummary
 import au.edu.unimelb.campuscompanion.nfc.NfcInviteHostSession
 import au.edu.unimelb.campuscompanion.nfc.NfcInviteReader
+import au.edu.unimelb.campuscompanion.push.NotificationTaps
 import au.edu.unimelb.campuscompanion.ui.model.CourseGroup
 import au.edu.unimelb.campuscompanion.ui.model.GroupChatPreferences
 import au.edu.unimelb.campuscompanion.ui.model.GroupOrigin
@@ -354,6 +355,7 @@ private fun AuthenticatedCampusApp(
     val groupRepository = remember { AppRepositories.groups }
     val inviteRepository = remember { AppRepositories.invites }
     val pendingJoinToken by AppRepositories.joinLinks.pendingToken.collectAsState()
+    val tappedNotification by NotificationTaps.pending.collectAsState()
     val nfcInviteDelivered by NfcInviteHostSession.delivered.collectAsState()
     val nfcAdapter = remember(context) {
         context.getSystemService(NfcManager::class.java)?.defaultAdapter
@@ -514,8 +516,8 @@ private fun AuthenticatedCampusApp(
         }
     }
 
-    fun navigateToGroups() {
-        navController.navigate(CampusDestination.Groups.route) {
+    fun navigateToDestination(route: String) {
+        navController.navigate(route) {
             popUpTo(navController.graph.findStartDestination().id) {
                 saveState = true
             }
@@ -523,6 +525,8 @@ private fun AuthenticatedCampusApp(
             restoreState = true
         }
     }
+
+    fun navigateToGroups() = navigateToDestination(CampusDestination.Groups.route)
 
     fun startNfcJoin() {
         NfcInviteHostSession.clear()
@@ -671,6 +675,33 @@ private fun AuthenticatedCampusApp(
         val ready = nfcShareState as? NfcShareUiState.Ready ?: return@LaunchedEffect
         NfcInviteHostSession.clear()
         nfcShareState = NfcShareUiState.Shared(ready.groupName)
+    }
+
+    // The travel engine keeps the saved lead time in hand on top of the travel time.
+    LaunchedEffect(travelPreferences.reminderLeadMinutes) {
+        travel.updateLeadMinutes(travelPreferences.reminderLeadMinutes)
+    }
+
+    // A tapped notification opens its chat (once the groups are known) or the Schedule screen.
+    LaunchedEffect(tappedNotification, allGroups, groupSyncReady) {
+        when (val target = tappedNotification) {
+            null -> Unit
+            is NotificationTaps.Target.Schedule -> {
+                NotificationTaps.clear()
+                navigateToDestination(CampusDestination.Schedule.route)
+            }
+            is NotificationTaps.Target.GroupChat -> {
+                val group = allGroups.firstOrNull { it.id == target.groupId }
+                when {
+                    group != null -> {
+                        NotificationTaps.clear()
+                        openGroup(group)
+                    }
+                    // The groups have loaded and this one is not among them any more.
+                    groupSyncReady || !SupabaseProvider.isConfigured -> NotificationTaps.clear()
+                }
+            }
+        }
     }
 
     LaunchedEffect(pendingJoinToken, user.id) {
@@ -854,6 +885,12 @@ private fun AuthenticatedCampusApp(
             composable(CampusDestination.Schedule.route) {
                 ScheduleScreen(
                     timetableState = displayedTimetable,
+                    travelPreferences = travelPreferences,
+                    onReminderPreferencesChange = { enabled, leadMinutes ->
+                        updateTravelPreferences(
+                            travelPreferences.copy(remindersEnabled = enabled, reminderLeadMinutes = leadMinutes)
+                        )
+                    },
                     onTimetableUrlSave = connectTimetable,
                     onTimetableUrlRemove = removeTimetable
                 )

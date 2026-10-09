@@ -10,7 +10,11 @@ enum class TravelMode(val displayName: String) {
 
 data class TravelPreferences(
     val walkingThresholdMeters: Int = DEFAULT_WALKING_THRESHOLD_METERS,
-    val longerDistanceMode: TravelMode = TravelMode.PublicTransport
+    val longerDistanceMode: TravelMode = TravelMode.PublicTransport,
+    /** Whether a notification is posted when it is time to leave for the next class. */
+    val remindersEnabled: Boolean = true,
+    /** Minutes kept in hand on top of the travel time; the Schedule screen's slider. */
+    val reminderLeadMinutes: Int = DEFAULT_REMINDER_LEAD_MINUTES
 ) {
     fun preferredMode(distanceMeters: Int): TravelMode {
         require(distanceMeters >= 0) { "Distance cannot be negative" }
@@ -23,6 +27,8 @@ data class TravelPreferences(
 
     companion object {
         const val DEFAULT_WALKING_THRESHOLD_METERS = 1_000
+        const val DEFAULT_REMINDER_LEAD_MINUTES = 10
+        val REMINDER_LEAD_RANGE: IntRange = 0..60
     }
 }
 
@@ -43,7 +49,12 @@ class TravelPreferencesStore(context: Context) {
                 KEY_WALKING_THRESHOLD_METERS,
                 TravelPreferences.DEFAULT_WALKING_THRESHOLD_METERS
             ),
-            longerDistanceMode = longerDistanceMode
+            longerDistanceMode = longerDistanceMode,
+            remindersEnabled = preferences.getBoolean(KEY_REMINDERS_ENABLED, true),
+            reminderLeadMinutes = preferences.getInt(
+                KEY_REMINDER_LEAD_MINUTES,
+                TravelPreferences.DEFAULT_REMINDER_LEAD_MINUTES
+            ).coerceIn(TravelPreferences.REMINDER_LEAD_RANGE)
         )
     }
 
@@ -51,6 +62,8 @@ class TravelPreferencesStore(context: Context) {
         preferences.edit()
             .putInt(KEY_WALKING_THRESHOLD_METERS, preferencesValue.walkingThresholdMeters)
             .putString(KEY_LONGER_DISTANCE_MODE, preferencesValue.longerDistanceMode.name)
+            .putBoolean(KEY_REMINDERS_ENABLED, preferencesValue.remindersEnabled)
+            .putInt(KEY_REMINDER_LEAD_MINUTES, preferencesValue.reminderLeadMinutes)
             .apply()
     }
 
@@ -58,5 +71,7 @@ class TravelPreferencesStore(context: Context) {
         const val PREFERENCES_NAME = "travel_preferences"
         const val KEY_WALKING_THRESHOLD_METERS = "walking_threshold_meters"
         const val KEY_LONGER_DISTANCE_MODE = "longer_distance_mode"
+        const val KEY_REMINDERS_ENABLED = "reminders_enabled"
+        const val KEY_REMINDER_LEAD_MINUTES = "reminder_lead_minutes"
     }
 }

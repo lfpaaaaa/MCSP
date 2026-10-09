@@ -15,6 +15,7 @@ import androidx.core.content.ContextCompat
 import au.edu.unimelb.campuscompanion.auth.AuthViewModel
 import au.edu.unimelb.campuscompanion.auth.SupabaseProvider
 import au.edu.unimelb.campuscompanion.data.AppRepositories
+import au.edu.unimelb.campuscompanion.push.NotificationTaps
 import au.edu.unimelb.campuscompanion.sensing.service.SensingForegroundService
 import au.edu.unimelb.campuscompanion.ui.CampusCompanionApp
 
@@ -160,6 +161,8 @@ class MainActivity : ComponentActivity() {
                 .offer(
                     intent?.dataString
                 )
+
+            NotificationTaps.offer(intent)
         }
 
         // ---------------------------------------------------------
@@ -424,6 +427,8 @@ class MainActivity : ComponentActivity() {
             .offer(
                 intent.dataString
             )
+
+        NotificationTaps.offer(intent)
     }
 
     // ---------------------------------------------------------

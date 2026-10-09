@@ -21,15 +21,15 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -38,7 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import au.edu.unimelb.campuscompanion.data.AppRepositories
+import au.edu.unimelb.campuscompanion.data.TravelPreferences
 import au.edu.unimelb.campuscompanion.ui.components.CourseSessionRow
 import au.edu.unimelb.campuscompanion.ui.components.SectionHeader
 import au.edu.unimelb.campuscompanion.ui.components.TimetableUrlDialog
@@ -46,26 +46,25 @@ import au.edu.unimelb.campuscompanion.ui.model.CourseSession
 import au.edu.unimelb.campuscompanion.ui.model.TimetableState
 import au.edu.unimelb.campuscompanion.ui.model.departureReminderTime
 import java.time.format.DateTimeFormatter
-import kotlin.math.roundToInt
 
 private val reminderTimeFormatter = DateTimeFormatter.ofPattern("h:mm a")
 private const val MAX_VISIBLE_SESSIONS = 50
 
+/** Lead times the reminder card offers, in minutes. */
+private val LEAD_MINUTE_OPTIONS = listOf(5, 10, 15, 20, 30)
+
 @Composable
 fun ScheduleScreen(
     timetableState: TimetableState,
+    travelPreferences: TravelPreferences,
+    onReminderPreferencesChange: (enabled: Boolean, leadMinutes: Int) -> Unit,
     onTimetableUrlSave: suspend (String) -> Result<Unit>,
     onTimetableUrlRemove: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var remindersEnabled by rememberSaveable { mutableStateOf(true) }
-    var leadMinutes by rememberSaveable { mutableIntStateOf(10) }
+    val remindersEnabled = travelPreferences.remindersEnabled
+    val leadMinutes = travelPreferences.reminderLeadMinutes
     var showTimetableDialog by rememberSaveable { mutableStateOf(false) }
-
-    // The lead time is the buffer the travel engine keeps on top of the travel time.
-    LaunchedEffect(leadMinutes) {
-        AppRepositories.travel.updateLeadMinutes(leadMinutes)
-    }
 
     if (showTimetableDialog) {
         TimetableUrlDialog(
@@ -113,8 +112,8 @@ fun ScheduleScreen(
                         session = nextSession,
                         enabled = remindersEnabled,
                         leadMinutes = leadMinutes,
-                        onEnabledChange = { remindersEnabled = it },
-                        onLeadMinutesChange = { leadMinutes = it }
+                        onEnabledChange = { onReminderPreferencesChange(it, leadMinutes) },
+                        onLeadMinutesChange = { onReminderPreferencesChange(remindersEnabled, it) }
                     )
                 }
 
@@ -331,14 +330,20 @@ private fun DepartureReminderSettings(
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.Medium
                 )
-                Slider(
-                    value = leadMinutes.toFloat(),
-                    onValueChange = { value ->
-                        onLeadMinutesChange((value / 5f).roundToInt() * 5)
-                    },
-                    valueRange = 0f..30f,
-                    steps = 5
-                )
+                // Fixed choices rather than a slider: each tap lands on one value, which is also
+                // easier with one hand or on an emulator.
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    LEAD_MINUTE_OPTIONS.forEachIndexed { index, minutes ->
+                        SegmentedButton(
+                            selected = leadMinutes == minutes,
+                            onClick = { onLeadMinutesChange(minutes) },
+                            shape = SegmentedButtonDefaults.itemShape(index = index, count = LEAD_MINUTE_OPTIONS.size),
+                            icon = {}
+                        ) {
+                            Text("$minutes")
+                        }
+                    }
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
