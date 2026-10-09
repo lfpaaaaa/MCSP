@@ -39,6 +39,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import au.edu.unimelb.campuscompanion.data.TravelMode
 import au.edu.unimelb.campuscompanion.data.TravelPreferences
+import au.edu.unimelb.campuscompanion.ui.about.RoutingCredit
 import au.edu.unimelb.campuscompanion.ui.components.CourseSessionRow
 import au.edu.unimelb.campuscompanion.ui.components.GroupUpdateRow
 import au.edu.unimelb.campuscompanion.ui.components.SectionHeader
@@ -258,6 +259,7 @@ private fun NextClassCard(
                     modifier = Modifier.weight(1f)
                 )
             }
+            RoutingCredit()
         }
     }
 }
