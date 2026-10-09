@@ -144,6 +144,7 @@ Never commit `.env`, `local.properties`, OAuth secrets, or a Supabase service-ro
 - `auth/` owns Supabase setup, session state, OAuth, email OTP, and profile metadata.
 - `ui/CampusCompanionApp.kt` switches between authentication and the signed-in navigation shell.
 - `ui/screens/` contains the first front-end pages.
+- `ui/chat/` holds the state of an open group chat (`GroupChatSession`: the timeline of messages and shared files, uploads, connection state and latency samples) that `GroupChatScreen` renders; `ChatLatency` log lines record send round trips and delivery times for the responsiveness measurements.
 - `ui/components/` contains reusable UI building blocks.
 - `ui/model/` contains mock models and demo data until backend, timetable, and sensing layers are connected.
 - `ui/theme/` contains the Material 3 color and typography setup.
@@ -153,7 +154,7 @@ Never commit `.env`, `local.properties`, OAuth secrets, or a Supabase service-ro
 - Home: context-aware next-class card, travel status, upcoming classes, and group updates.
 - Schedule: timetable list with sync/manual edit entry points.
 - Timetable connection: prompts on Home after sign-in, then saves and validates a MyTimetable calendar subscription URL on device; network fetching and ICS parsing are the next data-layer step.
-- Groups: course groups, QR join action, chat/file status.
+- Groups: course groups, join by code or NFC, and the group chat: messages and shared files come from Supabase (realtime feed plus the Room cache, so saved messages stay readable offline), with optimistic sending, retry of failed messages, paging of older history, upload progress and photo previews.
 - Profile: authenticated account summary, sign-out, permissions, privacy, and notification preferences.
 
 ## Next implementation steps

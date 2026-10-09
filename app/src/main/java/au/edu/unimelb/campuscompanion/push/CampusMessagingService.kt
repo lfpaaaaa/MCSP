@@ -14,9 +14,14 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import au.edu.unimelb.campuscompanion.MainActivity
 import au.edu.unimelb.campuscompanion.R
+import au.edu.unimelb.campuscompanion.auth.SupabaseProvider
 import au.edu.unimelb.campuscompanion.data.AppRepositories
+import au.edu.unimelb.campuscompanion.ui.GroupChatPreferencesStore
+import au.edu.unimelb.campuscompanion.ui.chat.OpenChat
+import io.github.jan.supabase.auth.auth
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import kotlinx.coroutines.launch
 
 /** Receives Firebase Cloud Messaging events: token rotation and new group messages. */
 class CampusMessagingService : FirebaseMessagingService() {
@@ -27,6 +32,8 @@ class CampusMessagingService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         val push = MessagePush.from(message.data) ?: return
+        // The group list shows the latest message and unread count, so it is refreshed as well.
+        AppRepositories.backgroundScope.launch { AppRepositories.groups.refresh() }
         showNotification(this, push)
     }
 
@@ -37,6 +44,8 @@ class CampusMessagingService : FirebaseMessagingService() {
         @SuppressLint("MissingPermission")
         fun showNotification(context: Context, push: MessagePush) {
             if (!canNotify(context)) return
+            // The chat that is on screen already shows the message, and muted groups stay quiet.
+            if (push.groupId == OpenChat.groupId || isMuted(context, push.groupId)) return
             createChannel(context)
 
             val open = Intent(context, MainActivity::class.java).apply {
@@ -61,6 +70,11 @@ class CampusMessagingService : FirebaseMessagingService() {
                 .setCategory(NotificationCompat.CATEGORY_MESSAGE)
                 .build()
             NotificationManagerCompat.from(context).notify(push.notificationId, notification)
+        }
+
+        private fun isMuted(context: Context, groupId: String): Boolean {
+            val userId = SupabaseProvider.client?.auth?.currentUserOrNull()?.id ?: return false
+            return GroupChatPreferencesStore(context, userId).load(groupId).muted
         }
 
         private fun canNotify(context: Context): Boolean {

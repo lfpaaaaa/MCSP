@@ -56,6 +56,10 @@ object AppRepositories {
     private lateinit var appContext: Context
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    /** Work that should finish even when the screen that started it goes away, such as file uploads. */
+    val backgroundScope: CoroutineScope
+        get() = applicationScope
+
     /** Prepares the on-device cache. Called once from the application's onCreate. */
     fun init(context: Context) {
         appContext = context.applicationContext

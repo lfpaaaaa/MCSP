@@ -119,6 +119,20 @@ class TravelEngineTest {
     }
 
     @Test
+    fun aPositionFarFromCampusGivesNoTravelTime() = runBlocking<Unit> {
+        engine.updateSessions(listOf(lecture))
+        engine.updateOrigin(GeoPoint(37.4220, -122.0841)) // an emulator's default location
+
+        engine.refresh()
+        val snapshot = engine.snapshot.value
+
+        assertEquals(FakeBuildingLookup.PETER_HALL, snapshot.building)
+        assertTrue((snapshot.distanceMeters ?: 0.0) > TravelEngine.MAX_ROUTED_DISTANCE_METERS)
+        assertNull(snapshot.estimate)
+        assertTrue(eta.requests.isEmpty())
+    }
+
+    @Test
     fun withoutAPositionOnlyTheClassIsKnown() = runBlocking<Unit> {
         engine.updateSessions(listOf(lecture))
 

@@ -62,6 +62,7 @@ import au.edu.unimelb.campuscompanion.data.TimetableSubscriptionStore
 import au.edu.unimelb.campuscompanion.data.TravelPreferences
 import au.edu.unimelb.campuscompanion.data.TravelPreferencesStore
 import au.edu.unimelb.campuscompanion.data.toUserMessage
+import au.edu.unimelb.campuscompanion.data.model.Group
 import au.edu.unimelb.campuscompanion.data.model.GroupSummary
 import au.edu.unimelb.campuscompanion.nfc.NfcInviteHostSession
 import au.edu.unimelb.campuscompanion.nfc.NfcInviteReader
@@ -90,6 +91,7 @@ import au.edu.unimelb.campuscompanion.ui.screens.LoginScreen
 import au.edu.unimelb.campuscompanion.ui.screens.NfcShareDialog
 import au.edu.unimelb.campuscompanion.ui.screens.ProfileScreen
 import au.edu.unimelb.campuscompanion.ui.screens.ScheduleScreen
+import au.edu.unimelb.campuscompanion.ui.screens.TimetableGroupScreen
 import au.edu.unimelb.campuscompanion.ui.theme.CampusCompanionTheme
 import java.io.File
 import java.time.Duration
@@ -386,7 +388,12 @@ private fun AuthenticatedCampusApp(
         }
     }
     val allGroups = remember(timetableState.groups, syncedGroups) {
-        (timetableState.groups + syncedGroups).distinctBy(CourseGroup::id)
+        // A class from the timetable is only a placeholder until a real group carries its course code.
+        val linkedCourseCodes = syncedGroups.mapNotNullTo(mutableSetOf()) { group ->
+            group.courseCode.takeIf(String::isNotBlank)?.uppercase()
+        }
+        val placeholders = timetableState.groups.filterNot { it.courseCode.uppercase() in linkedCourseCodes }
+        (placeholders + syncedGroups).distinctBy(CourseGroup::id)
     }
     val groupPreferencesStore = remember(context, user.id) {
         GroupChatPreferencesStore(context, user.id)
@@ -580,6 +587,8 @@ private fun AuthenticatedCampusApp(
 
     fun closeGroup() {
         onGroupClosed()
+        // The list shows the latest message and unread count, which this chat has just changed.
+        if (SupabaseProvider.isConfigured) scope.launch { groupRepository.refresh() }
         if (!navController.navigateUp()) {
             navController.navigate(CampusDestination.Groups.route) {
                 popUpTo(navController.graph.findStartDestination().id) {
@@ -697,6 +706,10 @@ private fun AuthenticatedCampusApp(
 
     LaunchedEffect(currentRoute) {
         if (!isGroupChat) showGroupSettings = false
+        // The list's previews and unread counts come from the server; fetch them when it is shown.
+        if (currentRoute == CampusDestination.Groups.route && SupabaseProvider.isConfigured) {
+            groupRepository.refresh()
+        }
     }
 
     if (nfcShareState !is NfcShareUiState.Idle) {
@@ -826,7 +839,10 @@ private fun AuthenticatedCampusApp(
             composable(CampusDestination.Home.route) {
                 HomeScreen(
                     timetableState = displayedTimetable.copy(
-                        groups = activeGroups.filter { it.origin == GroupOrigin.Timetable }
+                        // Real course groups come before the timetable placeholders.
+                        groups = activeGroups
+                            .filter { group -> group.origin == GroupOrigin.Timetable || group.courseCode.isNotBlank() }
+                            .sortedBy { group -> group.origin == GroupOrigin.Timetable }
                     ),
                     travelPreferences = travelPreferences,
                     onTimetableUrlSave = connectTimetable,
@@ -893,13 +909,27 @@ private fun AuthenticatedCampusApp(
                 val groupId = entry.arguments?.getString("groupId")
                 val group = allGroups.firstOrNull { it.id == groupId }
                 val cachedGroup = restoredGroup?.takeIf { it.id == groupId }
+                // After a restart the timetable and the server-side groups load separately; the chat
+                // stays open from the saved group until both have arrived.
+                val groupsStillLoading = timetableState.isLoading ||
+                    (SupabaseProvider.isConfigured && !groupSyncReady)
                 when {
+                    group != null && group.origin == GroupOrigin.Timetable -> TimetableGroupScreen(
+                        group = group,
+                        onStartGroup = {
+                            // The timetable title ends with the session type ("…, Lecture1"), which is
+                            // not part of the group's name.
+                            val groupName = group.name.substringBefore(",").trim().ifBlank { group.courseCode }.take(60)
+                            groupRepository.createGroup(groupName, group.courseCode).map { created ->
+                                groupSyncReady = true
+                                openGroup(created.toCourseGroup(currentUserId = user.id, memberCount = 1))
+                            }
+                        },
+                        onGoToGroups = ::navigateToGroups
+                    )
                     group != null -> GroupChatScreen(
                         group = group,
-                        myDisplayName = groupPreferences[group.id]
-                            ?.displayName
-                            ?.takeIf(String::isNotBlank)
-                            ?: user.profileName,
+                        currentUserId = user.id,
                         pendingDocuments = pendingDocuments,
                         pendingDocumentError = pendingDocumentError,
                         capturedCameraUri = capturedCameraUri,
@@ -909,12 +939,9 @@ private fun AuthenticatedCampusApp(
                         onTakePhoto = { onTakeGroupPhoto(group.id) },
                         onCapturedCameraPhotoConsumed = onCapturedCameraPhotoConsumed
                     )
-                    timetableState.isLoading && cachedGroup != null -> GroupChatScreen(
+                    groupsStillLoading && cachedGroup != null -> GroupChatScreen(
                         group = cachedGroup,
-                        myDisplayName = groupPreferencesStore.load(cachedGroup.id)
-                            .displayName
-                            .takeIf(String::isNotBlank)
-                            ?: user.profileName,
+                        currentUserId = user.id,
                         pendingDocuments = pendingDocuments,
                         pendingDocumentError = pendingDocumentError,
                         capturedCameraUri = capturedCameraUri,
@@ -924,7 +951,7 @@ private fun AuthenticatedCampusApp(
                         onTakePhoto = { onTakeGroupPhoto(cachedGroup.id) },
                         onCapturedCameraPhotoConsumed = onCapturedCameraPhotoConsumed
                     )
-                    timetableState.isLoading -> Box(
+                    groupsStillLoading -> Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
@@ -951,6 +978,20 @@ private fun AuthenticatedCampusApp(
         }
     }
 }
+
+/** A group the user has just created, before its summary has been fetched. */
+private fun Group.toCourseGroup(currentUserId: String, memberCount: Int): CourseGroup = CourseGroup(
+    id = id,
+    courseCode = courseCode.orEmpty(),
+    name = name,
+    members = memberCount,
+    unreadCount = 0,
+    latestMessage = "No messages yet.",
+    latestFileName = null,
+    privateContentEnabled = privateContentEnabled,
+    origin = if (createdBy == currentUserId) GroupOrigin.CreatedByUser else GroupOrigin.Joined,
+    joinCode = joinCode
+)
 
 private fun GroupSummary.toCourseGroup(currentUserId: String): CourseGroup = CourseGroup(
     id = group.id,
