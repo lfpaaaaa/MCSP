@@ -50,10 +50,12 @@ jobs:
         with:
           deno-version: v2.x
 
+      # The repository's package.json (for the Supabase CLI) would make Deno look for npm
+      # packages in node_modules; the functions take theirs from Deno's own cache instead.
       - name: Type-check the Edge Functions
         run: |
           for function in supabase/functions/*/; do
             echo "::group::$function"
-            deno check "$function"index.ts
+            deno check --node-modules-dir=none "$function"index.ts
             echo "::endgroup::"
           done
