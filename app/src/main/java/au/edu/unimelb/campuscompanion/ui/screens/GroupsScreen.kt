@@ -444,7 +444,7 @@ private fun StartGroupDialog(
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("${result.groupName} is ready.")
-                    if (result.joinCode != null && result.expiresAt != null) {
+                    if (result.joinCode != null) {
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(8.dp),
@@ -476,11 +476,18 @@ private fun StartGroupDialog(
                                 }
                             }
                         }
-                        val minutesRemaining = Duration.between(Instant.now(), result.expiresAt)
-                            .toMinutes()
-                            .coerceAtLeast(1L)
+                        val expiresAt = result.expiresAt
+                        val expiryText = if (expiresAt != null) {
+                            val minutesRemaining = Duration.between(Instant.now(), expiresAt)
+                                .toMinutes()
+                                .coerceAtLeast(1L)
+                            "Expires in $minutesRemaining minutes."
+                        } else {
+                            "Share this code with your group. It does not expire, and you can " +
+                                "replace it from the group settings."
+                        }
                         Text(
-                            text = "Expires in $minutesRemaining minutes.",
+                            text = expiryText,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
