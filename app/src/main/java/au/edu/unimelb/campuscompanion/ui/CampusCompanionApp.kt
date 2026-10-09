@@ -63,6 +63,7 @@ import au.edu.unimelb.campuscompanion.data.TravelPreferences
 import au.edu.unimelb.campuscompanion.data.TravelPreferencesStore
 import au.edu.unimelb.campuscompanion.data.toUserMessage
 import au.edu.unimelb.campuscompanion.data.model.Group
+import au.edu.unimelb.campuscompanion.data.model.GroupInvite
 import au.edu.unimelb.campuscompanion.data.model.GroupSummary
 import au.edu.unimelb.campuscompanion.nfc.NfcInviteHostSession
 import au.edu.unimelb.campuscompanion.nfc.NfcInviteReader
@@ -74,6 +75,7 @@ import au.edu.unimelb.campuscompanion.ui.model.MAX_PENDING_DOCUMENTS
 import au.edu.unimelb.campuscompanion.ui.model.NfcJoinUiState
 import au.edu.unimelb.campuscompanion.ui.model.NfcShareUiState
 import au.edu.unimelb.campuscompanion.ui.model.PendingDocument
+import au.edu.unimelb.campuscompanion.ui.model.QrShareUiState
 import au.edu.unimelb.campuscompanion.ui.model.StartedGroupAccess
 import au.edu.unimelb.campuscompanion.ui.model.TimetableState
 import au.edu.unimelb.campuscompanion.ui.model.foldedOverrideAfterEdit
@@ -88,12 +90,15 @@ import au.edu.unimelb.campuscompanion.ui.screens.GroupChatScreen
 import au.edu.unimelb.campuscompanion.ui.screens.GroupSettingsDialog
 import au.edu.unimelb.campuscompanion.ui.screens.GroupsScreen
 import au.edu.unimelb.campuscompanion.ui.screens.HomeScreen
+import au.edu.unimelb.campuscompanion.ui.screens.InviteQrDialog
 import au.edu.unimelb.campuscompanion.ui.screens.LoginScreen
 import au.edu.unimelb.campuscompanion.ui.screens.NfcShareDialog
 import au.edu.unimelb.campuscompanion.ui.screens.ProfileScreen
 import au.edu.unimelb.campuscompanion.ui.screens.ScheduleScreen
 import au.edu.unimelb.campuscompanion.ui.screens.TimetableGroupScreen
 import au.edu.unimelb.campuscompanion.ui.theme.CampusCompanionTheme
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import java.io.File
 import java.time.Duration
 import java.time.Instant
@@ -371,6 +376,9 @@ private fun AuthenticatedCampusApp(
     var nfcShareState by remember(user.id) {
         mutableStateOf<NfcShareUiState>(NfcShareUiState.Idle)
     }
+    var qrShareState by remember(user.id) {
+        mutableStateOf<QrShareUiState>(QrShareUiState.Idle)
+    }
     val syncedGroupSummaries by groupRepository.observeMyGroups()
         .collectAsState(initial = emptyList())
     var groupSyncReady by remember(user.id) { mutableStateOf(false) }
@@ -541,6 +549,66 @@ private fun AuthenticatedCampusApp(
     fun stopNfcShare() {
         NfcInviteHostSession.clear()
         nfcShareState = NfcShareUiState.Idle
+    }
+
+    fun startQrShare(group: CourseGroup) {
+        showGroupSettings = false
+        qrShareState = QrShareUiState.CreatingInvite
+        scope.launch {
+            inviteRepository.createInvite(group.id).fold(
+                onSuccess = { invite ->
+                    qrShareState = QrShareUiState.Ready(
+                        groupName = group.name,
+                        joinUri = invite.joinUri,
+                        expiresAt = invite.expiresAt
+                    )
+                },
+                onFailure = { error ->
+                    val message = error.toUserMessage()
+                    qrShareState = QrShareUiState.Failed(message.title, message.body)
+                }
+            )
+        }
+    }
+
+    // A scanned invite joins through the same path as a link that opened the app; a scanned
+    // six-character code is typed in on the user's behalf.
+    val qrScanner = rememberLauncherForActivityResult(ScanContract()) { result ->
+        val contents = result.contents?.trim() ?: return@rememberLauncherForActivityResult
+        if (AppRepositories.joinLinks.offer(contents)) return@rememberLauncherForActivityResult
+        val code = GroupInvite.joinCodeFromText(contents)
+        if (code == null) {
+            nfcJoinState = NfcJoinUiState.Failed(
+                title = "Not an invitation",
+                message = "That QR code is not a Campus Companion invitation. Ask a group member to show theirs."
+            )
+            return@rememberLauncherForActivityResult
+        }
+        nfcJoinState = NfcJoinUiState.Joining
+        scope.launch {
+            inviteRepository.joinWithToken(code).fold(
+                onSuccess = { group ->
+                    groupSyncReady = true
+                    nfcJoinState = NfcJoinUiState.Joined(group.name)
+                },
+                onFailure = { error ->
+                    val message = error.toUserMessage()
+                    nfcJoinState = NfcJoinUiState.Failed(message.title, message.body)
+                }
+            )
+        }
+    }
+
+    fun startQrScan() {
+        NfcInviteHostSession.clear()
+        nfcShareState = NfcShareUiState.Idle
+        qrScanner.launch(
+            ScanOptions()
+                .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                .setPrompt("Point the camera at a Campus Companion invitation")
+                .setBeepEnabled(false)
+                .setOrientationLocked(true)
+        )
     }
 
     fun startNfcShare(group: CourseGroup) {
@@ -743,6 +811,16 @@ private fun AuthenticatedCampusApp(
         }
     }
 
+    if (qrShareState !is QrShareUiState.Idle) {
+        InviteQrDialog(
+            state = qrShareState,
+            onDismiss = { qrShareState = QrShareUiState.Idle },
+            onNewCode = {
+                selectedGroup?.let(::startQrShare) ?: run { qrShareState = QrShareUiState.Idle }
+            }
+        )
+    }
+
     if (nfcShareState !is NfcShareUiState.Idle) {
         NfcShareDialog(
             state = nfcShareState,
@@ -762,6 +840,7 @@ private fun AuthenticatedCampusApp(
             initialDisplayName = selectedPreferences.displayName.ifBlank { user.profileName },
             onDismiss = { showGroupSettings = false },
             onInviteWithNfc = { startNfcShare(selectedGroup) },
+            onShowQrCode = { startQrShare(selectedGroup) },
             onReplaceJoinCode = { groupRepository.resetJoinCode(selectedGroup.id) },
             onSave = { folded, muted, displayName ->
                 val foldedOverride = foldedOverrideAfterEdit(
@@ -921,6 +1000,7 @@ private fun AuthenticatedCampusApp(
                         }
                     },
                     nfcJoinState = nfcJoinState,
+                    onScanQr = ::startQrScan,
                     onStartNfcJoin = ::startNfcJoin,
                     onDismissNfcJoin = {
                         nfcJoinState = NfcJoinUiState.Idle

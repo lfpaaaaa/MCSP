@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Nfc
+import androidx.compose.material.icons.outlined.QrCode2
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -48,6 +49,7 @@ fun GroupSettingsDialog(
     initialDisplayName: String,
     onDismiss: () -> Unit,
     onInviteWithNfc: () -> Unit,
+    onShowQrCode: () -> Unit,
     onReplaceJoinCode: suspend () -> Result<String>,
     onSave: (folded: Boolean, muted: Boolean, displayName: String) -> Unit
 ) {
@@ -68,18 +70,36 @@ fun GroupSettingsDialog(
                         onReplaceJoinCode = onReplaceJoinCode
                     )
                 }
-                OutlinedButton(
-                    onClick = onInviteWithNfc,
-                    modifier = Modifier.fillMaxWidth()
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Nfc,
-                        contentDescription = null
-                    )
-                    Text(
-                        text = "Invite with NFC",
-                        modifier = Modifier.padding(start = 8.dp)
-                    )
+                    OutlinedButton(
+                        onClick = onShowQrCode,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.QrCode2,
+                            contentDescription = null
+                        )
+                        Text(
+                            text = "QR",
+                            modifier = Modifier.padding(start = 8.dp)
+                        )
+                    }
+                    OutlinedButton(
+                        onClick = onInviteWithNfc,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Nfc,
+                            contentDescription = null
+                        )
+                        Text(
+                            text = "NFC",
+                            modifier = Modifier.padding(start = 8.dp)
+                        )
+                    }
                 }
                 SettingSwitchRow(
                     title = "Fold this group",

@@ -96,6 +96,8 @@ npx supabase db push
 
 Every group gets a six-character join code when it is created (`groups.join_code`, letters and digits that are hard to confuse). Members see it and pass it on; typing it joins the group, and an owner can replace it with `reset_group_code`. QR codes and NFC tags carry short-lived invite tokens instead; `join_group_with_token` accepts both. A wrong code costs a one-second wait on the server, which keeps guessing impractical.
 
+The QR code (group settings > QR code) encodes the invite link `campuscompanion://join?token=…`, so it works both with the app's own scanner (Groups > Scan QR, built on ZXing) and with the phone's camera app, which opens the link in Campus Companion. The scanner also accepts a QR code that simply contains a six-character join code.
+
 ### Travel times
 
 The `route-eta` Edge Function returns travel times for departure reminders. Walking and driving times come from the [FOSSGIS OSRM servers](https://routing.openstreetmap.de/about.html) and public transport times from [Transitous](https://transitous.org/api/); neither needs an API key. Both services are run by volunteers, so the function rounds positions to about 110 m, caches answers, starts calls to each service at least one second apart, and applies the fair-use limits in `private.route_limits`. When a limit is reached or a service is unavailable, the app shows an approximate offline estimate.
@@ -180,20 +182,19 @@ Both are the same commands as in the quick check above, so a green run means a f
 - Home: context-aware next-class card, travel status, upcoming classes, and group updates.
 - Schedule: timetable list with sync/manual edit entry points.
 - Timetable connection: prompts on Home after sign-in, then saves and validates a MyTimetable calendar subscription URL on device; network fetching and ICS parsing are the next data-layer step.
-- Groups: course groups, join by code or NFC, and the group chat: messages and shared files come from Supabase (realtime feed plus the Room cache, so saved messages stay readable offline), with optimistic sending, retry of failed messages, paging of older history, upload progress and photo previews.
+- Groups: course groups, join by code, QR code or NFC, and the group chat: messages and shared files come from Supabase (realtime feed plus the Room cache, so saved messages stay readable offline), with optimistic sending, retry of failed messages, paging of older history, upload progress and photo previews.
 - Profile: authenticated account summary, sign-out, permissions, privacy, and notification preferences.
 
 ## Status and next steps
 
-Working end to end: sign-in (Google and email code), timetable import from a MyTimetable subscription URL, the next-class card with travel state, routed travel times with weather buffers, departure reminders ("time to leave" and "running late" notifications, with the lead time and switch saved from the Schedule screen), groups with join codes and NFC invitations, real-time chat with an offline cache, shared files and photos, and push notifications for new messages.
+Working end to end: sign-in (Google and email code), timetable import from a MyTimetable subscription URL, the next-class card with travel state, routed travel times with weather buffers, departure reminders ("time to leave" and "running late" notifications, with the lead time and switch saved from the Schedule screen), groups with join codes, QR and NFC invitations, real-time chat with an offline cache, shared files and photos, and push notifications for new messages.
 
 Still to do, in order:
 
-1. QR invitations: scan a code with the camera and show one in the invite dialog (the "Scan QR" button is a placeholder).
-2. An attribution page (OpenStreetMap/OSRM, Transitous, Open-Meteo, building data) and Profile permission rows that reflect the real permission state.
-3. Cache the timetable on the device so the Schedule screen opens offline.
-4. Strip sensor debug logging from release builds and ask Transitous for permission before switching public transport routing on.
-5. Apple sign-in once an Apple developer account is available.
+1. An attribution page (OpenStreetMap/OSRM, Transitous, Open-Meteo, building data) and Profile permission rows that reflect the real permission state.
+2. Cache the timetable on the device so the Schedule screen opens offline.
+3. Strip sensor debug logging from release builds and ask Transitous for permission before switching public transport routing on.
+4. Apple sign-in once an Apple developer account is available.
 
 ## Licence
 
