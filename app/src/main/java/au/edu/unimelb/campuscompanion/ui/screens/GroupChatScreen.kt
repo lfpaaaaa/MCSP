@@ -1,26 +1,31 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
 import android.Manifest
+import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.BitmapFactory
-import android.graphics.ImageDecoder
 import android.net.Uri
-import android.os.Build
 import android.provider.OpenableColumns
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -36,35 +41,42 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.outlined.AddCircleOutline
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.Videocam
-import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -74,36 +86,55 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import au.edu.unimelb.campuscompanion.data.AppRepositories
+import au.edu.unimelb.campuscompanion.data.DataError
+import au.edu.unimelb.campuscompanion.data.model.ChatConnection
+import au.edu.unimelb.campuscompanion.data.model.MessageStatus
+import au.edu.unimelb.campuscompanion.data.model.SharedFile
+import au.edu.unimelb.campuscompanion.data.repository.ChatRepository
+import au.edu.unimelb.campuscompanion.data.repository.FileRepository
+import au.edu.unimelb.campuscompanion.ui.chat.AttachmentReader
+import au.edu.unimelb.campuscompanion.ui.chat.ChatImageLoader
+import au.edu.unimelb.campuscompanion.ui.chat.ChatTimelineItem
+import au.edu.unimelb.campuscompanion.ui.chat.GroupChatSession
+import au.edu.unimelb.campuscompanion.ui.chat.LatencySample
+import au.edu.unimelb.campuscompanion.ui.chat.OpenChat
+import au.edu.unimelb.campuscompanion.ui.chat.PendingUpload
+import au.edu.unimelb.campuscompanion.ui.chat.TimelineRow
+import au.edu.unimelb.campuscompanion.ui.chat.timelineRows
 import au.edu.unimelb.campuscompanion.ui.model.CourseGroup
 import au.edu.unimelb.campuscompanion.ui.model.GroupOrigin
 import au.edu.unimelb.campuscompanion.ui.model.MAX_PENDING_DOCUMENTS
 import au.edu.unimelb.campuscompanion.ui.model.PendingDocument
-import java.io.File
-import java.time.LocalTime
-import java.time.format.DateTimeFormatter
-import kotlin.math.roundToInt
-import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import java.time.Instant
+import java.time.LocalDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
-private val chatTimeFormatter = DateTimeFormatter.ofPattern("h:mm a")
+private val chatTimeFormatter = DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH)
+private val photoNameFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH.mm.ss", Locale.ENGLISH)
+private const val LATENCY_LOG_TAG = "ChatLatency"
+private const val NOTICE_MILLIS = 6_000L
 
-private data class ChatUiMessage(
-    val id: Long,
-    val sender: String,
-    val body: String,
-    val time: String,
-    val isMine: Boolean,
-    val attachments: List<ChatAttachment> = emptyList()
-)
-
-private data class ChatAttachment(
+/** A photo or video from the picker, waiting with the documents until the user taps send. */
+private data class LocalAttachment(
+    val uri: Uri,
     val displayName: String,
-    val kind: AttachmentKind,
-    val sizeBytes: Long? = null,
-    val thumbnail: ImageBitmap? = null
+    val kind: AttachmentKind
 )
 
 private enum class AttachmentKind {
@@ -113,11 +144,15 @@ private enum class AttachmentKind {
     Camera
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * One group's chat: the timeline of messages and shared files from the server, kept in sync
+ * through [GroupChatSession], and a composer for text and attachments.
+ */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun GroupChatScreen(
     group: CourseGroup,
-    myDisplayName: String,
+    currentUserId: String,
     pendingDocuments: List<PendingDocument>,
     pendingDocumentError: String?,
     capturedCameraUri: String?,
@@ -126,89 +161,110 @@ fun GroupChatScreen(
     onPendingDocumentsCleared: () -> Unit,
     onTakePhoto: () -> Unit,
     onCapturedCameraPhotoConsumed: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    chatRepository: ChatRepository = AppRepositories.chat,
+    fileRepository: FileRepository = AppRepositories.files
 ) {
     val listState = rememberLazyListState()
     val focusManager = LocalFocusManager.current
     val context = LocalContext.current
-    val messages = remember(group.id) {
-        mutableStateListOf<ChatUiMessage>().apply {
-            if (group.latestMessage.isNotBlank()) {
-                add(
-                    ChatUiMessage(
-                        id = 0L,
-                        sender = group.name,
-                        body = group.latestMessage,
-                        time = "",
-                        isMine = false
-                    )
-                )
+    val sessionScope = remember(group.id) { CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate) }
+    val session = remember(group.id) {
+        GroupChatSession(
+            groupId = group.id,
+            currentUserId = currentUserId,
+            chat = chatRepository,
+            files = fileRepository,
+            scope = sessionScope,
+            uploadScope = AppRepositories.backgroundScope,
+            onLatency = ::logLatency
+        )
+    }
+    val images = remember(group.id) { ChatImageLoader(fileRepository, sessionScope) }
+    DisposableEffect(sessionScope) {
+        session.start()
+        onDispose { sessionScope.cancel() }
+    }
+    // While this chat is in front, its new messages are not also shown as notifications.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, group.id) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> OpenChat.opened(group.id)
+                Lifecycle.Event.ON_PAUSE -> OpenChat.closed(group.id)
+                else -> Unit
             }
         }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            OpenChat.opened(group.id)
+        }
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            OpenChat.closed(group.id)
+        }
     }
-    var draft by remember(group.id) { mutableStateOf("") }
-    var pendingLocalAttachment by remember(group.id) { mutableStateOf<ChatAttachment?>(null) }
+    val state by session.state.collectAsState()
+    val rows = remember(state.items) { timelineRows(state.items) }
+
+    var draft by rememberSaveable(group.id) { mutableStateOf("") }
+    var localAttachment by remember(group.id) { mutableStateOf<LocalAttachment?>(null) }
     var showAttachmentSheet by remember { mutableStateOf(false) }
     var cameraPermissionDenied by remember { mutableStateOf(false) }
     val attachmentSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val coroutineScope = rememberCoroutineScope()
-    val pendingAttachments = pendingDocuments.map { document ->
-        ChatAttachment(
-            displayName = document.displayName,
-            kind = AttachmentKind.File,
-            sizeBytes = document.sizeBytes
-        )
-    } + listOfNotNull(pendingLocalAttachment)
 
-    fun stageAttachment(
-        displayName: String,
-        kind: AttachmentKind,
-        thumbnail: ImageBitmap? = null
-    ) {
-        pendingLocalAttachment = ChatAttachment(
-            displayName = displayName,
-            kind = kind,
-            thumbnail = thumbnail
-        )
+    // Reading and uploading continue even if the user leaves the chat before they finish.
+    fun uploadFromUri(uri: Uri, fallbackName: String) {
+        AppRepositories.backgroundScope.launch {
+            AttachmentReader.read(context, uri, fallbackName).fold(
+                onSuccess = { payload -> session.upload(payload.fileName, payload.mimeType, payload.bytes) },
+                onFailure = session::report
+            )
+        }
     }
 
-    fun sendCameraPhoto(thumbnail: ImageBitmap) {
-        val sentAt = LocalTime.now().format(chatTimeFormatter)
-        messages += ChatUiMessage(
-            id = System.nanoTime(),
-            sender = myDisplayName,
-            body = "",
-            time = sentAt,
-            isMine = true,
-            attachments = listOf(
-                ChatAttachment(
-                    displayName = "Photo $sentAt",
-                    kind = AttachmentKind.Camera,
-                    thumbnail = thumbnail
-                )
+    fun sendDraft() {
+        val text = draft.trim()
+        val documents = pendingDocuments
+        val local = localAttachment
+        if (text.isEmpty() && documents.isEmpty() && local == null) return
+
+        if (text.isNotEmpty()) session.send(text)
+        documents.forEach { document -> uploadFromUri(Uri.parse(document.uri), document.displayName) }
+        local?.let { uploadFromUri(it.uri, it.displayName) }
+        draft = ""
+        localAttachment = null
+        onPendingDocumentsCleared()
+        focusManager.clearFocus()
+    }
+
+    fun openFile(file: SharedFile) {
+        sessionScope.launch {
+            session.downloadUrl(file.id).fold(
+                onSuccess = { url -> openWithAnotherApp(context, url, file.mimeType, session::report) },
+                onFailure = session::report
             )
+        }
+    }
+
+    fun stageAttachment(uri: Uri, fallbackName: String, kind: AttachmentKind) {
+        localAttachment = LocalAttachment(
+            uri = uri,
+            displayName = resolveDisplayName(context, uri, fallbackName),
+            kind = kind
         )
     }
 
     val photoPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri ->
-        uri?.let {
-            stageAttachment(
-                displayName = resolveDisplayName(context, it, "Photo"),
-                kind = AttachmentKind.Photo
-            )
-        }
+        uri?.let { stageAttachment(it, "Photo", AttachmentKind.Photo) }
     }
     val videoPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri ->
-        uri?.let {
-            stageAttachment(
-                displayName = resolveDisplayName(context, it, "Video"),
-                kind = AttachmentKind.Video
-            )
-        }
+        uri?.let { stageAttachment(it, "Video", AttachmentKind.Video) }
     }
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -219,24 +275,6 @@ fun GroupChatScreen(
         }
     }
 
-    fun sendDraft() {
-        val message = draft.trim()
-        if (message.isEmpty() && pendingAttachments.isEmpty()) return
-
-        messages += ChatUiMessage(
-            id = System.nanoTime(),
-            sender = myDisplayName,
-            body = message,
-            time = LocalTime.now().format(chatTimeFormatter),
-            isMine = true,
-            attachments = pendingAttachments
-        )
-        draft = ""
-        pendingLocalAttachment = null
-        onPendingDocumentsCleared()
-        focusManager.clearFocus()
-    }
-
     fun closeAttachmentSheetAnd(action: () -> Unit) {
         coroutineScope.launch {
             attachmentSheetState.hide()
@@ -245,24 +283,43 @@ fun GroupChatScreen(
         }
     }
 
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.size)
+    // A photo from the camera is sent straight away, scaled down for the upload.
+    LaunchedEffect(capturedCameraUri) {
+        val uri = capturedCameraUri?.let(Uri::parse) ?: return@LaunchedEffect
+        val fileName = "Photo ${LocalDateTime.now().format(photoNameFormatter)}.jpg"
+        AttachmentReader.readCameraPhoto(context, uri, fileName).fold(
+            onSuccess = { payload -> session.upload(payload.fileName, payload.mimeType, payload.bytes) },
+            onFailure = session::report
+        )
+        onCapturedCameraPhotoConsumed()
+    }
+
+    // Keep the newest entry in view as messages arrive or are sent, and when the keyboard opens.
+    val lastRowKey = rows.lastOrNull()?.key
+    val imeVisible = WindowInsets.isImeVisible
+    LaunchedEffect(lastRowKey, imeVisible) {
+        if (rows.isNotEmpty()) {
+            listState.animateScrollToItem(rows.size)
         }
     }
 
-    LaunchedEffect(capturedCameraUri) {
-        val uri = capturedCameraUri?.let(Uri::parse) ?: return@LaunchedEffect
-        delay(1500)
-        val image = try {
-            withContext(Dispatchers.IO) { decodeCameraImage(context, uri) }
-        } catch (error: CancellationException) {
-            throw error
-        } catch (_: Exception) {
-            null
+    // Fetch older pages whenever the top of the list is reached and the server can be asked.
+    LaunchedEffect(session) {
+        combine(
+            snapshotFlow { listState.firstVisibleItemIndex == 0 },
+            session.state
+                .map { it.connection == ChatConnection.Live && !it.isLoadingOlder && it.hasOlderMessages }
+                .distinctUntilChanged()
+        ) { atTop, canLoad -> atTop && canLoad }
+            .filter { it }
+            .collect { session.loadOlder() }
+    }
+
+    LaunchedEffect(state.notice) {
+        if (state.notice != null) {
+            delay(NOTICE_MILLIS)
+            session.clearNotice()
         }
-        image?.let(::sendCameraPhoto)
-        onCapturedCameraPhotoConsumed()
     }
 
     if (showAttachmentSheet) {
@@ -313,6 +370,7 @@ fun GroupChatScreen(
             .fillMaxSize()
             .imePadding()
     ) {
+        ConnectionBanner(connection = state.connection)
         LazyColumn(
             state = listState,
             modifier = Modifier
@@ -322,14 +380,42 @@ fun GroupChatScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             item(key = "group-notice") {
-                GroupNotice(group = group)
+                GroupNotice(
+                    group = group,
+                    isLoadingOlder = state.isLoadingOlder,
+                    isStartOfChat = !state.hasOlderMessages
+                )
             }
             items(
-                items = messages,
-                key = ChatUiMessage::id
-            ) { message ->
-                ChatBubble(message = message)
+                items = rows,
+                key = TimelineRow::key
+            ) { row ->
+                when (row) {
+                    is TimelineRow.Day -> DayLabel(label = row.label)
+                    is TimelineRow.Entry -> when (val item = row.item) {
+                        is ChatTimelineItem.Message -> ChatBubble(
+                            item = item,
+                            onRetry = { session.retry(item.message.clientId) }
+                        )
+                        is ChatTimelineItem.File -> FileBubble(
+                            item = item,
+                            images = images,
+                            onOpen = { openFile(item.file) }
+                        )
+                    }
+                }
             }
+        }
+
+        state.notice?.let { notice ->
+            NoticeRow(text = notice, onDismiss = session::clearNotice)
+        }
+        state.uploads.forEach { upload ->
+            UploadRow(
+                upload = upload,
+                onRetry = { session.retryUpload(upload.id) },
+                onDismiss = { session.dismissUpload(upload.id) }
+            )
         }
 
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -357,7 +443,7 @@ fun GroupChatScreen(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    if (pendingDocuments.isNotEmpty() || pendingLocalAttachment != null) {
+                    if (pendingDocuments.isNotEmpty() || localAttachment != null) {
                         LazyRow(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -368,19 +454,19 @@ fun GroupChatScreen(
                                 key = PendingDocument::uri
                             ) { document ->
                                 PendingAttachment(
-                                    attachment = ChatAttachment(
-                                        displayName = document.displayName,
-                                        kind = AttachmentKind.File,
-                                        sizeBytes = document.sizeBytes
-                                    ),
+                                    displayName = document.displayName,
+                                    kind = AttachmentKind.File,
+                                    sizeBytes = document.sizeBytes,
                                     onRemove = { onPendingDocumentRemoved(document.uri) }
                                 )
                             }
-                            pendingLocalAttachment?.let { attachment ->
+                            localAttachment?.let { attachment ->
                                 item(key = "local-attachment") {
                                     PendingAttachment(
-                                        attachment = attachment,
-                                        onRemove = { pendingLocalAttachment = null }
+                                        displayName = attachment.displayName,
+                                        kind = attachment.kind,
+                                        sizeBytes = null,
+                                        onRemove = { localAttachment = null }
                                     )
                                 }
                             }
@@ -402,7 +488,7 @@ fun GroupChatScreen(
                     }
                     TextField(
                         value = draft,
-                        onValueChange = { draft = it },
+                        onValueChange = { draft = it.take(ChatRepository.MAX_MESSAGE_LENGTH) },
                         modifier = Modifier.fillMaxWidth(),
                         placeholder = { Text("Message") },
                         maxLines = 4,
@@ -418,7 +504,7 @@ fun GroupChatScreen(
                         )
                     )
                 }
-                val canSend = draft.isNotBlank() || pendingAttachments.isNotEmpty()
+                val canSend = draft.isNotBlank() || pendingDocuments.isNotEmpty() || localAttachment != null
                 IconButton(
                     onClick = { sendDraft() },
                     enabled = canSend
@@ -439,8 +525,68 @@ fun GroupChatScreen(
 }
 
 @Composable
+private fun ConnectionBanner(
+    connection: ChatConnection,
+    modifier: Modifier = Modifier
+) {
+    // A short connecting phase is normal, so the banner only appears when it drags on.
+    var showConnecting by remember { mutableStateOf(false) }
+    LaunchedEffect(connection) {
+        showConnecting = false
+        if (connection == ChatConnection.Connecting) {
+            delay(1_500)
+            showConnecting = true
+        }
+    }
+    val text = when (connection) {
+        ChatConnection.Live -> return
+        ChatConnection.Connecting -> if (showConnecting) "Connecting…" else return
+        ChatConnection.Offline -> "You're offline. Saved messages are shown; new ones arrive once you're back online."
+    }
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = if (connection == ChatConnection.Offline) {
+            MaterialTheme.colorScheme.errorContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHigh
+        }
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            if (connection == ChatConnection.Offline) {
+                Icon(
+                    imageVector = Icons.Outlined.CloudOff,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onErrorContainer
+                )
+            } else {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp
+                )
+            }
+            Text(
+                text = text,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (connection == ChatConnection.Offline) {
+                    MaterialTheme.colorScheme.onErrorContainer
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                }
+            )
+        }
+    }
+}
+
+@Composable
 private fun GroupNotice(
     group: CourseGroup,
+    isLoadingOlder: Boolean,
+    isStartOfChat: Boolean,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -448,116 +594,117 @@ private fun GroupNotice(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text(
-            text = "Today",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Surface(
-            shape = RoundedCornerShape(4.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerHighest
-        ) {
-            Text(
-                text = when (group.origin) {
-                    GroupOrigin.Timetable -> {
-                        "You joined ${group.courseCode} from your timetable"
-                    }
-                    GroupOrigin.CreatedByUser -> "You created this group"
-                    GroupOrigin.Joined -> "You joined this group"
-                },
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+        if (isLoadingOlder) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(20.dp),
+                strokeWidth = 2.dp
             )
+        }
+        if (isStartOfChat) {
+            Surface(
+                shape = RoundedCornerShape(4.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHighest
+            ) {
+                Text(
+                    text = when (group.origin) {
+                        GroupOrigin.Timetable -> "You joined ${group.courseCode} from your timetable"
+                        GroupOrigin.CreatedByUser -> "You created this group"
+                        GroupOrigin.Joined -> "You joined this group"
+                    },
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun ChatBubble(
-    message: ChatUiMessage,
+private fun DayLabel(
+    label: String,
     modifier: Modifier = Modifier
 ) {
+    Box(
+        modifier = modifier.fillMaxWidth(),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun ChatBubble(
+    item: ChatTimelineItem.Message,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val message = item.message
+    val isMine = item.isMine
+    val isFailed = message.status == MessageStatus.Failed
     Row(
         modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = if (message.isMine) Arrangement.End else Arrangement.Start,
+        horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.Top
     ) {
-        if (!message.isMine) {
-            ChatAvatar(label = message.sender)
+        if (!isMine) {
+            ChatAvatar(label = message.senderName)
             Spacer(Modifier.width(10.dp))
         }
 
         Surface(
-            modifier = Modifier.widthIn(max = 292.dp),
-            shape = if (message.isMine) {
-                RoundedCornerShape(
-                    topStart = 8.dp,
-                    topEnd = 2.dp,
-                    bottomStart = 8.dp,
-                    bottomEnd = 8.dp
-                )
-            } else {
-                RoundedCornerShape(
-                    topStart = 2.dp,
-                    topEnd = 8.dp,
-                    bottomStart = 8.dp,
-                    bottomEnd = 8.dp
-                )
+            modifier = Modifier
+                .widthIn(max = 292.dp)
+                .then(if (isFailed) Modifier.clickable(onClick = onRetry) else Modifier),
+            shape = bubbleShape(isMine),
+            color = when {
+                isFailed -> MaterialTheme.colorScheme.errorContainer
+                isMine -> MaterialTheme.colorScheme.primary
+                else -> MaterialTheme.colorScheme.surfaceContainerLowest
             },
-            color = if (message.isMine) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.surfaceContainerLowest
-            },
-            tonalElevation = if (message.isMine) 0.dp else 1.dp
+            tonalElevation = if (isMine) 0.dp else 1.dp
         ) {
+            val contentColor = when {
+                isFailed -> MaterialTheme.colorScheme.onErrorContainer
+                isMine -> MaterialTheme.colorScheme.onPrimary
+                else -> MaterialTheme.colorScheme.onSurface
+            }
             Column(
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                if (!message.isMine) {
+                if (!isMine) {
                     Text(
-                        text = message.sender,
+                        text = message.senderName,
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.primary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-                if (message.body.isNotBlank()) {
-                    Text(
-                        text = message.body,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = if (message.isMine) {
-                            MaterialTheme.colorScheme.onPrimary
-                        } else {
-                            MaterialTheme.colorScheme.onSurface
-                        }
-                    )
-                }
-                message.attachments.forEach { attachment ->
-                    AttachmentContent(
-                        attachment = attachment,
-                        isMine = message.isMine
-                    )
-                }
-                if (message.time.isNotBlank()) {
-                    Text(
-                        text = message.time,
-                        modifier = Modifier.align(Alignment.End),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (message.isMine) {
-                            MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.78f)
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        }
-                    )
-                }
+                Text(
+                    text = message.body,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = contentColor
+                )
+                Text(
+                    text = when (message.status) {
+                        MessageStatus.Sending -> "Sending…"
+                        MessageStatus.Failed -> "Not sent. Tap to try again"
+                        MessageStatus.Sent -> formatTime(message.createdAt)
+                    },
+                    modifier = Modifier.align(Alignment.End),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = contentColor.copy(alpha = if (isFailed) 1f else 0.78f)
+                )
             }
         }
 
-        if (message.isMine) {
+        if (isMine) {
             Spacer(Modifier.width(10.dp))
             ChatAvatar(label = "You", isMine = true)
         }
@@ -565,8 +712,209 @@ private fun ChatBubble(
 }
 
 @Composable
+private fun FileBubble(
+    item: ChatTimelineItem.File,
+    images: ChatImageLoader,
+    onOpen: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val file = item.file
+    val isMine = item.isMine
+    val isImage = file.mimeType.startsWith("image/")
+    val thumbnail by produceState<ImageBitmap?>(initialValue = null, key1 = file.id, key2 = isImage) {
+        value = if (isImage) images.load(file.id) else null
+    }
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start,
+        verticalAlignment = Alignment.Top
+    ) {
+        if (!isMine) {
+            ChatAvatar(label = file.uploaderName)
+            Spacer(Modifier.width(10.dp))
+        }
+
+        Surface(
+            modifier = Modifier
+                .widthIn(min = 200.dp, max = 292.dp)
+                .clickable(onClick = onOpen),
+            shape = bubbleShape(isMine),
+            color = if (isMine) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerLowest
+            },
+            tonalElevation = if (isMine) 0.dp else 1.dp
+        ) {
+            val contentColor = if (isMine) {
+                MaterialTheme.colorScheme.onPrimary
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            }
+            Column(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                if (!isMine) {
+                    Text(
+                        text = file.uploaderName,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                thumbnail?.let { image ->
+                    Image(
+                        bitmap = image,
+                        contentDescription = file.fileName,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(180.dp),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(
+                        imageVector = fileKind(file.mimeType).icon(),
+                        contentDescription = null,
+                        tint = contentColor,
+                        modifier = Modifier.size(30.dp)
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = file.fileName,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = contentColor,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "${fileKind(file.mimeType).label()} · ${formatFileSize(file.sizeBytes)} · " +
+                                "Tap to open",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = contentColor.copy(alpha = 0.78f)
+                        )
+                    }
+                }
+                Text(
+                    text = formatTime(file.createdAt),
+                    modifier = Modifier.align(Alignment.End),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = contentColor.copy(alpha = 0.78f)
+                )
+            }
+        }
+
+        if (isMine) {
+            Spacer(Modifier.width(10.dp))
+            ChatAvatar(label = "You", isMine = true)
+        }
+    }
+}
+
+@Composable
+private fun NoticeRow(
+    text: String,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.errorContainer
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 16.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = text,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onErrorContainer
+            )
+            IconButton(onClick = onDismiss) {
+                Icon(
+                    imageVector = Icons.Outlined.Close,
+                    contentDescription = "Dismiss",
+                    tint = MaterialTheme.colorScheme.onErrorContainer
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun UploadRow(
+    upload: PendingUpload,
+    onRetry: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = fileKind(upload.mimeType).icon(),
+                    contentDescription = null,
+                    modifier = Modifier.size(22.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = upload.fileName,
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = upload.error
+                            ?: "Sending ${formatFileSize(upload.sizeBytes)} · ${(upload.fraction * 100).toInt()}%",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (upload.isFailed) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
+                }
+                if (upload.isFailed) {
+                    TextButton(onClick = onRetry) { Text("Retry") }
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            imageVector = Icons.Outlined.Close,
+                            contentDescription = "Discard upload"
+                        )
+                    }
+                }
+            }
+            if (!upload.isFailed) {
+                LinearProgressIndicator(
+                    progress = { upload.fraction },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun PendingAttachment(
-    attachment: ChatAttachment,
+    displayName: String,
+    kind: AttachmentKind,
+    sizeBytes: Long?,
     onRemove: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -581,20 +929,20 @@ private fun PendingAttachment(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Icon(
-                imageVector = attachment.kind.icon(),
+                imageVector = kind.icon(),
                 contentDescription = null,
                 modifier = Modifier.size(24.dp),
                 tint = MaterialTheme.colorScheme.primary
             )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = attachment.displayName,
+                    text = displayName,
                     style = MaterialTheme.typography.bodyMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = attachment.sizeBytes
+                    text = sizeBytes
                         ?.takeIf { it >= 0L }
                         ?.let { "${formatFileSize(it)} - Ready to send" }
                         ?: "Ready to send",
@@ -700,137 +1048,6 @@ private fun AttachmentOption(
 }
 
 @Composable
-private fun AttachmentContent(
-    attachment: ChatAttachment,
-    isMine: Boolean,
-    modifier: Modifier = Modifier
-) {
-    val contentColor = if (isMine) {
-        MaterialTheme.colorScheme.onPrimary
-    } else {
-        MaterialTheme.colorScheme.onSurface
-    }
-    val secondaryColor = contentColor.copy(alpha = 0.78f)
-
-    Column(
-        modifier = modifier.widthIn(min = 180.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        attachment.thumbnail?.let { thumbnail ->
-            Image(
-                bitmap = thumbnail,
-                contentDescription = attachment.displayName,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(160.dp),
-                contentScale = ContentScale.Crop
-            )
-        }
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Icon(
-                imageVector = attachment.kind.icon(),
-                contentDescription = null,
-                tint = contentColor,
-                modifier = Modifier.size(30.dp)
-            )
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = attachment.displayName,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = contentColor,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = attachment.sizeBytes
-                        ?.takeIf { it >= 0L }
-                        ?.let { "${attachment.kind.label()} - ${formatFileSize(it)}" }
-                        ?: attachment.kind.label(),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = secondaryColor
-                )
-            }
-        }
-    }
-}
-
-private fun AttachmentKind.icon(): ImageVector = when (this) {
-    AttachmentKind.File -> Icons.Outlined.Description
-    AttachmentKind.Photo -> Icons.Outlined.Image
-    AttachmentKind.Video -> Icons.Outlined.Videocam
-    AttachmentKind.Camera -> Icons.Outlined.PhotoCamera
-}
-
-private fun AttachmentKind.label(): String = when (this) {
-    AttachmentKind.File -> "File"
-    AttachmentKind.Photo -> "Photo"
-    AttachmentKind.Video -> "Video"
-    AttachmentKind.Camera -> "Camera photo"
-}
-
-private fun formatFileSize(sizeBytes: Long): String = when {
-    sizeBytes >= 1024L * 1024L -> "%.1f MB".format(sizeBytes / (1024.0 * 1024.0))
-    sizeBytes >= 1024L -> "%.1f KB".format(sizeBytes / 1024.0)
-    else -> "$sizeBytes B"
-}
-
-private fun decodeCameraImage(
-    context: Context,
-    uri: Uri
-): ImageBitmap? {
-    val fileName = uri.lastPathSegment ?: return null
-    val imageFile = File(context.cacheDir, "camera/$fileName")
-    if (!imageFile.isFile) return null
-
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-        val source = ImageDecoder.createSource(imageFile)
-        return ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
-            decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
-            val maxDimension = maxOf(info.size.width, info.size.height)
-            if (maxDimension > 1600) {
-                val scale = 1600f / maxDimension
-                decoder.setTargetSize(
-                    (info.size.width * scale).roundToInt(),
-                    (info.size.height * scale).roundToInt()
-                )
-            }
-        }.asImageBitmap()
-    }
-
-    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    BitmapFactory.decodeFile(imageFile.absolutePath, bounds)
-
-    var sampleSize = 1
-    while (bounds.outWidth / sampleSize > 1600 || bounds.outHeight / sampleSize > 1600) {
-        sampleSize *= 2
-    }
-    val options = BitmapFactory.Options().apply { inSampleSize = sampleSize }
-    return BitmapFactory.decodeFile(imageFile.absolutePath, options)?.asImageBitmap()
-}
-
-private fun resolveDisplayName(
-    context: Context,
-    uri: Uri,
-    fallback: String
-): String {
-    return runCatching {
-        context.contentResolver.query(
-            uri,
-            arrayOf(OpenableColumns.DISPLAY_NAME),
-            null,
-            null,
-            null
-        )?.use { cursor ->
-            val nameColumn = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-            if (nameColumn >= 0 && cursor.moveToFirst()) cursor.getString(nameColumn) else null
-        }
-    }.getOrNull()?.takeIf(String::isNotBlank) ?: fallback
-}
-
-@Composable
 private fun ChatAvatar(
     label: String,
     isMine: Boolean = false,
@@ -861,4 +1078,91 @@ private fun ChatAvatar(
             )
         }
     }
+}
+
+private fun bubbleShape(isMine: Boolean): RoundedCornerShape = if (isMine) {
+    RoundedCornerShape(topStart = 8.dp, topEnd = 2.dp, bottomStart = 8.dp, bottomEnd = 8.dp)
+} else {
+    RoundedCornerShape(topStart = 2.dp, topEnd = 8.dp, bottomStart = 8.dp, bottomEnd = 8.dp)
+}
+
+private fun fileKind(mimeType: String): AttachmentKind = when {
+    mimeType.startsWith("image/") -> AttachmentKind.Photo
+    mimeType.startsWith("video/") -> AttachmentKind.Video
+    else -> AttachmentKind.File
+}
+
+private fun AttachmentKind.icon(): ImageVector = when (this) {
+    AttachmentKind.File -> Icons.Outlined.Description
+    AttachmentKind.Photo -> Icons.Outlined.Image
+    AttachmentKind.Video -> Icons.Outlined.Videocam
+    AttachmentKind.Camera -> Icons.Outlined.PhotoCamera
+}
+
+private fun AttachmentKind.label(): String = when (this) {
+    AttachmentKind.File -> "File"
+    AttachmentKind.Photo -> "Photo"
+    AttachmentKind.Video -> "Video"
+    AttachmentKind.Camera -> "Camera photo"
+}
+
+private fun formatFileSize(sizeBytes: Long): String = when {
+    sizeBytes >= 1024L * 1024L -> "%.1f MB".format(sizeBytes / (1024.0 * 1024.0))
+    sizeBytes >= 1024L -> "%.1f KB".format(sizeBytes / 1024.0)
+    else -> "$sizeBytes B"
+}
+
+private fun formatTime(instant: Instant): String =
+    instant.atZone(ZoneId.systemDefault()).toLocalTime().format(chatTimeFormatter)
+
+/** Opens [url] in an app that handles [mimeType], falling back to the browser. */
+private fun openWithAnotherApp(
+    context: Context,
+    url: String,
+    mimeType: String,
+    onFailure: (Throwable) -> Unit
+) {
+    val uri = Uri.parse(url)
+    val typed = Intent(Intent.ACTION_VIEW).apply {
+        setDataAndType(uri, mimeType)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    try {
+        context.startActivity(typed)
+    } catch (noTypedViewer: ActivityNotFoundException) {
+        try {
+            context.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (noViewer: ActivityNotFoundException) {
+            onFailure(
+                DataError.Validation("No app on this device can open this file. Install a viewer for it and try again.")
+            )
+        }
+    }
+}
+
+private fun resolveDisplayName(
+    context: Context,
+    uri: Uri,
+    fallback: String
+): String {
+    return runCatching {
+        context.contentResolver.query(
+            uri,
+            arrayOf(OpenableColumns.DISPLAY_NAME),
+            null,
+            null,
+            null
+        )?.use { cursor ->
+            val nameColumn = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (nameColumn >= 0 && cursor.moveToFirst()) cursor.getString(nameColumn) else null
+        }
+    }.getOrNull()?.takeIf(String::isNotBlank) ?: fallback
+}
+
+private fun logLatency(sample: LatencySample) {
+    val kind = when (sample) {
+        is LatencySample.Sent -> "send_confirmed"
+        is LatencySample.Received -> "received"
+    }
+    Log.i(LATENCY_LOG_TAG, "$kind ms=${sample.millis}")
 }
