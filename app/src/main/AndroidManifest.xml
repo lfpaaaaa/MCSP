@@ -35,9 +35,6 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.CampusCompanion">
 
-        <activity android:name="com.journeyapps.barcodescanner.CaptureActivity"
-            android:screenOrientation="fullSensor" android:exported="false"
-            tools:replace="android:screenOrientation" />
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -81,6 +78,7 @@
         <!-- The QR scanner is a library activity that otherwise forces landscape. -->
         <activity
             android:name="com.journeyapps.barcodescanner.CaptureActivity"
+            android:exported="false"
             android:screenOrientation="fullSensor"
             tools:replace="android:screenOrientation" />
 

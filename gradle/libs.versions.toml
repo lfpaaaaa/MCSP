@@ -23,9 +23,7 @@ zxingCore = "3.5.3"
 
 
 [libraries]
-zxing-embedded = { group = "com.journeyapps", name = "zxing-android-embedded", version = "4.3.0" }
 androidx-fragment = { group = "androidx.fragment", name = "fragment", version = "1.8.5" }
-zxing-core = { group = "com.google.zxing", name = "core", version = "3.4.1" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycleRuntimeKtx" }
 androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }

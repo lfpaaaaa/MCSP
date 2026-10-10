@@ -30,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import au.edu.unimelb.campuscompanion.data.TravelPreferences
 import au.edu.unimelb.campuscompanion.ui.components.CourseSessionRow
 import au.edu.unimelb.campuscompanion.ui.components.SectionHeader
 import au.edu.unimelb.campuscompanion.ui.components.TimetableUrlDialog

@@ -1129,7 +1129,7 @@ private fun AuthenticatedCampusApp(
                 val groupsStillLoading = timetableState.isLoading ||
                     (SupabaseProvider.isConfigured && !groupSyncReady)
                 when {
-                    group != null && group.origin == GroupOrigin.Timetable -> TimetableGroupScreen(
+                    group != null && group.origin == GroupOrigin.Timetable && !SupabaseProvider.isConfigured -> TimetableGroupScreen(
                         group = group,
                         onStartGroup = {
                             // The timetable title ends with the session type ("…, Lecture1"), which is
