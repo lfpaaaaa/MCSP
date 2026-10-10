@@ -120,7 +120,7 @@ object AppRepositories {
             DefaultGroupRepository(
                 remote = remote,
                 currentUserId = { client.auth.currentUserOrNull()?.id },
-                cache = FileGroupListCache(File(appContext.filesDir, "groups"))
+                cache = FileGroupListCache(lazy { File(appContext.filesDir, "groups") })
             )
         }
     }

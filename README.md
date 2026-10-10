@@ -156,6 +156,10 @@ Two GitHub Actions workflows in `.github/workflows/` run on every pull request a
 
 Both are the same commands as in the quick check above, so a green run means a fresh clone builds and the backend schema is consistent.
 
+Every pull request starts from `.github/PULL_REQUEST_TEMPLATE.md` (what and why, how it was tested, the rubric criteria it touches, a short checklist) and needs one approving review before it is merged. Code style follows `.editorconfig`; there is no automated formatter, so reviewers check names, constants and KDoc by hand.
+
+Debug builds turn on `StrictMode` in `CampusCompanionApplication`: disk and network access on the main thread, slow calls and leaked resources are logged under the `StrictMode` tag (`adb logcat -s StrictMode`), never fatal. Release builds are unaffected.
+
 ## Security notes
 
 - Every table has row-level security; members only ever read their own groups. Writes that must cross groups (joining with a code or token, counting members, marking messages as read) go through `SECURITY DEFINER` functions in the `private` schema, exposed through thin `SECURITY INVOKER` wrappers in `public`. The pgTAP tests exercise the policies as different users.
