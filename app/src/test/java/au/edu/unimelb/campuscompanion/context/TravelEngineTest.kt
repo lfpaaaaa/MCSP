@@ -61,6 +61,18 @@ class TravelEngineTest {
     }
 
     @Test
+    fun aStraightLineFallbackIsPassedOnAsApproximate() = runBlocking<Unit> {
+        eta.source = EstimateSource.StraightLine
+        engine.updateSessions(listOf(lecture))
+        engine.updateOrigin(HOME)
+
+        engine.refresh()
+        val applied = engine.snapshot.value.applyTo(listOf(lecture))
+
+        assertEquals(true, applied.single().routeEstimate?.isApproximate)
+    }
+
+    @Test
     fun theTripMovesThroughLeaveSoonEnRouteAndArrived() = runBlocking<Unit> {
         engine.updateSessions(listOf(lecture))
         engine.updateOrigin(HOME)
@@ -234,6 +246,7 @@ private class RecordingEtaRepository(private val clock: () -> Instant) : EtaRepo
     data class Request(val origin: GeoPoint, val destination: GeoPoint, val mode: TravelMode)
 
     val requests = mutableListOf<Request>()
+    var source = EstimateSource.Routing
 
     override suspend fun estimate(origin: GeoPoint, destination: GeoPoint, mode: TravelMode): Result<TravelEstimate> {
         requests += Request(origin, destination, mode)
@@ -242,7 +255,7 @@ private class RecordingEtaRepository(private val clock: () -> Instant) : EtaRepo
                 mode = mode,
                 durationSeconds = 15 * 60,
                 distanceMeters = 1_500,
-                source = EstimateSource.Routing,
+                source = source,
                 computedAt = clock()
             )
         )

@@ -47,7 +47,9 @@ data class RouteEstimate(
     val distanceMeters: Int,
     val walkingMinutes: Int? = null,
     val publicTransportMinutes: Int? = null,
-    val drivingMinutes: Int? = null
+    val drivingMinutes: Int? = null,
+    /** True when the time was worked out from the straight-line distance because routing was unavailable. */
+    val isApproximate: Boolean = false
 )
 
 fun CourseSession.departureReminderTime(leadMinutes: Int): ZonedDateTime {
