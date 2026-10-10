@@ -27,6 +27,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -45,6 +46,7 @@ import au.edu.unimelb.campuscompanion.ui.components.GroupUpdateRow
 import au.edu.unimelb.campuscompanion.ui.components.SectionHeader
 import au.edu.unimelb.campuscompanion.ui.components.StatusPill
 import au.edu.unimelb.campuscompanion.ui.components.displayName
+import au.edu.unimelb.campuscompanion.ui.components.TimetableSyncStatus
 import au.edu.unimelb.campuscompanion.ui.components.TimetableUrlDialog
 import au.edu.unimelb.campuscompanion.ui.model.CourseGroup
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
@@ -61,14 +63,13 @@ fun HomeScreen(
     timetableState: TimetableState,
     travelPreferences: TravelPreferences,
     onTimetableUrlSave: suspend (String) -> Result<Unit>,
+    onTimetableRefresh: () -> Unit,
     onOpenGroup: (CourseGroup) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var showTimetableDialog by rememberSaveable(
-        timetableState.isConnected,
-        timetableState.isLoading
-    ) {
-        mutableStateOf(!timetableState.isConnected && !timetableState.isLoading)
+    var showTimetableDialog by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(timetableState.isConnected, timetableState.isLoading) {
+        if (!timetableState.isConnected && !timetableState.isLoading) showTimetableDialog = true
     }
 
     if (showTimetableDialog) {
@@ -93,7 +94,8 @@ fun HomeScreen(
             )
             Text(
                 text = when {
-                    timetableState.isLoading -> "Checking your saved timetable URL."
+                    timetableState.isCached -> "Classes below are from your saved timetable."
+                    timetableState.isLoading && !timetableState.isConnected -> "Checking your saved timetable URL."
                     timetableState.isConnected -> {
                         "Classes and course groups below come from your connected timetable."
                     }
@@ -104,8 +106,10 @@ fun HomeScreen(
             )
         }
 
+        TimetableSyncStatus(timetableState, onRefresh = onTimetableRefresh)
+
         when {
-            timetableState.isLoading -> TimetableLoadingCard()
+            timetableState.isLoading && !timetableState.isConnected -> TimetableLoadingCard()
             !timetableState.isConnected -> TimetableSetupPrompt(
                 errorMessage = timetableState.errorMessage,
                 onConnect = { showTimetableDialog = true }

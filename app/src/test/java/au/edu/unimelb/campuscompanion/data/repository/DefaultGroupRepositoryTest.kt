@@ -6,6 +6,7 @@ import au.edu.unimelb.campuscompanion.data.remote.GroupMemberRow
 import au.edu.unimelb.campuscompanion.data.remote.GroupSummaryRow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.launch
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -14,6 +15,46 @@ class DefaultGroupRepositoryTest {
     private val remote = FakeGroupRemoteDataSource()
     private var signedInUser: String? = "user-1"
     private val repository = DefaultGroupRepository(remote) { signedInUser }
+
+    @Test
+    fun nicknameIsTrimmedAndSavedToOnlyTheRequestedGroup() = runBlocking<Unit> {
+        assertEquals("Tutorial Alice", repository.setMyNickname("group-1", " Tutorial Alice ").getOrThrow())
+        assertEquals(listOf("group-1" to "Tutorial Alice"), remote.nicknameUpdates)
+    }
+
+    @Test
+    fun invalidNicknamesAndSignedOutUpdatesNeverReachServer() = runBlocking<Unit> {
+        assertTrue(repository.setMyNickname("group-1", "  ").exceptionOrNull() is DataError.Validation)
+        assertTrue(repository.setMyNickname("group-1", "x".repeat(41)).exceptionOrNull() is DataError.Validation)
+        signedInUser = null
+        assertTrue(repository.setMyNickname("group-1", "Alice").exceptionOrNull() is DataError.Unauthenticated)
+        assertTrue(remote.nicknameUpdates.isEmpty())
+    }
+
+    @Test
+    fun failedNicknameSaveReportsFailure() = runBlocking<Unit> {
+        remote.failure = DataError.Offline()
+        assertTrue(repository.setMyNickname("group-1", "Alice").exceptionOrNull() is DataError.Offline)
+        assertTrue(remote.nicknameUpdates.isEmpty())
+    }
+
+    @Test
+    fun memberListObservesNicknameChangesWithoutReopening() = runBlocking<Unit> {
+        remote.members = listOf(GroupMemberRow("user-2", "Bob", role = "member", joinedAt = "2026-09-25T00:00:00Z"))
+        val seen = kotlinx.coroutines.flow.MutableStateFlow("")
+        val job = launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            repository.observeMembers("group-1").collect { seen.value = it.single().displayName }
+        }
+        try {
+            kotlinx.coroutines.withTimeout(5000) {
+                seen.first { it == "Bob" }
+                remote.memberUpdates.subscriptionCount.first { it > 0 }
+                remote.members = remote.members.map { it.copy(displayName = "Tutorial Bob") }
+                remote.memberUpdates.emit(Unit)
+                seen.first { it == "Tutorial Bob" }
+            }
+        } finally { job.cancel() }
+    }
 
     @Test
     fun refreshListsGroupsWithTheLatestActivityFirst() = runBlocking<Unit> {

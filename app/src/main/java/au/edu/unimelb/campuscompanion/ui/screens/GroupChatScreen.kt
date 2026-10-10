@@ -147,7 +147,6 @@ private enum class AttachmentKind {
 fun GroupChatScreen(
     group: CourseGroup,
     currentUserId: String,
-    myDisplayName: String,
     pendingDocuments: List<PendingDocument>,
     pendingDocumentError: String?,
     capturedCameraUri: String?,
@@ -200,13 +199,7 @@ fun GroupChatScreen(
         }
     }
     val state by session.state.collectAsState()
-    val rows = remember(state.items, myDisplayName) {
-        timelineRows(state.items.map { item ->
-            if (item is ChatTimelineItem.Message && item.isMine) {
-                item.copy(message = item.message.copy(senderName = myDisplayName))
-            } else item
-        })
-    }
+    val rows = remember(state.items) { timelineRows(state.items) }
     val sender = remember { AppRepositories.chatSender }
     val uploadQueue = remember { AppRepositories.attachmentUploads }
     val allUploads by uploadQueue.uploads.collectAsState()

@@ -21,6 +21,14 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import au.edu.unimelb.campuscompanion.data.toUserMessage
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -35,20 +43,42 @@ import au.edu.unimelb.campuscompanion.ui.model.isValidGroupJoinCode
 @Composable
 fun GroupSettingsDialog(
     group: CourseGroup,
+    currentUserId: String,
     initialFolded: Boolean,
     initialMuted: Boolean,
     initialDisplayName: String,
     onDismiss: () -> Unit,
     onInviteWithNfc: () -> Unit,
     createQrInvite: suspend () -> Result<au.edu.unimelb.campuscompanion.data.model.GroupInvite>,
-    loadMembers: suspend () -> List<au.edu.unimelb.campuscompanion.data.model.GroupMember>,
+    observeMembers: () -> kotlinx.coroutines.flow.Flow<List<au.edu.unimelb.campuscompanion.data.model.GroupMember>>,
     onTransfer: suspend (String) -> Result<Unit>,
     onExitGroup: suspend (Boolean) -> Result<Unit>,
-    onSave: (folded: Boolean, muted: Boolean, displayName: String) -> Unit
+    onSave: suspend (folded: Boolean, muted: Boolean, displayName: String, nicknameChanged: Boolean) -> Result<Unit>
 ) {
     var folded by rememberSaveable(group.id) { mutableStateOf(initialFolded) }
     var muted by rememberSaveable(group.id) { mutableStateOf(initialMuted) }
     var displayName by rememberSaveable(group.id) { mutableStateOf(initialDisplayName) }
+
+    val scope = rememberCoroutineScope()
+    val latestMembers by rememberUpdatedState(observeMembers)
+    var serverName by remember(group.id) { mutableStateOf<String?>(null) }
+    var loadingName by remember(group.id) { mutableStateOf(true) }
+    var loadAttempt by remember(group.id) { mutableStateOf(0) }
+    var loadError by remember(group.id) { mutableStateOf<String?>(null) }
+    var saveError by remember(group.id) { mutableStateOf<String?>(null) }
+    var saving by remember(group.id) { mutableStateOf(false) }
+    LaunchedEffect(group.id, currentUserId, loadAttempt) {
+        loadingName = true
+        loadError = null
+        try {
+            val member = latestMembers().first().firstOrNull { it.userId == currentUserId }
+                ?: throw au.edu.unimelb.campuscompanion.data.DataError.Forbidden()
+            serverName = member.displayName
+            displayName = member.displayName
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (error: Exception) { loadError = error.toUserMessage().body }
+        finally { loadingName = false }
+    }
 
     var showMembers by rememberSaveable(group.id) { mutableStateOf(false) }
     if (showMembers) {
@@ -58,7 +88,7 @@ fun GroupSettingsDialog(
             text = {
                 GroupMembersSection(
                     isOwner = group.origin == GroupOrigin.CreatedByUser,
-                    loadMembers = loadMembers,
+                    observeMembers = observeMembers,
                     onTransfer = onTransfer
                 )
             },
@@ -76,7 +106,7 @@ fun GroupSettingsDialog(
     }
 
     GroupSettingsPage(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!saving) onDismiss() },
         title = { Text("Group settings") },
         text = {
             Column(
@@ -85,6 +115,7 @@ fun GroupSettingsDialog(
             ) {
                 OutlinedButton(
                     onClick = { showMembers = true },
+                    enabled = !saving,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Icon(Icons.Outlined.Groups, contentDescription = null)
@@ -127,12 +158,18 @@ fun GroupSettingsDialog(
                 )
                 OutlinedTextField(
                     value = displayName,
-                    onValueChange = { displayName = it.take(40) },
+                    onValueChange = { displayName = it.take(40); saveError = null },
+                    enabled = !loadingName && serverName != null && !saving,
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("Your name in this group") },
-                    supportingText = { Text("${displayName.length}/40") },
+                    supportingText = { Text(if (loadingName) "Loading your group nickname…" else "${displayName.length}/40 · Visible to everyone in this group") },
                     singleLine = true
                 )
+                loadError?.let { error ->
+                    Text(error, color = MaterialTheme.colorScheme.error)
+                    TextButton(onClick = { loadAttempt++ }) { Text("Retry") }
+                }
+                saveError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         },
         bottomAction = {
@@ -146,15 +183,24 @@ fun GroupSettingsDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    onSave(folded, muted, displayName.trim())
+                    saving = true
+                    saveError = null
+                    scope.launch {
+                        try {
+                            onSave(folded, muted, displayName.trim(), displayName.trim() != serverName)
+                                .onFailure { saveError = it.toUserMessage().body }
+                        } catch (cancelled: CancellationException) { throw cancelled }
+                        catch (error: Exception) { saveError = error.toUserMessage().body }
+                        finally { saving = false }
+                    }
                 },
-                enabled = displayName.isNotBlank()
+                enabled = !saving && !loadingName && serverName != null && displayName.isNotBlank()
             ) {
-                Text("Save")
+                Text(if (saving) "Saving…" else "Save")
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(enabled = !saving, onClick = onDismiss) {
                 Text("Cancel")
             }
         }

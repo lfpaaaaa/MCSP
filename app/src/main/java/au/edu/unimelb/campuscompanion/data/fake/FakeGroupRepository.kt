@@ -84,6 +84,18 @@ class FakeGroupRepository(
         return Result.success(group)
     }
 
+    override suspend fun setMyNickname(groupId: String, nickname: String): Result<String> {
+        val name = nickname.trim()
+        if (name.isEmpty() || name.length > 40)
+            return Result.failure(DataError.Validation("Group nicknames need 1 to 40 characters."))
+        if (members.value[groupId].orEmpty().none { it.userId == currentUserId })
+            return Result.failure(DataError.Forbidden())
+        members.update { map -> map + (groupId to map[groupId].orEmpty().map {
+            if (it.userId == currentUserId) it.copy(displayName = name) else it
+        }) }
+        return Result.success(name)
+    }
+
     override fun observeMembers(groupId: String): Flow<List<GroupMember>> =
         members.map { byGroup ->
             byGroup[groupId].orEmpty().sortedWith(

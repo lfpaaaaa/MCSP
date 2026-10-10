@@ -34,6 +34,9 @@ interface MessageDao {
     )
     suspend fun withStatus(groupId: String, senderId: String, status: String): List<MessageEntity>
 
+    @Query("UPDATE messages SET senderName = :name WHERE groupId = :groupId AND senderId = :senderId AND (senderName IS NULL OR senderName != :name)")
+    suspend fun updateSenderName(groupId: String, senderId: String, name: String)
+
     @Upsert
     suspend fun upsert(messages: List<MessageEntity>)
 

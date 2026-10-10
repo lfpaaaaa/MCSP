@@ -16,6 +16,15 @@ import kotlinx.serialization.json.put
  */
 class SupabaseGroupDataSource(private val client: SupabaseClient) : GroupRemoteDataSource {
 
+    override suspend fun setMyNickname(groupId: String, nickname: String): String = remoteCall {
+        val result = client.postgrest.rpc("set_group_nickname", buildJsonObject {
+            put("p_group_id", groupId); put("p_nickname", nickname)
+        })
+        remoteJson.decodeFromString(String.serializer(), result.data)
+    }
+
+    override fun memberChanges(groupId: String) = groupMemberChanges(client, groupId)
+
     override suspend fun transferAndLeave(groupId: String, newOwnerId: String) { remoteCall {
         client.postgrest.rpc("transfer_group_and_leave", buildJsonObject {
             put("p_group_id", groupId); put("p_new_owner_id", newOwnerId)

@@ -106,15 +106,12 @@ data class TimetableState(
     val errorMessage: String? = null,
     val groupSyncError: String? = null,
     val isSyncingGroups: Boolean = false,
-    /** When the sessions shown come from the copy saved on the device rather than a fresh download. */
-    val savedAt: Instant? = null,
-    /** Why the last download failed, while the saved copy is shown instead. */
-    val refreshError: String? = null
+    val isCached: Boolean = false,
+    val lastSyncedAt: Instant? = null
 ) {
-    /** One line for the screens when the saved copy is shown because the download failed, else null. */
     fun offlineNotice(zone: ZoneId = ZoneId.systemDefault()): String? {
-        val saved = savedAt ?: return null
-        if (refreshError == null) return null
+        val saved = lastSyncedAt ?: return null
+        if (!isCached || errorMessage == null) return null
         val formatter = DateTimeFormatter.ofPattern("EEE d MMM 'at' h:mm a", Locale.ENGLISH)
         return "Could not refresh the timetable. Showing the copy saved on ${saved.atZone(zone).format(formatter)}."
     }

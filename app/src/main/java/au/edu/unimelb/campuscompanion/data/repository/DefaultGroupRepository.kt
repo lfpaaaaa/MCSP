@@ -97,9 +97,21 @@ class DefaultGroupRepository(
             }
     }
 
-    /** Loads the member list once. The flow fails with a [DataError] when the list cannot be loaded. */
+    override suspend fun setMyNickname(groupId: String, nickname: String): Result<String> {
+        if (currentUserId() == null) return Result.failure(DataError.Unauthenticated())
+        val name = nickname.trim()
+        if (name.isEmpty() || name.length > 40) {
+            return Result.failure(DataError.Validation("Group nicknames need 1 to 40 characters."))
+        }
+        return dataResult { remote.setMyNickname(groupId, name) }
+    }
+
+    /** Re-read names on subscription/reconnection and nickname changes. */
     override fun observeMembers(groupId: String): Flow<List<GroupMember>> = flow {
         emit(remoteCall { remote.fetchMembers(groupId).map(GroupMemberRow::toModel) })
+        remote.memberChanges(groupId).collect {
+            emit(remoteCall { remote.fetchMembers(groupId).map(GroupMemberRow::toModel) })
+        }
     }
 
     override suspend fun transferAndLeave(groupId: String, newOwnerId: String): Result<Unit> = dataResult {

@@ -34,6 +34,12 @@ class FakeMessageDao : MessageDao {
         rows.update { byKey -> byKey + messages.associateBy { it.senderId to it.clientId } }
     }
 
+    override suspend fun updateSenderName(groupId: String, senderId: String, name: String) {
+        rows.update { entries -> entries.mapValues { (_, message) ->
+            if (message.groupId == groupId && message.senderId == senderId) message.copy(senderName = name) else message
+        } }
+    }
+
     override suspend fun replaceStatus(from: String, to: String): Int {
         val matching = rows.value.values.filter { it.status == from }
         upsert(matching.map { it.copy(status = to) })

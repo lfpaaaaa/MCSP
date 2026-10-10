@@ -53,6 +53,7 @@ import au.edu.unimelb.campuscompanion.data.TravelPreferences
 import au.edu.unimelb.campuscompanion.ui.about.AboutSection
 import au.edu.unimelb.campuscompanion.ui.components.IconTextLine
 import au.edu.unimelb.campuscompanion.ui.components.SectionHeader
+import au.edu.unimelb.campuscompanion.ui.components.TimetableSyncStatus
 import au.edu.unimelb.campuscompanion.ui.components.TimetableUrlDialog
 import au.edu.unimelb.campuscompanion.ui.model.TimetableState
 import au.edu.unimelb.campuscompanion.ui.profile.PermissionsSection
@@ -64,6 +65,7 @@ fun ProfileScreen(
     timetableState: TimetableState,
     travelPreferences: TravelPreferences,
     onTimetableUrlSave: suspend (String) -> Result<Unit>,
+    onTimetableRefresh: () -> Unit,
     onTimetableUrlRemove: () -> Unit,
     onTravelPreferencesChange: (TravelPreferences) -> Unit,
     onSignOut: () -> Unit,
@@ -173,7 +175,8 @@ fun ProfileScreen(
         TimetableSettingsCard(
             timetableState = timetableState,
             onAddOrChange = { showTimetableDialog = true },
-            onRemove = { showRemoveTimetableDialog = true }
+            onRemove = { showRemoveTimetableDialog = true },
+            onRefresh = onTimetableRefresh
         )
 
         SectionHeader(title = "Permissions")
@@ -205,6 +208,7 @@ private fun TimetableSettingsCard(
     timetableState: TimetableState,
     onAddOrChange: () -> Unit,
     onRemove: () -> Unit,
+    onRefresh: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val hasSavedUrl = timetableState.url.isNotBlank()
@@ -241,7 +245,8 @@ private fun TimetableSettingsCard(
                     )
                     Text(
                         text = when {
-                            timetableState.isLoading -> "Checking saved URL..."
+                            timetableState.isLoading && !timetableState.isConnected -> "Checking saved URL..."
+                            timetableState.isCached -> "Saved timetable from $host"
                             timetableState.isConnected -> {
                                 timetableState.offlineNotice()
                                     ?: "Connected to $host - ${timetableState.detectedEventCount} calendar events"
@@ -254,6 +259,8 @@ private fun TimetableSettingsCard(
                     )
                 }
             }
+
+            TimetableSyncStatus(timetableState, onRefresh)
 
             if (hasSavedUrl) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

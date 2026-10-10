@@ -1,77 +1,83 @@
 package au.edu.unimelb.campuscompanion.data
 
-import android.content.Context
-import java.io.File
-import java.security.MessageDigest
+import au.edu.unimelb.campuscompanion.data.model.TimetableGroupSpec
+import au.edu.unimelb.campuscompanion.ui.model.CourseGroup
+import au.edu.unimelb.campuscompanion.ui.model.CourseSession
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import java.time.Instant
+import java.time.ZoneId
+import java.time.ZonedDateTime
 
-/**
- * The last calendar that was downloaded successfully, kept in the app's private storage so the
- * Schedule screen, the departure reminders and the course groups work without a connection.
- * The calendar is stored as the bytes the server sent and parsed again on each start, which
- * keeps the weekly occurrences correct as the days go by. One entry is kept per signed-in user.
- */
-class TimetableCache private constructor(private val directoryHolder: Lazy<File>) {
+/** A successful import, independent of live route estimates and server group membership. */
+data class SavedTimetable(
+    val url: String,
+    val timetable: TimetableImport? = null,
+    val savedAt: Instant? = null
+)
 
-    /** Looks the directory up on first use, so constructing the cache touches no disk. */
-    constructor(context: Context) : this(lazy { File(context.applicationContext.filesDir, DIRECTORY_NAME) })
-
-    constructor(directory: File) : this(lazyOf(directory))
-
-    private val directory: File
-        get() = directoryHolder.value
-
-    /** A saved calendar: where it came from, its bytes and when it was saved. */
-    class Entry(val url: String, val bytes: ByteArray, val savedAt: Instant)
-
-    /** The saved calendar of [userId], or null when there is none or it cannot be read. */
-    fun load(userId: String): Entry? {
-        val calendar = calendarFile(userId)
-        val metadata = metadataFile(userId)
-        if (!calendar.isFile || !metadata.isFile) return null
-        return runCatching {
-            val lines = metadata.readLines()
-            val url = lines.getOrNull(0)?.takeIf { it.isNotBlank() } ?: return null
-            val savedAt = lines.getOrNull(1)?.toLongOrNull()?.let(Instant::ofEpochMilli) ?: return null
-            Entry(url = url, bytes = calendar.readBytes(), savedAt = savedAt)
-        }.getOrNull()
-    }
-
-    /** Replaces the saved calendar of [userId]; the write is atomic so a crash cannot leave half a file. */
-    fun save(userId: String, url: String, bytes: ByteArray, savedAt: Instant = Instant.now()) {
-        require(url.isNotBlank()) { "The calendar URL cannot be blank" }
-        directory.mkdirs()
-        writeAtomically(calendarFile(userId), bytes)
-        writeAtomically(metadataFile(userId), "$url\n${savedAt.toEpochMilli()}\n".toByteArray())
-    }
-
-    /** Removes the saved calendar of [userId], for example when the subscription URL is removed. */
-    fun clear(userId: String) {
-        metadataFile(userId).delete()
-        calendarFile(userId).delete()
-    }
-
-    private fun calendarFile(userId: String) = File(directory, "${keyFor(userId)}.ics")
-
-    private fun metadataFile(userId: String) = File(directory, "${keyFor(userId)}.meta")
-
-    private fun writeAtomically(target: File, bytes: ByteArray) {
-        val temporary = File(target.parentFile, "${target.name}.tmp")
-        temporary.writeBytes(bytes)
-        if (!temporary.renameTo(target)) {
-            target.delete()
-            check(temporary.renameTo(target)) { "Could not replace ${target.name}" }
-        }
-    }
-
-    private companion object {
-        const val DIRECTORY_NAME = "timetable"
-
-        /** The user id is hashed so it does not appear in file names. */
-        fun keyFor(userId: String): String =
-            MessageDigest.getInstance("SHA-256")
-                .digest(userId.toByteArray())
-                .joinToString("") { "%02x".format(it) }
-                .take(32)
-    }
+interface TimetablePersistence {
+    fun load(userId: String): SavedTimetable
+    fun save(userId: String, url: String, timetable: TimetableImport, savedAt: Instant)
+    fun clear(userId: String)
 }
+
+/** Versioned disk format. Private subscription URLs never leave app-private storage. */
+internal object TimetableCache {
+    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+
+    fun encode(url: String, timetable: TimetableImport, savedAt: Instant): String =
+        json.encodeToString(Snapshot(
+            url = url,
+            savedAt = savedAt.toString(),
+            sourceEventCount = timetable.sourceEventCount,
+            sessions = timetable.sessions.map { session ->
+                Session(session.id, session.code, session.title, session.location, session.room,
+                    session.start.toString(), session.end.toString(), session.activity)
+            },
+            groups = timetable.groups.mapNotNull { it.timetableSpec }
+        ))
+
+    fun decode(value: String?, expectedUrl: String): SavedTimetable? = runCatching {
+        if (value == null || expectedUrl.isBlank()) return null
+        val snapshot = json.decodeFromString<Snapshot>(value)
+        if (snapshot.version != 1 || snapshot.url != expectedUrl) return null
+        val sessions = snapshot.sessions.map { session ->
+            CourseSession(session.id, session.code, session.title, session.location, session.room,
+                ZonedDateTime.parse(session.start), ZonedDateTime.parse(session.end), activity = session.activity)
+        }
+        val groups = snapshot.groups.map { spec ->
+            CourseGroup(id = spec.key, courseCode = spec.courseCode, name = spec.name,
+                members = 0, unreadCount = 0, latestMessage = "Added from your connected timetable.",
+                latestFileName = null, privateContentEnabled = false,
+                timetableKey = spec.key, timetableSlot = spec.slotLabel(), timetableSpec = spec)
+        }
+        SavedTimetable(snapshot.url, TimetableImport(sessions, groups, snapshot.sourceEventCount),
+            Instant.parse(snapshot.savedAt))
+    }.getOrNull()
+
+    @Serializable
+    private data class Snapshot(
+        val version: Int = 1,
+        val url: String,
+        val savedAt: String,
+        val sourceEventCount: Int,
+        val sessions: List<Session>,
+        val groups: List<TimetableGroupSpec>
+    )
+
+    @Serializable
+    private data class Session(
+        val id: String, val code: String, val title: String, val location: String, val room: String,
+        val start: String, val end: String, val activity: String? = null
+    )
+}
+
+/** Re-evaluate dates at startup; yesterday's classes and travel estimates must not appear as upcoming. */
+internal fun TimetableImport.forDisplay(now: Instant, zone: ZoneId): TimetableImport = copy(
+    sessions = sessions.filter { it.end.toInstant().isAfter(now) }
+        .sortedBy { it.start.toInstant() }
+        .map { it.copy(start = it.start.withZoneSameInstant(zone), end = it.end.withZoneSameInstant(zone),
+            etaMinutes = null, routeEstimate = null) }
+)

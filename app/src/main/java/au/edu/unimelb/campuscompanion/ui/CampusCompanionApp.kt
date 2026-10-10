@@ -61,9 +61,8 @@ import au.edu.unimelb.campuscompanion.auth.AuthViewModel
 import au.edu.unimelb.campuscompanion.auth.AuthenticatedUser
 import au.edu.unimelb.campuscompanion.auth.SupabaseProvider
 import au.edu.unimelb.campuscompanion.data.AppRepositories
-import au.edu.unimelb.campuscompanion.data.TimetableCache
-import au.edu.unimelb.campuscompanion.data.TimetableImport
 import au.edu.unimelb.campuscompanion.data.TimetableImporter
+import au.edu.unimelb.campuscompanion.data.TimetableSession
 import au.edu.unimelb.campuscompanion.data.TimetableSubscriptionStore
 import au.edu.unimelb.campuscompanion.data.TravelPreferences
 import au.edu.unimelb.campuscompanion.data.TravelPreferencesStore
@@ -339,20 +338,19 @@ private fun AuthenticatedCampusApp(
     val context = LocalContext.current
     val timetableStore = remember(context) { TimetableSubscriptionStore(context) }
     val timetableImporter = remember { TimetableImporter() }
-    val timetableCache = remember(context) { TimetableCache(context) }
     val travelPreferencesStore = remember(context) { TravelPreferencesStore(context) }
     var travelPreferences by remember(user.id) {
         mutableStateOf(travelPreferencesStore.load())
     }
-    val savedTimetableUrl = remember(user.id) { timetableStore.loadUrl(user.id) }
-    var timetableState by remember(user.id) {
-        mutableStateOf(
-            TimetableState(
-                url = savedTimetableUrl,
-                isLoading = savedTimetableUrl.isNotBlank()
-            )
-        )
+    val timetableSession = remember(user.id, timetableStore, timetableImporter) {
+        TimetableSession(user.id, timetableStore, timetableImporter::importFromUrl)
     }
+    val importedTimetable by timetableSession.state.collectAsState()
+    var isSyncingTimetableGroups by remember(user.id) { mutableStateOf(false) }
+    var timetableGroupSyncError by remember(user.id) { mutableStateOf<String?>(null) }
+    val timetableState = importedTimetable.copy(
+        isSyncingGroups = isSyncingTimetableGroups, groupSyncError = timetableGroupSyncError
+    )
 
     DisposableEffect(timetableImporter) {
         onDispose(timetableImporter::close)
@@ -494,89 +492,37 @@ private fun AuthenticatedCampusApp(
         groupPreferences.filterValues(GroupChatPreferences::muted).keys
     }
 
-    LaunchedEffect(user.id, savedTimetableUrl) {
-        if (savedTimetableUrl.isBlank()) return@LaunchedEffect
+    LaunchedEffect(timetableSession) { timetableSession.refresh() }
 
-        // The copy saved on the device opens the timetable at once, offline included; the
-        // download then replaces it, or explains why it could not.
-        val saved = withContext(Dispatchers.IO) { timetableCache.load(user.id) }
-            ?.takeIf { it.url == savedTimetableUrl }
-        val savedImport = saved?.let { timetableImporter.parse(it.bytes).getOrNull() }
-        if (saved != null && savedImport != null) {
-            timetableState = savedImport.toTimetableState(savedTimetableUrl, savedAt = saved.savedAt)
-        }
-
-        timetableImporter.download(savedTimetableUrl)
-            .fold(
-                onSuccess = { bytes -> timetableImporter.parse(bytes).map { it to bytes } },
-                onFailure = { Result.failure<Pair<TimetableImport, ByteArray>>(it) }
-            )
-            .fold(
-                onSuccess = { (imported, bytes) ->
-                    withContext(Dispatchers.IO) { timetableCache.save(user.id, savedTimetableUrl, bytes) }
-                    timetableState = imported.toTimetableState(savedTimetableUrl)
-                },
-                onFailure = { error ->
-                    timetableState = if (savedImport != null) {
-                        timetableState.copy(refreshError = error.message)
-                    } else {
-                        TimetableState(url = savedTimetableUrl, errorMessage = error.message)
-                    }
-                }
-            )
-    }
-
-    LaunchedEffect(user.id, timetableState.groups, timetableState.isConnected, lifecycleOwner) {
-        if (!SupabaseProvider.isConfigured || !timetableState.isConnected) return@LaunchedEffect
+    LaunchedEffect(user.id, timetableState.groups, timetableState.isConnected,
+        timetableState.isCached, timetableState.isLoading) {
+        isSyncingTimetableGroups = false
+        timetableGroupSyncError = null
+        // Cached classes are readable offline, but must not change server memberships.
+        if (!SupabaseProvider.isConfigured || !timetableState.isConnected ||
+            timetableState.isCached || timetableState.isLoading) return@LaunchedEffect
         val specs = timetableState.groups.mapNotNull { it.timetableSpec }
-        timetableState = timetableState.copy(isSyncingGroups = true, groupSyncError = null)
-        // Retries back off from 30 s to 10 min and only run while the app is on screen.
-        var retryDelayMillis = 30_000L
-        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            while (true) {
-                val result = groupRepository.syncTimetableGroups(specs)
-                if (result.isSuccess) {
-                    groupSyncReady = true
-                    timetableState = timetableState.copy(isSyncingGroups = false, groupSyncError = null)
-                    return@repeatOnLifecycle
-                }
-                timetableState = timetableState.copy(
-                    isSyncingGroups = false,
-                    groupSyncError = "Could not join timetable groups. Retrying automatically…"
-                )
-                delay(retryDelayMillis)
-                retryDelayMillis = (retryDelayMillis * 2).coerceAtMost(600_000L)
+        isSyncingTimetableGroups = true
+        while (true) {
+            val result = groupRepository.syncTimetableGroups(specs)
+            if (result.isSuccess) {
+                groupSyncReady = true
+                isSyncingTimetableGroups = false
+                timetableGroupSyncError = null
+                break
             }
+            isSyncingTimetableGroups = false
+            timetableGroupSyncError = "Could not join timetable groups. Retrying automatically…"
+            delay(30_000)
         }
     }
 
-    val connectTimetable: suspend (String) -> Result<Unit> = { url ->
-        val previousState = timetableState
-        timetableImporter.download(url)
-            .fold(
-                onSuccess = { bytes -> timetableImporter.parse(bytes).map { it to bytes } },
-                onFailure = { Result.failure<Pair<TimetableImport, ByteArray>>(it) }
-            )
-            .fold(
-                onSuccess = { (imported, bytes) ->
-                    timetableStore.saveUrl(user.id, url)
-                    withContext(Dispatchers.IO) { timetableCache.save(user.id, url, bytes) }
-                    timetableState = imported.toTimetableState(url)
-                    Result.success(Unit)
-                },
-                onFailure = { error ->
-                    timetableState = previousState.copy(errorMessage = error.message)
-                    Result.failure(error)
-                }
-            )
-    }
-
+    val connectTimetable: suspend (String) -> Result<Unit> = timetableSession::connect
+    val refreshTimetable: () -> Unit = { scope.launch { timetableSession.refresh() } }
     val removeTimetable = {
-        timetableStore.clear(user.id)
-        timetableCache.clear(user.id)
+        timetableSession.clear()
         courseReminderStore.clear()
         courseReminderVersion += 1
-        timetableState = TimetableState()
     }
     val updateTravelPreferences: (TravelPreferences) -> Unit = { updatedPreferences ->
         travelPreferencesStore.save(updatedPreferences)
@@ -854,13 +800,14 @@ private fun AuthenticatedCampusApp(
     if (showGroupSettings && selectedGroup != null && selectedPreferences != null) {
         GroupSettingsDialog(
             group = selectedGroup,
+            currentUserId = user.id,
             initialFolded = selectedGroup.id in foldedGroupIds,
             initialMuted = selectedPreferences.muted,
             initialDisplayName = selectedPreferences.displayName.ifBlank { user.profileName },
             onDismiss = { showGroupSettings = false },
             onInviteWithNfc = { startNfcShare(selectedGroup) },
             createQrInvite = { inviteRepository.createInvite(selectedGroup.id) },
-            loadMembers = { groupRepository.observeMembers(selectedGroup.id).first() },
+            observeMembers = { groupRepository.observeMembers(selectedGroup.id) },
             onTransfer = { newOwnerId ->
                 groupRepository.transferAndLeave(selectedGroup.id, newOwnerId).onSuccess {
                     showGroupSettings = false
@@ -875,21 +822,25 @@ private fun AuthenticatedCampusApp(
                     closeGroup()
                 }
             },
-            onSave = { folded, muted, displayName ->
-                val foldedOverride = foldedOverrideAfterEdit(
-                    existingOverride = selectedPreferences.foldedOverride,
-                    initialFolded = selectedGroup.id in foldedGroupIds,
-                    selectedFolded = folded
-                )
-                groupPreferencesStore.save(
-                    groupId = selectedGroup.id,
-                    foldedOverride = foldedOverride,
-                    muted = muted,
-                    displayName = displayName
-                )
-                groupPreferencesVersion += 1
-                showGroupSettings = false
-                if (folded) closeGroup()
+            onSave = { folded, muted, displayName, nicknameChanged ->
+                val result = if (nicknameChanged) groupRepository.setMyNickname(selectedGroup.id, displayName)
+                    else Result.success(displayName)
+                result.map { savedName ->
+                    val foldedOverride = foldedOverrideAfterEdit(
+                        existingOverride = selectedPreferences.foldedOverride,
+                        initialFolded = selectedGroup.id in foldedGroupIds,
+                        selectedFolded = folded
+                    )
+                    groupPreferencesStore.save(
+                        groupId = selectedGroup.id,
+                        foldedOverride = foldedOverride,
+                        muted = muted,
+                        displayName = savedName
+                    )
+                    groupPreferencesVersion += 1
+                    showGroupSettings = false
+                    if (folded) closeGroup()
+                }
             }
         )
         return
@@ -1002,6 +953,7 @@ private fun AuthenticatedCampusApp(
                     ),
                     travelPreferences = travelPreferences,
                     onTimetableUrlSave = connectTimetable,
+                    onTimetableRefresh = refreshTimetable,
                     onOpenGroup = { group ->
                         openGroup(group)
                     }
@@ -1011,6 +963,7 @@ private fun AuthenticatedCampusApp(
                 ScheduleScreen(
                     timetableState = displayedTimetable,
                     onTimetableUrlSave = connectTimetable,
+                    onTimetableRefresh = refreshTimetable,
                     reminderCourseCount = reminderCourses.size,
                     enabledReminderCount = courseReminderPreferences.values.count { it.enabled },
                     onOpenDepartureReminders = {
@@ -1099,10 +1052,6 @@ private fun AuthenticatedCampusApp(
                     group != null -> GroupChatScreen(
                         group = group,
                         currentUserId = user.id,
-                        myDisplayName = groupPreferences[group.id]
-                            ?.displayName
-                            ?.takeIf(String::isNotBlank)
-                            ?: user.profileName,
                         pendingDocuments = pendingDocuments,
                         pendingDocumentError = pendingDocumentError,
                         capturedCameraUri = capturedCameraUri,
@@ -1115,10 +1064,6 @@ private fun AuthenticatedCampusApp(
                     groupsStillLoading && cachedGroup != null -> GroupChatScreen(
                         group = cachedGroup,
                         currentUserId = user.id,
-                        myDisplayName = groupPreferencesStore.load(cachedGroup.id)
-                            .displayName
-                            .takeIf(String::isNotBlank)
-                            ?: user.profileName,
                         pendingDocuments = pendingDocuments,
                         pendingDocumentError = pendingDocumentError,
                         capturedCameraUri = capturedCameraUri,
@@ -1147,6 +1092,7 @@ private fun AuthenticatedCampusApp(
                     timetableState = timetableState,
                     travelPreferences = travelPreferences,
                     onTimetableUrlSave = connectTimetable,
+                    onTimetableRefresh = refreshTimetable,
                     onTimetableUrlRemove = removeTimetable,
                     onTravelPreferencesChange = updateTravelPreferences,
                     onSignOut = onSignOut
@@ -1242,12 +1188,3 @@ private fun resolveDocument(
         sizeBytes = sizeBytes
     )
 }
-
-private fun TimetableImport.toTimetableState(url: String, savedAt: Instant? = null): TimetableState = TimetableState(
-    url = url,
-    sessions = sessions,
-    groups = groups,
-    detectedEventCount = sourceEventCount,
-    isConnected = true,
-    savedAt = savedAt
-)
