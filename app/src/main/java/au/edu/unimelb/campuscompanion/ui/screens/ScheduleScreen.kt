@@ -30,7 +30,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import au.edu.unimelb.campuscompanion.data.TravelPreferences
 import au.edu.unimelb.campuscompanion.ui.components.CourseSessionRow
 import au.edu.unimelb.campuscompanion.ui.components.SectionHeader
 import au.edu.unimelb.campuscompanion.ui.components.TimetableSyncStatus
@@ -39,14 +38,9 @@ import au.edu.unimelb.campuscompanion.ui.model.TimetableState
 
 private const val MAX_VISIBLE_SESSIONS = 50
 
-/** Lead times the reminder card offers, in minutes. */
-private val LEAD_MINUTE_OPTIONS = listOf(5, 10, 15, 20, 30)
-
 @Composable
 fun ScheduleScreen(
     timetableState: TimetableState,
-    travelPreferences: TravelPreferences,
-    onReminderPreferencesChange: (enabled: Boolean, leadMinutes: Int) -> Unit,
     onTimetableUrlSave: suspend (String) -> Result<Unit>,
     onTimetableRefresh: () -> Unit,
     reminderCourseCount: Int,
@@ -78,7 +72,7 @@ fun ScheduleScreen(
             )
             Text(
                 text = if (timetableState.isConnected) {
-                    "Upcoming sessions parsed from your calendar subscription."
+                    timetableState.offlineNotice() ?: "Upcoming sessions parsed from your calendar subscription."
                 } else {
                     "No classes are shown until a timetable URL is verified."
                 },

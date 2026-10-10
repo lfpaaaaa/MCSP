@@ -76,7 +76,6 @@ fun GroupsScreen(
     onStartGroup: suspend (name: String, courseCode: String?) -> Result<StartedGroupAccess>,
     onJoinGroup: suspend (code: String) -> Result<Unit>,
     nfcJoinState: NfcJoinUiState,
-    onScanQr: () -> Unit,
     onStartNfcJoin: () -> Unit,
     onDismissNfcJoin: () -> Unit,
     onOpenNfcSettings: () -> Unit,

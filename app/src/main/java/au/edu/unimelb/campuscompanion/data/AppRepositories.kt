@@ -1,6 +1,7 @@
 package au.edu.unimelb.campuscompanion.data
 
 import android.content.Context
+import android.util.Log
 import au.edu.unimelb.campuscompanion.auth.SupabaseProvider
 import au.edu.unimelb.campuscompanion.context.DepartureReminders
 import au.edu.unimelb.campuscompanion.context.TravelEngine
@@ -12,6 +13,7 @@ import au.edu.unimelb.campuscompanion.data.fake.FakeGroupRepository
 import au.edu.unimelb.campuscompanion.data.fake.FakeInviteRepository
 import au.edu.unimelb.campuscompanion.data.invite.JoinLinkInbox
 import au.edu.unimelb.campuscompanion.data.local.CampusDatabase
+import au.edu.unimelb.campuscompanion.data.local.FileGroupListCache
 import au.edu.unimelb.campuscompanion.data.model.CurrentUser
 import au.edu.unimelb.campuscompanion.data.model.MessageStatus
 import au.edu.unimelb.campuscompanion.data.remote.GroupRemoteDataSource
@@ -48,12 +50,16 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.contentOrNull
+import java.io.File
 
 /**
  * App-wide repositories. The Supabase-backed versions are used when the project URL and
  * publishable key are set in local.properties; otherwise the in-memory fakes with sample data
  * are used, so that screens can still be built and previewed.
  */
+/** Logcat tag of the chat latency samples; the chat screen logs the received ones under it too. */
+private const val CHAT_LATENCY_TAG = "ChatLatency"
+
 object AppRepositories {
     /** Join links received by the main activity. */
     val joinLinks = JoinLinkInbox()
@@ -111,7 +117,11 @@ object AppRepositories {
         if (client == null || remote == null) {
             fakeGroups
         } else {
-            DefaultGroupRepository(remote) { client.auth.currentUserOrNull()?.id }
+            DefaultGroupRepository(
+                remote = remote,
+                currentUserId = { client.auth.currentUserOrNull()?.id },
+                cache = FileGroupListCache(lazy { File(appContext.filesDir, "groups") })
+            )
         }
     }
 
@@ -140,7 +150,11 @@ object AppRepositories {
     }
 
     val chatSender: ChatMessageSender by lazy {
-        ChatMessageSender(chat, applicationScope) { groups.refresh() }
+        ChatMessageSender(
+            repository = chat,
+            scope = applicationScope,
+            onConfirmed = { millis -> Log.i(CHAT_LATENCY_TAG, "send_confirmed ms=$millis") }
+        ) { groups.refresh() }
     }
 
     val files: FileRepository by lazy {

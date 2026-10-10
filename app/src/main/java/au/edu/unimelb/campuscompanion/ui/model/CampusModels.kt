@@ -2,9 +2,13 @@ package au.edu.unimelb.campuscompanion.ui.model
 
 import au.edu.unimelb.campuscompanion.data.model.TimetableGroupSpec
 
+import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
+import java.time.ZoneId
 import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 data class CourseSession(
     val id: String,
@@ -43,7 +47,9 @@ data class RouteEstimate(
     val distanceMeters: Int,
     val walkingMinutes: Int? = null,
     val publicTransportMinutes: Int? = null,
-    val drivingMinutes: Int? = null
+    val drivingMinutes: Int? = null,
+    /** True when the time was worked out from the straight-line distance because routing was unavailable. */
+    val isApproximate: Boolean = false
 )
 
 fun CourseSession.departureReminderTime(leadMinutes: Int): ZonedDateTime {

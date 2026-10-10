@@ -152,7 +152,8 @@ fun HomeScreen(
 
                 ImportSummaryCard(
                     detectedEventCount = timetableState.detectedEventCount,
-                    groupCount = timetableState.groups.size
+                    groupCount = timetableState.groups.size,
+                    notice = timetableState.offlineNotice()
                 )
 
                 SectionHeader(title = "Course groups")
@@ -258,8 +259,8 @@ private fun NextClassCard(
                 )
                 TravelMetric(
                     icon = travel.mode?.icon() ?: Icons.Outlined.AccessTime,
-                    label = travel.mode?.displayName ?: "Travel time",
-                    value = travel.durationMinutes?.let { "$it min" } ?: "Route pending",
+                    label = (travel.mode?.displayName ?: "Travel time") + if (travel.isApproximate) " (approx.)" else "",
+                    value = travel.durationMinutes?.let { if (travel.isApproximate) "~$it min" else "$it min" } ?: "Route pending",
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -330,7 +331,9 @@ internal fun buildHomeAgenda(
 internal data class SelectedTravelSummary(
     val distanceMeters: Int?,
     val mode: TravelMode?,
-    val durationMinutes: Int?
+    val durationMinutes: Int?,
+    /** The time is a straight-line estimate, shown with a tilde and labelled as approximate. */
+    val isApproximate: Boolean = false
 )
 
 internal fun selectTravelSummary(
@@ -353,7 +356,8 @@ internal fun selectTravelSummary(
     return SelectedTravelSummary(
         distanceMeters = estimate.distanceMeters,
         mode = mode,
-        durationMinutes = minutes
+        durationMinutes = minutes,
+        isApproximate = estimate.isApproximate
     )
 }
 
@@ -446,6 +450,7 @@ private fun TimetableSetupPrompt(
 private fun ImportSummaryCard(
     detectedEventCount: Int,
     groupCount: Int,
+    notice: String?,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -469,6 +474,12 @@ private fun ImportSummaryCard(
                     text = "$detectedEventCount calendar events detected. $groupCount groups available.",
                     style = MaterialTheme.typography.bodyMedium
                 )
+                if (notice != null) {
+                    Text(
+                        text = notice,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
             }
         }
     }

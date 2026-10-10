@@ -3,6 +3,7 @@ package au.edu.unimelb.campuscompanion.data.repository
 import au.edu.unimelb.campuscompanion.data.DataError
 import au.edu.unimelb.campuscompanion.data.model.GroupRole
 import au.edu.unimelb.campuscompanion.data.remote.GroupMemberRow
+import au.edu.unimelb.campuscompanion.data.remote.GroupSummaryRow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -24,6 +25,35 @@ class DefaultGroupRepositoryTest {
         assertTrue(repository.refresh().isSuccess)
 
         assertEquals(listOf("newer", "older"), repository.observeMyGroups().first().map { it.group.id })
+    }
+
+    @Test
+    fun theSavedListIsShownUntilTheFirstRefreshAndReplacedAfterIt() = runBlocking<Unit> {
+        val cache = InMemoryGroupListCache()
+        cache.save("user-1", listOf(summaryRow("saved", latestActivityAt = "2026-09-24T01:00:00+00:00")))
+        remote.summaries = listOf(summaryRow("fresh", latestActivityAt = "2026-09-25T01:00:00+00:00"))
+        val cached = DefaultGroupRepository(remote, cache) { signedInUser }
+
+        assertEquals(listOf("saved"), cached.observeMyGroups().first().map { it.group.id })
+        assertEquals(0, remote.summaryFetches)
+
+        assertTrue(cached.refresh().isSuccess)
+
+        assertEquals(listOf("fresh"), cached.observeMyGroups().first().map { it.group.id })
+        assertEquals(listOf("fresh"), cache.load("user-1")?.map { it.id })
+    }
+
+    @Test
+    fun anotherUsersSavedListIsNotShown() = runBlocking<Unit> {
+        val cache = InMemoryGroupListCache()
+        cache.save("user-2", listOf(summaryRow("theirs")))
+        remote.summaries = listOf(summaryRow("mine"))
+        val cached = DefaultGroupRepository(remote, cache) { signedInUser }
+
+        assertTrue(cached.refresh().isSuccess)
+
+        assertEquals(listOf("mine"), cached.observeMyGroups().first().map { it.group.id })
+        assertEquals(listOf("theirs"), cache.load("user-2")?.map { it.id })
     }
 
     @Test
@@ -87,5 +117,15 @@ class DefaultGroupRepositoryTest {
         remote.deletedRowCount = 0
 
         assertTrue(repository.leaveGroup("group-1").exceptionOrNull() is DataError.NotFound)
+    }
+}
+
+private class InMemoryGroupListCache : GroupListCache {
+    private val lists = mutableMapOf<String, List<GroupSummaryRow>>()
+
+    override fun load(userId: String): List<GroupSummaryRow>? = lists[userId]
+
+    override fun save(userId: String, rows: List<GroupSummaryRow>) {
+        lists[userId] = rows
     }
 }
