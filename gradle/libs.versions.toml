@@ -18,6 +18,8 @@ androidxTestRunner = "1.6.2"
 playServicesLocation = "21.3.0"
 googleServices = "4.4.2"
 firebaseBom = "33.7.0"
+zxingAndroidEmbedded = "4.3.0"
+zxingCore = "3.5.3"
 
 
 [libraries]
@@ -55,6 +57,8 @@ androidx-test-runner = { group = "androidx.test", name = "runner", version.ref =
 google-play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playServicesLocation" }
 firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }
 firebase-messaging = { group = "com.google.firebase", name = "firebase-messaging" }
+zxing-android-embedded = { group = "com.journeyapps", name = "zxing-android-embedded", version.ref = "zxingAndroidEmbedded" }
+zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxingCore" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

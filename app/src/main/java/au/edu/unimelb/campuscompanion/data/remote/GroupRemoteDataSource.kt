@@ -25,6 +25,9 @@ interface GroupRemoteDataSource {
     /** Removes [userId] from [groupId] and returns the number of memberships removed. */
     suspend fun deleteMembership(groupId: String, userId: String): Int
 
+    /** Replaces the join code of a group the signed-in user owns and returns the new code. */
+    suspend fun resetJoinCode(groupId: String): String
+
     /** Issues a short-lived invite for a group that the signed-in user belongs to. */
     suspend fun createInvite(groupId: String): InviteRow
 

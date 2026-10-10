@@ -63,9 +63,12 @@ import au.edu.unimelb.campuscompanion.data.TimetableSubscriptionStore
 import au.edu.unimelb.campuscompanion.data.TravelPreferences
 import au.edu.unimelb.campuscompanion.data.TravelPreferencesStore
 import au.edu.unimelb.campuscompanion.data.toUserMessage
+import au.edu.unimelb.campuscompanion.data.model.Group
+import au.edu.unimelb.campuscompanion.data.model.GroupInvite
 import au.edu.unimelb.campuscompanion.data.model.GroupSummary
 import au.edu.unimelb.campuscompanion.nfc.NfcInviteHostSession
 import au.edu.unimelb.campuscompanion.nfc.NfcInviteReader
+import au.edu.unimelb.campuscompanion.push.NotificationTaps
 import au.edu.unimelb.campuscompanion.ui.model.CourseGroup
 import au.edu.unimelb.campuscompanion.ui.model.CourseReminderPreference
 import au.edu.unimelb.campuscompanion.ui.model.GroupChatPreferences
@@ -74,6 +77,7 @@ import au.edu.unimelb.campuscompanion.ui.model.MAX_PENDING_DOCUMENTS
 import au.edu.unimelb.campuscompanion.ui.model.NfcJoinUiState
 import au.edu.unimelb.campuscompanion.ui.model.NfcShareUiState
 import au.edu.unimelb.campuscompanion.ui.model.PendingDocument
+import au.edu.unimelb.campuscompanion.ui.model.QrShareUiState
 import au.edu.unimelb.campuscompanion.ui.model.StartedGroupAccess
 import au.edu.unimelb.campuscompanion.ui.model.TimetableState
 import au.edu.unimelb.campuscompanion.ui.model.buildCourseReminderSeries
@@ -91,11 +95,15 @@ import au.edu.unimelb.campuscompanion.ui.screens.GroupChatScreen
 import au.edu.unimelb.campuscompanion.ui.screens.GroupSettingsDialog
 import au.edu.unimelb.campuscompanion.ui.screens.GroupsScreen
 import au.edu.unimelb.campuscompanion.ui.screens.HomeScreen
+import au.edu.unimelb.campuscompanion.ui.screens.InviteQrDialog
 import au.edu.unimelb.campuscompanion.ui.screens.LoginScreen
 import au.edu.unimelb.campuscompanion.ui.screens.NfcShareDialog
 import au.edu.unimelb.campuscompanion.ui.screens.ProfileScreen
 import au.edu.unimelb.campuscompanion.ui.screens.ScheduleScreen
+import au.edu.unimelb.campuscompanion.ui.screens.TimetableGroupScreen
 import au.edu.unimelb.campuscompanion.ui.theme.CampusCompanionTheme
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import java.io.File
 import java.time.Duration
 import java.time.Instant
@@ -389,6 +397,7 @@ private fun AuthenticatedCampusApp(
     val groupRepository = remember { AppRepositories.groups }
     val inviteRepository = remember { AppRepositories.invites }
     val pendingJoinToken by AppRepositories.joinLinks.pendingToken.collectAsState()
+    val tappedNotification by NotificationTaps.pending.collectAsState()
     val nfcInviteDelivered by NfcInviteHostSession.delivered.collectAsState()
     val nfcAdapter = remember(context) {
         context.getSystemService(NfcManager::class.java)?.defaultAdapter
@@ -403,6 +412,9 @@ private fun AuthenticatedCampusApp(
     }
     var nfcShareState by remember(user.id) {
         mutableStateOf<NfcShareUiState>(NfcShareUiState.Idle)
+    }
+    var qrShareState by remember(user.id) {
+        mutableStateOf<QrShareUiState>(QrShareUiState.Idle)
     }
     val syncedGroupSummaries by groupRepository.observeMyGroups()
         .collectAsState(initial = emptyList())
@@ -567,8 +579,8 @@ private fun AuthenticatedCampusApp(
         }
     }
 
-    fun navigateToGroups() {
-        navController.navigate(CampusDestination.Groups.route) {
+    fun navigateToDestination(route: String) {
+        navController.navigate(route) {
             popUpTo(navController.graph.findStartDestination().id) {
                 saveState = true
             }
@@ -576,6 +588,8 @@ private fun AuthenticatedCampusApp(
             restoreState = true
         }
     }
+
+    fun navigateToGroups() = navigateToDestination(CampusDestination.Groups.route)
 
     fun startNfcJoin() {
         NfcInviteHostSession.clear()
@@ -590,6 +604,66 @@ private fun AuthenticatedCampusApp(
     fun stopNfcShare() {
         NfcInviteHostSession.clear()
         nfcShareState = NfcShareUiState.Idle
+    }
+
+    fun startQrShare(group: CourseGroup) {
+        showGroupSettings = false
+        qrShareState = QrShareUiState.CreatingInvite
+        scope.launch {
+            inviteRepository.createInvite(group.id).fold(
+                onSuccess = { invite ->
+                    qrShareState = QrShareUiState.Ready(
+                        groupName = group.name,
+                        joinUri = invite.joinUri,
+                        expiresAt = invite.expiresAt
+                    )
+                },
+                onFailure = { error ->
+                    val message = error.toUserMessage()
+                    qrShareState = QrShareUiState.Failed(message.title, message.body)
+                }
+            )
+        }
+    }
+
+    // A scanned invite joins through the same path as a link that opened the app; a scanned
+    // six-character code is typed in on the user's behalf.
+    val qrScanner = rememberLauncherForActivityResult(ScanContract()) { result ->
+        val contents = result.contents?.trim() ?: return@rememberLauncherForActivityResult
+        if (AppRepositories.joinLinks.offer(contents)) return@rememberLauncherForActivityResult
+        val code = GroupInvite.joinCodeFromText(contents)
+        if (code == null) {
+            nfcJoinState = NfcJoinUiState.Failed(
+                title = "Not an invitation",
+                message = "That QR code is not a Campus Companion invitation. Ask a group member to show theirs."
+            )
+            return@rememberLauncherForActivityResult
+        }
+        nfcJoinState = NfcJoinUiState.Joining
+        scope.launch {
+            inviteRepository.joinWithToken(code).fold(
+                onSuccess = { group ->
+                    groupSyncReady = true
+                    nfcJoinState = NfcJoinUiState.Joined(group.name)
+                },
+                onFailure = { error ->
+                    val message = error.toUserMessage()
+                    nfcJoinState = NfcJoinUiState.Failed(message.title, message.body)
+                }
+            )
+        }
+    }
+
+    fun startQrScan() {
+        NfcInviteHostSession.clear()
+        nfcShareState = NfcShareUiState.Idle
+        qrScanner.launch(
+            ScanOptions()
+                .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                .setPrompt("Point the camera at a Campus Companion invitation")
+                .setBeepEnabled(false)
+                .setOrientationLocked(true)
+        )
     }
 
     fun startNfcShare(group: CourseGroup) {
@@ -640,6 +714,8 @@ private fun AuthenticatedCampusApp(
 
     fun closeGroup() {
         onGroupClosed()
+        // The list shows the latest message and unread count, which this chat has just changed.
+        if (SupabaseProvider.isConfigured) scope.launch { groupRepository.refresh() }
         if (!navController.navigateUp()) {
             navController.navigate(CampusDestination.Groups.route) {
                 popUpTo(navController.graph.findStartDestination().id) {
@@ -727,6 +803,33 @@ private fun AuthenticatedCampusApp(
         nfcShareState = NfcShareUiState.Shared(ready.groupName)
     }
 
+    // The travel engine keeps the saved lead time in hand on top of the travel time.
+    LaunchedEffect(travelPreferences.reminderLeadMinutes) {
+        travel.updateLeadMinutes(travelPreferences.reminderLeadMinutes)
+    }
+
+    // A tapped notification opens its chat (once the groups are known) or the Schedule screen.
+    LaunchedEffect(tappedNotification, allGroups, groupSyncReady) {
+        when (val target = tappedNotification) {
+            null -> Unit
+            is NotificationTaps.Target.Schedule -> {
+                NotificationTaps.clear()
+                navigateToDestination(CampusDestination.Schedule.route)
+            }
+            is NotificationTaps.Target.GroupChat -> {
+                val group = allGroups.firstOrNull { it.id == target.groupId }
+                when {
+                    group != null -> {
+                        NotificationTaps.clear()
+                        openGroup(group)
+                    }
+                    // The groups have loaded and this one is not among them any more.
+                    groupSyncReady || !SupabaseProvider.isConfigured -> NotificationTaps.clear()
+                }
+            }
+        }
+    }
+
     LaunchedEffect(pendingJoinToken, user.id) {
         val token = pendingJoinToken ?: return@LaunchedEffect
         onGroupClosed()
@@ -760,6 +863,20 @@ private fun AuthenticatedCampusApp(
 
     LaunchedEffect(currentRoute) {
         if (!isGroupChat) showGroupSettings = false
+        // The list's previews and unread counts come from the server; fetch them when it is shown.
+        if (currentRoute == CampusDestination.Groups.route && SupabaseProvider.isConfigured) {
+            groupRepository.refresh()
+        }
+    }
+
+    if (qrShareState !is QrShareUiState.Idle) {
+        InviteQrDialog(
+            state = qrShareState,
+            onDismiss = { qrShareState = QrShareUiState.Idle },
+            onNewCode = {
+                selectedGroup?.let(::startQrShare) ?: run { qrShareState = QrShareUiState.Idle }
+            }
+        )
     }
 
     if (nfcShareState !is NfcShareUiState.Idle) {
@@ -917,7 +1034,10 @@ private fun AuthenticatedCampusApp(
             composable(CampusDestination.Home.route) {
                 HomeScreen(
                     timetableState = displayedTimetable.copy(
-                        groups = activeGroups.filter { it.origin == GroupOrigin.Timetable }
+                        // Real course groups come before the timetable placeholders.
+                        groups = activeGroups
+                            .filter { group -> group.origin == GroupOrigin.Timetable || group.courseCode.isNotBlank() }
+                            .sortedBy { group -> group.origin == GroupOrigin.Timetable }
                     ),
                     travelPreferences = travelPreferences,
                     onTimetableUrlSave = connectTimetable,
@@ -929,6 +1049,12 @@ private fun AuthenticatedCampusApp(
             composable(CampusDestination.Schedule.route) {
                 ScheduleScreen(
                     timetableState = displayedTimetable,
+                    travelPreferences = travelPreferences,
+                    onReminderPreferencesChange = { enabled, leadMinutes ->
+                        updateTravelPreferences(
+                            travelPreferences.copy(remindersEnabled = enabled, reminderLeadMinutes = leadMinutes)
+                        )
+                    },
                     onTimetableUrlSave = connectTimetable,
                     reminderCourseCount = reminderCourses.size,
                     enabledReminderCount = courseReminderPreferences.values.count { it.enabled },
@@ -972,6 +1098,7 @@ private fun AuthenticatedCampusApp(
                         }
                     },
                     nfcJoinState = nfcJoinState,
+                    onScanQr = ::startQrScan,
                     onStartNfcJoin = ::startNfcJoin,
                     onDismissNfcJoin = {
                         nfcJoinState = NfcJoinUiState.Idle
@@ -997,7 +1124,24 @@ private fun AuthenticatedCampusApp(
                 val groupId = entry.arguments?.getString("groupId")
                 val group = allGroups.firstOrNull { it.id == groupId }
                 val cachedGroup = restoredGroup?.takeIf { it.id == groupId }
+                // After a restart the timetable and the server-side groups load separately; the chat
+                // stays open from the saved group until both have arrived.
+                val groupsStillLoading = timetableState.isLoading ||
+                    (SupabaseProvider.isConfigured && !groupSyncReady)
                 when {
+                    group != null && group.origin == GroupOrigin.Timetable -> TimetableGroupScreen(
+                        group = group,
+                        onStartGroup = {
+                            // The timetable title ends with the session type ("…, Lecture1"), which is
+                            // not part of the group's name.
+                            val groupName = group.name.substringBefore(",").trim().ifBlank { group.courseCode }.take(60)
+                            groupRepository.createGroup(groupName, group.courseCode).map { created ->
+                                groupSyncReady = true
+                                openGroup(created.toCourseGroup(currentUserId = user.id, memberCount = 1))
+                            }
+                        },
+                        onGoToGroups = ::navigateToGroups
+                    )
                     group != null -> GroupChatScreen(
                         group = group,
                         currentUserId = user.id,
@@ -1014,7 +1158,7 @@ private fun AuthenticatedCampusApp(
                         onTakePhoto = { onTakeGroupPhoto(group.id) },
                         onCapturedCameraPhotoConsumed = onCapturedCameraPhotoConsumed
                     )
-                    timetableState.isLoading && cachedGroup != null -> GroupChatScreen(
+                    groupsStillLoading && cachedGroup != null -> GroupChatScreen(
                         group = cachedGroup,
                         currentUserId = user.id,
                         myDisplayName = groupPreferencesStore.load(cachedGroup.id)
@@ -1030,7 +1174,7 @@ private fun AuthenticatedCampusApp(
                         onTakePhoto = { onTakeGroupPhoto(cachedGroup.id) },
                         onCapturedCameraPhotoConsumed = onCapturedCameraPhotoConsumed
                     )
-                    timetableState.isLoading -> Box(
+                    groupsStillLoading -> Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
@@ -1057,6 +1201,20 @@ private fun AuthenticatedCampusApp(
         }
     }
 }
+
+/** A group the user has just created, before its summary has been fetched. */
+private fun Group.toCourseGroup(currentUserId: String, memberCount: Int): CourseGroup = CourseGroup(
+    id = id,
+    courseCode = courseCode.orEmpty(),
+    name = name,
+    members = memberCount,
+    unreadCount = 0,
+    latestMessage = "No messages yet.",
+    latestFileName = null,
+    privateContentEnabled = privateContentEnabled,
+    origin = if (createdBy == currentUserId) GroupOrigin.CreatedByUser else GroupOrigin.Joined,
+    joinCode = joinCode
+)
 
 private fun GroupSummary.toCourseGroup(currentUserId: String): CourseGroup = CourseGroup(
     id = group.id,

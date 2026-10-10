@@ -2,6 +2,7 @@ package au.edu.unimelb.campuscompanion.data
 
 import android.content.Context
 import au.edu.unimelb.campuscompanion.auth.SupabaseProvider
+import au.edu.unimelb.campuscompanion.context.DepartureReminders
 import au.edu.unimelb.campuscompanion.context.TravelEngine
 import au.edu.unimelb.campuscompanion.data.building.BuildingLocationRepository
 import au.edu.unimelb.campuscompanion.data.fake.FakeChatRepository
@@ -33,6 +34,7 @@ import au.edu.unimelb.campuscompanion.data.repository.GroupRepository
 import au.edu.unimelb.campuscompanion.data.repository.InviteRepository
 import au.edu.unimelb.campuscompanion.data.repository.RoutedEtaRepository
 import au.edu.unimelb.campuscompanion.data.repository.WeatherRepository
+import au.edu.unimelb.campuscompanion.push.DepartureNotifier
 import au.edu.unimelb.campuscompanion.push.FirebaseTokenSource
 import au.edu.unimelb.campuscompanion.push.PushTokens
 import io.github.jan.supabase.SupabaseClient
@@ -59,6 +61,10 @@ object AppRepositories {
     private lateinit var appContext: Context
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    /** Work that should finish even when the screen that started it goes away, such as file uploads. */
+    val backgroundScope: CoroutineScope
+        get() = applicationScope
+
     /** Prepares the on-device cache. Called once from the application's onCreate. */
     fun init(context: Context) {
         appContext = context.applicationContext
@@ -66,7 +72,17 @@ object AppRepositories {
             // Messages that were still sending when the app stopped can now be retried by the user.
             database.messageDao().replaceStatus(MessageStatus.Sending.name, MessageStatus.Failed.name)
         }
+        // The lead time and the reminders follow the saved preferences from the first tick.
+        val travelPreferencesStore = TravelPreferencesStore(appContext)
+        travel.updateLeadMinutes(travelPreferencesStore.load().reminderLeadMinutes)
         applicationScope.launch { travel.run() }
+        applicationScope.launch {
+            DepartureReminders(
+                snapshots = travel.snapshot,
+                preferences = travelPreferencesStore::load,
+                notify = { reminder -> DepartureNotifier.show(appContext, reminder) }
+            ).run()
+        }
         SupabaseProvider.client?.let { client ->
             applicationScope.launch {
                 client.auth.sessionStatus.collect { status ->

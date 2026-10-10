@@ -126,7 +126,13 @@ class TravelEngine(
         if (destination != null && from != null) {
             distance = GeoMath.distanceMeters(from, destination.location)
             val mode = preferences().preferredMode(distance.roundToInt())
-            estimate = eta.estimate(from, destination.location, mode).getOrNull()
+            // A position far from campus (another city, or an emulator's default location) gives no
+            // useful travel time, and the routing quota is better kept for real trips.
+            estimate = if (distance <= MAX_ROUTED_DISTANCE_METERS) {
+                eta.estimate(from, destination.location, mode).getOrNull()
+            } else {
+                null
+            }
             // Weather is checked at the class, a public place; the repository rounds and caches it.
             weatherNow = weather?.currentWeather(destination.location)?.getOrNull()
             weatherBuffer = WeatherBuffer.extraMinutes(weatherNow)
@@ -161,6 +167,9 @@ class TravelEngine(
     companion object {
         /** Matches the default of the reminder slider on the schedule screen. */
         const val DEFAULT_LEAD_MINUTES = 10
+
+        /** Beyond this straight-line distance no travel time is requested or shown. */
+        const val MAX_ROUTED_DISTANCE_METERS = 150_000.0
         val TICK_INTERVAL: Duration = Duration.ofSeconds(30)
         private val MINUTES_RANGE = -100_000L..100_000L
     }

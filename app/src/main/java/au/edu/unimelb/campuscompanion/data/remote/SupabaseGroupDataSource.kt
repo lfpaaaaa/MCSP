@@ -5,6 +5,7 @@ import au.edu.unimelb.campuscompanion.data.model.TimetableGroupSpec
 import kotlinx.serialization.builtins.ListSerializer
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -65,6 +66,14 @@ class SupabaseGroupDataSource(private val client: SupabaseClient) : GroupRemoteD
             }
         }
         countRows(result.data)
+    }
+
+    override suspend fun resetJoinCode(groupId: String): String = remoteCall {
+        val result = client.postgrest.rpc(
+            "reset_group_code",
+            buildJsonObject { put("p_group_id", groupId) }
+        )
+        remoteJson.decodeFromString(String.serializer(), result.data)
     }
 
     override suspend fun createInvite(groupId: String): InviteRow = remoteCall {

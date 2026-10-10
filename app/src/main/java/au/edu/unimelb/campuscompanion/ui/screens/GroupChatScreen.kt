@@ -1,24 +1,31 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
 import android.Manifest
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -34,35 +41,43 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.outlined.AddCircleOutline
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.Videocam
-import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -73,6 +88,25 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import au.edu.unimelb.campuscompanion.data.AppRepositories
+import au.edu.unimelb.campuscompanion.data.DataError
+import au.edu.unimelb.campuscompanion.data.model.ChatConnection
+import au.edu.unimelb.campuscompanion.data.model.MessageStatus
+import au.edu.unimelb.campuscompanion.data.model.SharedFile
+import au.edu.unimelb.campuscompanion.data.repository.ChatRepository
+import au.edu.unimelb.campuscompanion.data.repository.FileRepository
+import au.edu.unimelb.campuscompanion.ui.chat.AttachmentReader
+import au.edu.unimelb.campuscompanion.ui.chat.ChatImageLoader
+import au.edu.unimelb.campuscompanion.ui.chat.ChatTimelineItem
+import au.edu.unimelb.campuscompanion.ui.chat.GroupChatSession
+import au.edu.unimelb.campuscompanion.ui.chat.LatencySample
+import au.edu.unimelb.campuscompanion.ui.chat.OpenChat
+import au.edu.unimelb.campuscompanion.ui.chat.PendingUpload
+import au.edu.unimelb.campuscompanion.ui.chat.TimelineRow
+import au.edu.unimelb.campuscompanion.ui.chat.timelineRows
 import au.edu.unimelb.campuscompanion.ui.model.CourseGroup
 import au.edu.unimelb.campuscompanion.ui.model.GroupOrigin
 import au.edu.unimelb.campuscompanion.ui.model.MAX_PENDING_DOCUMENTS
@@ -103,7 +137,9 @@ private data class ChatUiMessage(
     val attachments: List<ChatAttachment> = emptyList()
 )
 
-private data class ChatAttachment(
+/** A photo or video from the picker, waiting with the documents until the user taps send. */
+private data class LocalAttachment(
+    val uri: Uri,
     val displayName: String,
     val kind: AttachmentKind,
     val sizeBytes: Long? = null,
@@ -126,7 +162,11 @@ private enum class AttachmentKind {
     Camera
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * One group's chat: the timeline of messages and shared files from the server, kept in sync
+ * through [GroupChatSession], and a composer for text and attachments.
+ */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun GroupChatScreen(
     group: CourseGroup,
@@ -140,7 +180,9 @@ fun GroupChatScreen(
     onPendingDocumentsCleared: () -> Unit,
     onTakePhoto: () -> Unit,
     onCapturedCameraPhotoConsumed: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    chatRepository: ChatRepository = AppRepositories.chat,
+    fileRepository: FileRepository = AppRepositories.files
 ) {
     val listState = rememberLazyListState()
     val focusManager = LocalFocusManager.current
@@ -381,7 +423,11 @@ fun GroupChatScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             item(key = "group-notice") {
-                GroupNotice(group = group)
+                GroupNotice(
+                    group = group,
+                    isLoadingOlder = state.isLoadingOlder,
+                    isStartOfChat = !state.hasOlderMessages
+                )
             }
             item(key = "older-messages") {
                 if (hasOlder) {
@@ -418,6 +464,17 @@ fun GroupChatScreen(
             }
         }
 
+        state.notice?.let { notice ->
+            NoticeRow(text = notice, onDismiss = session::clearNotice)
+        }
+        state.uploads.forEach { upload ->
+            UploadRow(
+                upload = upload,
+                onRetry = { session.retryUpload(upload.id) },
+                onDismiss = { session.dismissUpload(upload.id) }
+            )
+        }
+
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         Surface(color = MaterialTheme.colorScheme.surfaceContainerLowest) {
             Row(
@@ -443,7 +500,7 @@ fun GroupChatScreen(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    if (pendingDocuments.isNotEmpty() || pendingLocalAttachment != null) {
+                    if (pendingDocuments.isNotEmpty() || localAttachment != null) {
                         LazyRow(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -454,19 +511,19 @@ fun GroupChatScreen(
                                 key = PendingDocument::uri
                             ) { document ->
                                 PendingAttachment(
-                                    attachment = ChatAttachment(
-                                        displayName = document.displayName,
-                                        kind = AttachmentKind.File,
-                                        sizeBytes = document.sizeBytes
-                                    ),
+                                    displayName = document.displayName,
+                                    kind = AttachmentKind.File,
+                                    sizeBytes = document.sizeBytes,
                                     onRemove = { onPendingDocumentRemoved(document.uri) }
                                 )
                             }
-                            pendingLocalAttachment?.let { attachment ->
+                            localAttachment?.let { attachment ->
                                 item(key = "local-attachment") {
                                     PendingAttachment(
-                                        attachment = attachment,
-                                        onRemove = { pendingLocalAttachment = null }
+                                        displayName = attachment.displayName,
+                                        kind = attachment.kind,
+                                        sizeBytes = null,
+                                        onRemove = { localAttachment = null }
                                     )
                                 }
                             }
@@ -492,7 +549,7 @@ fun GroupChatScreen(
                     }
                     TextField(
                         value = draft,
-                        onValueChange = { draft = it },
+                        onValueChange = { draft = it.take(ChatRepository.MAX_MESSAGE_LENGTH) },
                         modifier = Modifier.fillMaxWidth(),
                         placeholder = { Text("Message") },
                         maxLines = 4,
@@ -508,7 +565,7 @@ fun GroupChatScreen(
                         )
                     )
                 }
-                val canSend = draft.isNotBlank() || pendingAttachments.isNotEmpty()
+                val canSend = draft.isNotBlank() || pendingDocuments.isNotEmpty() || localAttachment != null
                 IconButton(
                     onClick = { sendDraft() },
                     enabled = canSend
@@ -529,8 +586,68 @@ fun GroupChatScreen(
 }
 
 @Composable
+private fun ConnectionBanner(
+    connection: ChatConnection,
+    modifier: Modifier = Modifier
+) {
+    // A short connecting phase is normal, so the banner only appears when it drags on.
+    var showConnecting by remember { mutableStateOf(false) }
+    LaunchedEffect(connection) {
+        showConnecting = false
+        if (connection == ChatConnection.Connecting) {
+            delay(1_500)
+            showConnecting = true
+        }
+    }
+    val text = when (connection) {
+        ChatConnection.Live -> return
+        ChatConnection.Connecting -> if (showConnecting) "Connecting…" else return
+        ChatConnection.Offline -> "You're offline. Saved messages are shown; new ones arrive once you're back online."
+    }
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = if (connection == ChatConnection.Offline) {
+            MaterialTheme.colorScheme.errorContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHigh
+        }
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            if (connection == ChatConnection.Offline) {
+                Icon(
+                    imageVector = Icons.Outlined.CloudOff,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onErrorContainer
+                )
+            } else {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp
+                )
+            }
+            Text(
+                text = text,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (connection == ChatConnection.Offline) {
+                    MaterialTheme.colorScheme.onErrorContainer
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                }
+            )
+        }
+    }
+}
+
+@Composable
 private fun GroupNotice(
     group: CourseGroup,
+    isLoadingOlder: Boolean,
+    isStartOfChat: Boolean,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -564,69 +681,162 @@ private fun ChatBubble(
     onRetry: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val message = item.message
+    val isMine = item.isMine
+    val isFailed = message.status == MessageStatus.Failed
     Row(
         modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = if (message.isMine) Arrangement.End else Arrangement.Start,
+        horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.Top
     ) {
-        if (!message.isMine) {
-            ChatAvatar(label = message.sender)
+        if (!isMine) {
+            ChatAvatar(label = message.senderName)
             Spacer(Modifier.width(10.dp))
         }
 
         Surface(
-            modifier = Modifier.widthIn(max = 292.dp),
-            shape = if (message.isMine) {
-                RoundedCornerShape(
-                    topStart = 8.dp,
-                    topEnd = 2.dp,
-                    bottomStart = 8.dp,
-                    bottomEnd = 8.dp
-                )
-            } else {
-                RoundedCornerShape(
-                    topStart = 2.dp,
-                    topEnd = 8.dp,
-                    bottomStart = 8.dp,
-                    bottomEnd = 8.dp
-                )
+            modifier = Modifier
+                .widthIn(max = 292.dp)
+                .then(if (isFailed) Modifier.clickable(onClick = onRetry) else Modifier),
+            shape = bubbleShape(isMine),
+            color = when {
+                isFailed -> MaterialTheme.colorScheme.errorContainer
+                isMine -> MaterialTheme.colorScheme.primary
+                else -> MaterialTheme.colorScheme.surfaceContainerLowest
             },
-            color = if (message.isMine) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.surfaceContainerLowest
-            },
-            tonalElevation = if (message.isMine) 0.dp else 1.dp
+            tonalElevation = if (isMine) 0.dp else 1.dp
         ) {
+            val contentColor = when {
+                isFailed -> MaterialTheme.colorScheme.onErrorContainer
+                isMine -> MaterialTheme.colorScheme.onPrimary
+                else -> MaterialTheme.colorScheme.onSurface
+            }
             Column(
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                if (!message.isMine) {
+                if (!isMine) {
                     Text(
-                        text = message.sender,
+                        text = message.senderName,
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.primary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-                if (message.body.isNotBlank()) {
+                Text(
+                    text = message.body,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = contentColor
+                )
+                Text(
+                    text = when (message.status) {
+                        MessageStatus.Sending -> "Sending…"
+                        MessageStatus.Failed -> "Not sent. Tap to try again"
+                        MessageStatus.Sent -> formatTime(message.createdAt)
+                    },
+                    modifier = Modifier.align(Alignment.End),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = contentColor.copy(alpha = if (isFailed) 1f else 0.78f)
+                )
+            }
+        }
+
+        if (isMine) {
+            Spacer(Modifier.width(10.dp))
+            ChatAvatar(label = "You", isMine = true)
+        }
+    }
+}
+
+@Composable
+private fun FileBubble(
+    item: ChatTimelineItem.File,
+    images: ChatImageLoader,
+    onOpen: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val file = item.file
+    val isMine = item.isMine
+    val isImage = file.mimeType.startsWith("image/")
+    val thumbnail by produceState<ImageBitmap?>(initialValue = null, key1 = file.id, key2 = isImage) {
+        value = if (isImage) images.load(file.id) else null
+    }
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start,
+        verticalAlignment = Alignment.Top
+    ) {
+        if (!isMine) {
+            ChatAvatar(label = file.uploaderName)
+            Spacer(Modifier.width(10.dp))
+        }
+
+        Surface(
+            modifier = Modifier
+                .widthIn(min = 200.dp, max = 292.dp)
+                .clickable(onClick = onOpen),
+            shape = bubbleShape(isMine),
+            color = if (isMine) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerLowest
+            },
+            tonalElevation = if (isMine) 0.dp else 1.dp
+        ) {
+            val contentColor = if (isMine) {
+                MaterialTheme.colorScheme.onPrimary
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            }
+            Column(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                if (!isMine) {
                     Text(
-                        text = message.body,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = if (message.isMine) {
-                            MaterialTheme.colorScheme.onPrimary
-                        } else {
-                            MaterialTheme.colorScheme.onSurface
-                        }
+                        text = file.uploaderName,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
-                message.attachments.forEach { attachment ->
-                    AttachmentContent(
-                        attachment = attachment,
-                        isMine = message.isMine
+                thumbnail?.let { image ->
+                    Image(
+                        bitmap = image,
+                        contentDescription = file.fileName,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(180.dp),
+                        contentScale = ContentScale.Crop
                     )
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(
+                        imageVector = fileKind(file.mimeType).icon(),
+                        contentDescription = null,
+                        tint = contentColor,
+                        modifier = Modifier.size(30.dp)
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = file.fileName,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = contentColor,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "${fileKind(file.mimeType).label()} · ${formatFileSize(file.sizeBytes)} · " +
+                                "Tap to open",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = contentColor.copy(alpha = 0.78f)
+                        )
+                    }
                 }
                 if (message.isMine) {
                     when (message.status) {
@@ -641,29 +851,41 @@ private fun ChatBubble(
                 }
                 if (message.time.isNotBlank()) {
                     Text(
-                        text = message.time,
-                        modifier = Modifier.align(Alignment.End),
+                        text = upload.error
+                            ?: "Sending ${formatFileSize(upload.sizeBytes)} · ${(upload.fraction * 100).toInt()}%",
                         style = MaterialTheme.typography.labelSmall,
-                        color = if (message.isMine) {
-                            MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.78f)
+                        color = if (upload.isFailed) {
+                            MaterialTheme.colorScheme.error
                         } else {
                             MaterialTheme.colorScheme.onSurfaceVariant
                         }
                     )
                 }
+                if (upload.isFailed) {
+                    TextButton(onClick = onRetry) { Text("Retry") }
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            imageVector = Icons.Outlined.Close,
+                            contentDescription = "Discard upload"
+                        )
+                    }
+                }
             }
-        }
-
-        if (message.isMine) {
-            Spacer(Modifier.width(10.dp))
-            ChatAvatar(label = "You", isMine = true)
+            if (!upload.isFailed) {
+                LinearProgressIndicator(
+                    progress = { upload.fraction },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
         }
     }
 }
 
 @Composable
 private fun PendingAttachment(
-    attachment: ChatAttachment,
+    displayName: String,
+    kind: AttachmentKind,
+    sizeBytes: Long?,
     onRemove: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -678,20 +900,20 @@ private fun PendingAttachment(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Icon(
-                imageVector = attachment.kind.icon(),
+                imageVector = kind.icon(),
                 contentDescription = null,
                 modifier = Modifier.size(24.dp),
                 tint = MaterialTheme.colorScheme.primary
             )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = attachment.displayName,
+                    text = displayName,
                     style = MaterialTheme.typography.bodyMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = attachment.sizeBytes
+                    text = sizeBytes
                         ?.takeIf { it >= 0L }
                         ?.let { "${formatFileSize(it)} - Ready to send" }
                         ?: "Ready to send",
@@ -797,61 +1019,48 @@ private fun AttachmentOption(
 }
 
 @Composable
-private fun AttachmentContent(
-    attachment: ChatAttachment,
-    isMine: Boolean,
+private fun ChatAvatar(
+    label: String,
+    isMine: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    val contentColor = if (isMine) {
-        MaterialTheme.colorScheme.onPrimary
-    } else {
-        MaterialTheme.colorScheme.onSurface
-    }
-    val secondaryColor = contentColor.copy(alpha = 0.78f)
-
-    Column(
-        modifier = modifier.widthIn(min = 180.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+    Surface(
+        modifier = modifier.size(38.dp),
+        shape = RoundedCornerShape(6.dp),
+        color = if (isMine) {
+            MaterialTheme.colorScheme.secondaryContainer
+        } else {
+            MaterialTheme.colorScheme.primaryContainer
+        }
     ) {
-        attachment.thumbnail?.let { thumbnail ->
-            Image(
-                bitmap = thumbnail,
-                contentDescription = attachment.displayName,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(160.dp),
-                contentScale = ContentScale.Crop
-            )
-        }
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
-            Icon(
-                imageVector = attachment.kind.icon(),
-                contentDescription = null,
-                tint = contentColor,
-                modifier = Modifier.size(30.dp)
+            Text(
+                text = label.trim().firstOrNull()?.uppercase() ?: "G",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = if (isMine) {
+                    MaterialTheme.colorScheme.onSecondaryContainer
+                } else {
+                    MaterialTheme.colorScheme.onPrimaryContainer
+                }
             )
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = attachment.displayName,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = contentColor,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = attachment.sizeBytes
-                        ?.takeIf { it >= 0L }
-                        ?.let { "${attachment.kind.label()} - ${formatFileSize(it)}" }
-                        ?: attachment.kind.label(),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = secondaryColor
-                )
-            }
         }
     }
+}
+
+private fun bubbleShape(isMine: Boolean): RoundedCornerShape = if (isMine) {
+    RoundedCornerShape(topStart = 8.dp, topEnd = 2.dp, bottomStart = 8.dp, bottomEnd = 8.dp)
+} else {
+    RoundedCornerShape(topStart = 2.dp, topEnd = 8.dp, bottomStart = 8.dp, bottomEnd = 8.dp)
+}
+
+private fun fileKind(mimeType: String): AttachmentKind = when {
+    mimeType.startsWith("image/") -> AttachmentKind.Photo
+    mimeType.startsWith("video/") -> AttachmentKind.Video
+    else -> AttachmentKind.File
 }
 
 private fun AttachmentKind.icon(): ImageVector = when (this) {
@@ -893,35 +1102,10 @@ private fun resolveDisplayName(
     }.getOrNull()?.takeIf(String::isNotBlank) ?: fallback
 }
 
-@Composable
-private fun ChatAvatar(
-    label: String,
-    isMine: Boolean = false,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        modifier = modifier.size(38.dp),
-        shape = RoundedCornerShape(6.dp),
-        color = if (isMine) {
-            MaterialTheme.colorScheme.secondaryContainer
-        } else {
-            MaterialTheme.colorScheme.primaryContainer
-        }
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Text(
-                text = label.trim().firstOrNull()?.uppercase() ?: "G",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = if (isMine) {
-                    MaterialTheme.colorScheme.onSecondaryContainer
-                } else {
-                    MaterialTheme.colorScheme.onPrimaryContainer
-                }
-            )
-        }
+private fun logLatency(sample: LatencySample) {
+    val kind = when (sample) {
+        is LatencySample.Sent -> "send_confirmed"
+        is LatencySample.Received -> "received"
     }
+    Log.i(LATENCY_LOG_TAG, "$kind ms=${sample.millis}")
 }

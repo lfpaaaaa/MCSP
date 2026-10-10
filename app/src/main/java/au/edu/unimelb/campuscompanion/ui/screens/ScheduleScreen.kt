@@ -37,9 +37,14 @@ import au.edu.unimelb.campuscompanion.ui.model.TimetableState
 
 private const val MAX_VISIBLE_SESSIONS = 50
 
+/** Lead times the reminder card offers, in minutes. */
+private val LEAD_MINUTE_OPTIONS = listOf(5, 10, 15, 20, 30)
+
 @Composable
 fun ScheduleScreen(
     timetableState: TimetableState,
+    travelPreferences: TravelPreferences,
+    onReminderPreferencesChange: (enabled: Boolean, leadMinutes: Int) -> Unit,
     onTimetableUrlSave: suspend (String) -> Result<Unit>,
     reminderCourseCount: Int,
     enabledReminderCount: Int,

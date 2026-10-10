@@ -30,6 +30,7 @@ class GroupRowsTest {
         assertEquals(2, summary.unreadCount)
         assertEquals(Instant.parse("2026-09-25T06:00:00Z"), summary.latestActivityAt)
         assertNull(summary.latestFileName)
+        assertEquals("K7PX2Q", summary.group.joinCode)
     }
 
     @Test
