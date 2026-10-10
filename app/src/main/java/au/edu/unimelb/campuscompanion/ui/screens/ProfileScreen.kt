@@ -243,7 +243,8 @@ private fun TimetableSettingsCard(
                         text = when {
                             timetableState.isLoading -> "Checking saved URL..."
                             timetableState.isConnected -> {
-                                "Connected to $host - ${timetableState.detectedEventCount} calendar events"
+                                timetableState.offlineNotice()
+                                    ?: "Connected to $host - ${timetableState.detectedEventCount} calendar events"
                             }
                             timetableState.errorMessage != null -> timetableState.errorMessage
                             else -> "No timetable connected"

@@ -46,7 +46,15 @@ class TimetableImporter(
     private val parser: IcsTimetableParser = IcsTimetableParser()
 ) : AutoCloseable {
 
-    suspend fun importFromUrl(url: String): Result<TimetableImport> {
+    /** Downloads and parses the calendar at [url]. */
+    suspend fun importFromUrl(url: String): Result<TimetableImport> =
+        download(url).fold(onSuccess = { bytes -> parse(bytes) }, onFailure = { Result.failure(it) })
+
+    /**
+     * Downloads the calendar at [url] and checks that it is an iCalendar file of a sensible size.
+     * The bytes are what [TimetableCache] keeps for offline use.
+     */
+    suspend fun download(url: String): Result<ByteArray> {
         return try {
             val response = client.get(url) {
                 header(HttpHeaders.Accept, "text/calendar, application/calendar+json;q=0.8, */*;q=0.2")
@@ -73,15 +81,7 @@ class TimetableImporter(
                     "This URL did not return an iCalendar file. Use the private subscription URL, not the timetable web page."
                 )
             }
-
-            val imported = withContext(Dispatchers.Default) {
-                parser.parse(
-                    bytes = bytes,
-                    now = ZonedDateTime.now(),
-                    displayZone = ZoneId.systemDefault()
-                )
-            }
-            Result.success(imported)
+            Result.success(bytes)
         } catch (error: CancellationException) {
             throw error
         } catch (error: TimetableImportException) {
@@ -98,6 +98,28 @@ class TimetableImporter(
                     "The timetable could not be downloaded or read. Check your connection and subscription URL.",
                     error
                 )
+            )
+        }
+    }
+
+    /** Parses calendar [bytes], from the server or from [TimetableCache], as of now. */
+    suspend fun parse(bytes: ByteArray): Result<TimetableImport> {
+        return try {
+            val imported = withContext(Dispatchers.Default) {
+                parser.parse(
+                    bytes = bytes,
+                    now = ZonedDateTime.now(),
+                    displayZone = ZoneId.systemDefault()
+                )
+            }
+            Result.success(imported)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: TimetableImportException) {
+            Result.failure(error)
+        } catch (error: Exception) {
+            Result.failure(
+                TimetableImportException("The timetable could not be read. Check your subscription URL.", error)
             )
         }
     }
