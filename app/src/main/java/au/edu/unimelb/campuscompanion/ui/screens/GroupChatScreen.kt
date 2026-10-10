@@ -1,7 +1,6 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
 import android.Manifest
-import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -52,22 +51,17 @@ import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -79,6 +73,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -92,67 +87,48 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import au.edu.unimelb.campuscompanion.data.AppRepositories
-import au.edu.unimelb.campuscompanion.data.DataError
 import au.edu.unimelb.campuscompanion.data.model.ChatConnection
 import au.edu.unimelb.campuscompanion.data.model.MessageStatus
 import au.edu.unimelb.campuscompanion.data.model.SharedFile
 import au.edu.unimelb.campuscompanion.data.repository.ChatRepository
 import au.edu.unimelb.campuscompanion.data.repository.FileRepository
-import au.edu.unimelb.campuscompanion.ui.chat.AttachmentReader
 import au.edu.unimelb.campuscompanion.ui.chat.ChatImageLoader
 import au.edu.unimelb.campuscompanion.ui.chat.ChatTimelineItem
 import au.edu.unimelb.campuscompanion.ui.chat.GroupChatSession
 import au.edu.unimelb.campuscompanion.ui.chat.LatencySample
 import au.edu.unimelb.campuscompanion.ui.chat.OpenChat
-import au.edu.unimelb.campuscompanion.ui.chat.PendingUpload
 import au.edu.unimelb.campuscompanion.ui.chat.TimelineRow
 import au.edu.unimelb.campuscompanion.ui.chat.timelineRows
 import au.edu.unimelb.campuscompanion.ui.model.CourseGroup
 import au.edu.unimelb.campuscompanion.ui.model.GroupOrigin
 import au.edu.unimelb.campuscompanion.ui.model.MAX_PENDING_DOCUMENTS
 import au.edu.unimelb.campuscompanion.ui.model.PendingDocument
-import java.time.ZoneId
-import java.time.Instant
-import au.edu.unimelb.campuscompanion.data.AttachmentUpload
-import au.edu.unimelb.campuscompanion.data.model.SharedFile
-import au.edu.unimelb.campuscompanion.data.AppRepositories
-import au.edu.unimelb.campuscompanion.data.toUserMessage
-import au.edu.unimelb.campuscompanion.data.model.ChatConnection
-import au.edu.unimelb.campuscompanion.data.model.MessageStatus
-import au.edu.unimelb.campuscompanion.data.repository.ChatRepository
-import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import java.time.Instant
+import java.time.LocalDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
-private val chatTimeFormatter = DateTimeFormatter.ofPattern("MMM d, h:mm a")
-
-private data class ChatUiMessage(
-    val id: String,
-    val clientId: String,
-    val status: MessageStatus,
-    val createdAt: Instant,
-    val sender: String,
-    val body: String,
-    val time: String,
-    val isMine: Boolean,
-    val attachments: List<ChatAttachment> = emptyList()
-)
+private val chatTimeFormatter = DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH)
+private val photoNameFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH.mm.ss", Locale.ENGLISH)
+private const val LATENCY_LOG_TAG = "ChatLatency"
+private const val NOTICE_MILLIS = 6_000L
 
 /** A photo or video from the picker, waiting with the documents until the user taps send. */
 private data class LocalAttachment(
     val uri: Uri,
     val displayName: String,
-    val kind: AttachmentKind,
-    val sizeBytes: Long? = null,
-    val thumbnail: ImageBitmap? = null,
-    val uri: String = ""
-)
-
-private data class ChatTimelineItem(
-    val key: String,
-    val createdAt: Instant,
-    val message: ChatUiMessage? = null,
-    val file: SharedFile? = null,
-    val upload: AttachmentUpload? = null
+    val kind: AttachmentKind
 )
 
 private enum class AttachmentKind {
@@ -170,8 +146,8 @@ private enum class AttachmentKind {
 @Composable
 fun GroupChatScreen(
     group: CourseGroup,
-    myDisplayName: String,
     currentUserId: String,
+    myDisplayName: String,
     pendingDocuments: List<PendingDocument>,
     pendingDocumentError: String?,
     capturedCameraUri: String?,
@@ -187,94 +163,121 @@ fun GroupChatScreen(
     val listState = rememberLazyListState()
     val focusManager = LocalFocusManager.current
     val context = LocalContext.current
-    val repository = remember { AppRepositories.chat }
-    val sender = remember { AppRepositories.chatSender }
-    val messageFlow = remember(group.id) { repository.observeMessages(group.id) }
-    val storedMessages by messageFlow.collectAsState(initial = emptyList())
-    val connection by repository.connection.collectAsState()
-    val messages = storedMessages.filter { it.groupId == group.id }.map { message ->
-        ChatUiMessage(
-            id = "${message.senderId}:${message.clientId}",
-            clientId = message.clientId,
-            status = message.status,
-            createdAt = message.createdAt,
-            sender = if (message.senderId == currentUserId) myDisplayName else message.senderName,
-            body = message.body,
-            time = message.createdAt.atZone(ZoneId.systemDefault()).format(chatTimeFormatter),
-            isMine = message.senderId == currentUserId
+    val sessionScope = remember(group.id) { CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate) }
+    val session = remember(group.id) {
+        GroupChatSession(
+            groupId = group.id,
+            currentUserId = currentUserId,
+            chat = chatRepository,
+            files = fileRepository,
+            scope = sessionScope,
+            uploadScope = AppRepositories.backgroundScope,
+            onLatency = ::logLatency
         )
     }
-    val fileRepository = remember { AppRepositories.files }
+    val images = remember(group.id) { ChatImageLoader(fileRepository, sessionScope) }
+    DisposableEffect(sessionScope) {
+        session.start()
+        onDispose { sessionScope.cancel() }
+    }
+    // While this chat is in front, its new messages are not also shown as notifications.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, group.id) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> OpenChat.opened(group.id)
+                Lifecycle.Event.ON_PAUSE -> OpenChat.closed(group.id)
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            OpenChat.opened(group.id)
+        }
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            OpenChat.closed(group.id)
+        }
+    }
+    val state by session.state.collectAsState()
+    val rows = remember(state.items, myDisplayName) {
+        timelineRows(state.items.map { item ->
+            if (item is ChatTimelineItem.Message && item.isMine) {
+                item.copy(message = item.message.copy(senderName = myDisplayName))
+            } else item
+        })
+    }
+    val sender = remember { AppRepositories.chatSender }
     val uploadQueue = remember { AppRepositories.attachmentUploads }
-    val fileFlow = remember(group.id) { fileRepository.observeFiles(group.id) }
-    val storedFiles by fileFlow.collectAsState(initial = emptyList())
     val allUploads by uploadQueue.uploads.collectAsState()
-    val sharedFiles = storedFiles.filter { it.groupId == group.id }
-    val sharedIds = sharedFiles.mapTo(mutableSetOf()) { it.id }
-    val uploads = allUploads.filter { it.userId == currentUserId && it.groupId == group.id && it.fileId !in sharedIds }
-    val timeline = (messages.map { message ->
-        ChatTimelineItem("message:${message.id}", message.createdAt, message = message)
-    } + sharedFiles.map { ChatTimelineItem("file:${it.id}", it.createdAt, file = it) }
-        + uploads.map { ChatTimelineItem("upload:${it.id}", Instant.parse(it.createdAt), upload = it) })
-        .sortedWith(compareBy<ChatTimelineItem> { it.createdAt }.thenBy { it.key })
-    var selectedFile by remember(group.id) { mutableStateOf<SharedFile?>(null) }
+    val sharedIds = state.items.filterIsInstance<ChatTimelineItem.File>().mapTo(mutableSetOf()) { it.file.id }
+    val uploads = allUploads.filter {
+        it.userId == currentUserId && it.groupId == group.id && it.fileId !in sharedIds
+    }
     LaunchedEffect(group.id, sharedIds) { uploadQueue.acknowledge(sharedIds) }
+    var selectedFile by remember(group.id) { mutableStateOf<SharedFile?>(null) }
     selectedFile?.let { file -> ChatAttachmentViewer(file, onDismiss = { selectedFile = null }) }
+
     var draft by rememberSaveable(group.id) { mutableStateOf("") }
-    var sendError by remember(group.id) { mutableStateOf<String?>(null) }
-    var loadingOlder by remember(group.id) { mutableStateOf(false) }
-    var hasOlder by remember(group.id) { mutableStateOf(true) }
-    var pendingLocalAttachment by remember(group.id) { mutableStateOf<ChatAttachment?>(null) }
+    var localAttachment by remember(group.id) { mutableStateOf<LocalAttachment?>(null) }
     var showAttachmentSheet by remember { mutableStateOf(false) }
     var cameraPermissionDenied by remember { mutableStateOf(false) }
     val attachmentSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val coroutineScope = rememberCoroutineScope()
-    val pendingAttachments = pendingDocuments.map { document ->
-        ChatAttachment(
-            displayName = document.displayName,
-            kind = AttachmentKind.File,
-            uri = document.uri,
-            sizeBytes = document.sizeBytes
-        )
-    } + listOfNotNull(pendingLocalAttachment)
 
-    fun stageAttachment(
-        displayName: String,
-        kind: AttachmentKind,
-        uri: Uri,
-        thumbnail: ImageBitmap? = null
-    ) {
-        pendingLocalAttachment = ChatAttachment(
-            displayName = displayName,
-            kind = kind,
-            uri = uri.toString(),
-            thumbnail = thumbnail
+    // Persist the URI before reading bytes; uploads survive leaving the chat and can be retried.
+    fun uploadFromUri(uri: Uri, fallbackName: String, fallbackType: String = "application/octet-stream") {
+        uploadQueue.enqueue(group.id, uri.toString(), fallbackName,
+            context.contentResolver.getType(uri) ?: fallbackType)
+    }
+
+    fun sendDraft() {
+        val text = draft.trim()
+        val documents = pendingDocuments
+        val local = localAttachment
+        if (text.isEmpty() && documents.isEmpty() && local == null) return
+        try {
+            documents.forEach { document -> uploadFromUri(Uri.parse(document.uri), document.displayName) }
+            local?.let {
+                uploadFromUri(it.uri, it.displayName,
+                    if (it.kind == AttachmentKind.Video) "video/mp4" else "image/jpeg")
+            }
+        } catch (error: Exception) {
+            session.report(error)
+            return
+        }
+        if (text.isNotEmpty()) {
+            val delivery = sender.send(group.id, text)
+            coroutineScope.launch { delivery.await().onFailure(session::report) }
+        }
+        draft = ""
+        localAttachment = null
+        onPendingDocumentsCleared()
+        focusManager.clearFocus()
+    }
+
+    fun openFile(file: SharedFile) {
+        selectedFile = file
+    }
+
+    fun stageAttachment(uri: Uri, fallbackName: String, kind: AttachmentKind) {
+        runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+        localAttachment = LocalAttachment(
+            uri = uri,
+            displayName = resolveDisplayName(context, uri, fallbackName),
+            kind = kind
         )
     }
 
     val photoPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri ->
-        uri?.let {
-            stageAttachment(
-                displayName = resolveDisplayName(context, it, "Photo"),
-                kind = AttachmentKind.Photo,
-                uri = it
-            )
-            runCatching { context.contentResolver.takePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
-        }
+        uri?.let { stageAttachment(it, "Photo", AttachmentKind.Photo) }
     }
     val videoPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri ->
-        uri?.let {
-            stageAttachment(
-                displayName = resolveDisplayName(context, it, "Video"),
-                kind = AttachmentKind.Video,
-                uri = it
-            )
-            runCatching { context.contentResolver.takePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
-        }
+        uri?.let { stageAttachment(it, "Video", AttachmentKind.Video) }
     }
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -282,44 +285,6 @@ fun GroupChatScreen(
         cameraPermissionDenied = !granted
         if (granted) {
             onTakePhoto()
-        }
-    }
-
-    fun sendDraft() {
-        val message = draft.trim()
-        if (message.isEmpty() && pendingAttachments.isEmpty()) return
-        if (message.length > ChatRepository.MAX_MESSAGE_LENGTH) {
-            sendError = "Messages can contain up to ${ChatRepository.MAX_MESSAGE_LENGTH} characters."
-            return
-        }
-        sendError = null
-        try {
-            val prepared = pendingAttachments.map { attachment ->
-                val uri = Uri.parse(attachment.uri)
-                val type = context.contentResolver.getType(uri) ?: when (attachment.kind) {
-                    AttachmentKind.Camera -> "image/jpeg"
-                    AttachmentKind.Photo -> "image/jpeg"
-                    AttachmentKind.Video -> "video/mp4"
-                    AttachmentKind.File -> "application/octet-stream"
-                }
-                attachment to type
-            }
-            prepared.forEach { (attachment, type) ->
-                uploadQueue.enqueue(group.id, attachment.uri, attachment.displayName, type)
-            }
-        } catch (e: Exception) {
-            sendError = e.toUserMessage().body
-            return
-        }
-        pendingLocalAttachment = null
-        onPendingDocumentsCleared()
-        draft = ""
-        focusManager.clearFocus()
-        if (message.isNotEmpty()) {
-            val delivery = sender.send(group.id, message)
-            coroutineScope.launch {
-                delivery.await().onFailure { sendError = it.toUserMessage().body }
-            }
         }
     }
 
@@ -331,32 +296,45 @@ fun GroupChatScreen(
         }
     }
 
-    LaunchedEffect(group.id, timeline.lastOrNull()?.key) {
-        if (timeline.isNotEmpty()) {
-            listState.animateScrollToItem(timeline.size + 1)
-        }
-    }
-
-    LaunchedEffect(group.id, connection, storedMessages.lastOrNull { it.groupId == group.id && it.status == MessageStatus.Sent }?.id) {
-        if (connection == ChatConnection.Live) {
-            repository.markAsRead(group.id).onSuccess { AppRepositories.groups.refresh() }
-        }
-    }
-
+    // Camera confirmation sends the original photo immediately through the persistent queue.
     LaunchedEffect(group.id, capturedCameraUri) {
         val uri = capturedCameraUri?.let(Uri::parse) ?: return@LaunchedEffect
-        val name = resolveDisplayName(context, uri, "Camera photo.jpg")
+        val fileName = "Photo ${LocalDateTime.now().format(photoNameFormatter)}.jpg"
         try {
-            // Camera confirmation is the send action; delivery continues outside this screen.
-            uploadQueue.enqueue(group.id, uri.toString(), name,
-                context.contentResolver.getType(uri) ?: "image/jpeg")
-            sendError = null
+            uploadFromUri(uri, fileName, "image/jpeg")
         } catch (error: Exception) {
-            // If it could not enter the queue, keep the original photo available for sending.
-            stageAttachment(name, AttachmentKind.Camera, uri)
-            sendError = error.toUserMessage().body
+            stageAttachment(uri, fileName, AttachmentKind.Camera)
+            session.report(error)
         }
         onCapturedCameraPhotoConsumed()
+    }
+
+    // Keep the newest entry in view as messages arrive or are sent, and when the keyboard opens.
+    val lastRowKey = rows.lastOrNull()?.key
+    val imeVisible = WindowInsets.isImeVisible
+    LaunchedEffect(lastRowKey, imeVisible, uploads.lastOrNull()?.id) {
+        if (rows.isNotEmpty() || uploads.isNotEmpty()) {
+            listState.animateScrollToItem(rows.size + uploads.size)
+        }
+    }
+
+    // Fetch older pages whenever the top of the list is reached and the server can be asked.
+    LaunchedEffect(session) {
+        combine(
+            snapshotFlow { listState.firstVisibleItemIndex == 0 },
+            session.state
+                .map { it.connection == ChatConnection.Live && !it.isLoadingOlder && it.hasOlderMessages }
+                .distinctUntilChanged()
+        ) { atTop, canLoad -> atTop && canLoad }
+            .filter { it }
+            .collect { session.loadOlder() }
+    }
+
+    LaunchedEffect(state.notice) {
+        if (state.notice != null) {
+            delay(NOTICE_MILLIS)
+            session.clearNotice()
+        }
     }
 
     if (showAttachmentSheet) {
@@ -407,13 +385,7 @@ fun GroupChatScreen(
             .fillMaxSize()
             .imePadding()
     ) {
-        if (connection != ChatConnection.Live) {
-            Text(
-                text = if (connection == ChatConnection.Offline) "Offline · showing saved messages" else "Connecting…",
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                style = MaterialTheme.typography.labelMedium
-            )
-        }
+        ConnectionBanner(connection = state.connection)
         LazyColumn(
             state = listState,
             modifier = Modifier
@@ -429,50 +401,37 @@ fun GroupChatScreen(
                     isStartOfChat = !state.hasOlderMessages
                 )
             }
-            item(key = "older-messages") {
-                if (hasOlder) {
-                    TextButton(enabled = !loadingOlder && connection == ChatConnection.Live, onClick = {
-                        loadingOlder = true
-                        coroutineScope.launch {
-                            try {
-                                repository.loadOlderMessages(group.id).fold(
-                                    onSuccess = { hasOlder = it },
-                                    onFailure = { sendError = it.toUserMessage().body }
-                                )
-                            } finally { loadingOlder = false }
-                        }
-                    }) { Text(if (loadingOlder) "Loading…" else "Load earlier messages") }
+            items(
+                items = rows,
+                key = TimelineRow::key
+            ) { row ->
+                when (row) {
+                    is TimelineRow.Day -> DayLabel(label = row.label)
+                    is TimelineRow.Entry -> when (val item = row.item) {
+                        is ChatTimelineItem.Message -> ChatBubble(
+                            item = item,
+                            onRetry = {
+                                val delivery = sender.retry(group.id, item.message.clientId)
+                                coroutineScope.launch { delivery.await().onFailure(session::report) }
+                            }
+                        )
+                        is ChatTimelineItem.File -> FileBubble(
+                            item = item,
+                            images = images,
+                            onOpen = { openFile(item.file) }
+                        )
+                    }
                 }
             }
-            items(items = timeline, key = ChatTimelineItem::key) { item ->
-                item.message?.let { message ->
-                    ChatBubble(message = message, onRetry = {
-                        sendError = null
-                        val delivery = sender.retry(group.id, message.clientId)
-                        coroutineScope.launch {
-                            delivery.await().onFailure { sendError = it.toUserMessage().body }
-                        }
-                    })
-                }
-                item.file?.let { file ->
-                    SharedAttachmentBubble(file, file.uploaderId == currentUserId, onOpen = { selectedFile = file })
-                }
-                item.upload?.let { upload ->
-                    AttachmentUploadBubble(upload, onRetry = { uploadQueue.retry(upload.id) },
-                        onDismiss = { uploadQueue.dismiss(upload.id) })
-                }
+            items(items = uploads, key = { "upload:${it.id}" }) { upload ->
+                AttachmentUploadBubble(upload,
+                    onRetry = { uploadQueue.retry(upload.id) },
+                    onDismiss = { uploadQueue.dismiss(upload.id) })
             }
         }
 
         state.notice?.let { notice ->
             NoticeRow(text = notice, onDismiss = session::clearNotice)
-        }
-        state.uploads.forEach { upload ->
-            UploadRow(
-                upload = upload,
-                onRetry = { session.retryUpload(upload.id) },
-                onDismiss = { session.dismissUpload(upload.id) }
-            )
         }
 
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -542,10 +501,6 @@ fun GroupChatScreen(
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.error
                         )
-                    }
-                    sendError?.let { error ->
-                        Text(error, style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.error)
                     }
                     TextField(
                         value = draft,
@@ -655,29 +610,52 @@ private fun GroupNotice(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Surface(
-            shape = RoundedCornerShape(4.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerHighest
-        ) {
-            Text(
-                text = when (group.origin) {
-                    GroupOrigin.Timetable -> {
-                        "You joined ${group.name} from your timetable"
-                    }
-                    GroupOrigin.CreatedByUser -> "You created this group"
-                    GroupOrigin.Joined -> "You joined this group"
-                },
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+        if (isLoadingOlder) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(20.dp),
+                strokeWidth = 2.dp
             )
+        }
+        if (isStartOfChat) {
+            Surface(
+                shape = RoundedCornerShape(4.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHighest
+            ) {
+                Text(
+                    text = when (group.origin) {
+                        GroupOrigin.Timetable -> "You joined ${group.name} from your timetable"
+                        GroupOrigin.CreatedByUser -> "You created this group"
+                        GroupOrigin.Joined -> "You joined this group"
+                    },
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }
 
 @Composable
+private fun DayLabel(
+    label: String,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier.fillMaxWidth(),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
 private fun ChatBubble(
-    message: ChatUiMessage,
+    item: ChatTimelineItem.Message,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -758,7 +736,7 @@ private fun FileBubble(
 ) {
     val file = item.file
     val isMine = item.isMine
-    val isImage = file.mimeType.startsWith("image/")
+    val isImage = file.mimeType.startsWith("image/") && !file.isPrivate
     val thumbnail by produceState<ImageBitmap?>(initialValue = null, key1 = file.id, key2 = isImage) {
         value = if (isImage) images.load(file.id) else null
     }
@@ -838,43 +816,47 @@ private fun FileBubble(
                         )
                     }
                 }
-                if (message.isMine) {
-                    when (message.status) {
-                        MessageStatus.Sending -> Text("Sending…", style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onPrimary)
-                        MessageStatus.Failed -> TextButton(onClick = onRetry) {
-                            Text("Not sent · Retry", color = MaterialTheme.colorScheme.onPrimary)
-                        }
-                        MessageStatus.Sent -> Text("Sent", style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.78f))
-                    }
-                }
-                if (message.time.isNotBlank()) {
-                    Text(
-                        text = upload.error
-                            ?: "Sending ${formatFileSize(upload.sizeBytes)} · ${(upload.fraction * 100).toInt()}%",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (upload.isFailed) {
-                            MaterialTheme.colorScheme.error
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        }
-                    )
-                }
-                if (upload.isFailed) {
-                    TextButton(onClick = onRetry) { Text("Retry") }
-                    IconButton(onClick = onDismiss) {
-                        Icon(
-                            imageVector = Icons.Outlined.Close,
-                            contentDescription = "Discard upload"
-                        )
-                    }
-                }
+                Text(
+                    text = formatTime(file.createdAt),
+                    modifier = Modifier.align(Alignment.End),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = contentColor.copy(alpha = 0.78f)
+                )
             }
-            if (!upload.isFailed) {
-                LinearProgressIndicator(
-                    progress = { upload.fraction },
-                    modifier = Modifier.fillMaxWidth()
+        }
+
+        if (isMine) {
+            Spacer(Modifier.width(10.dp))
+            ChatAvatar(label = "You", isMine = true)
+        }
+    }
+}
+
+@Composable
+private fun NoticeRow(
+    text: String,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.errorContainer
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 16.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = text,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onErrorContainer
+            )
+            IconButton(onClick = onDismiss) {
+                Icon(
+                    imageVector = Icons.Outlined.Close,
+                    contentDescription = "Dismiss",
+                    tint = MaterialTheme.colorScheme.onErrorContainer
                 )
             }
         }
@@ -1082,6 +1064,9 @@ private fun formatFileSize(sizeBytes: Long): String = when {
     sizeBytes >= 1024L -> "%.1f KB".format(sizeBytes / 1024.0)
     else -> "$sizeBytes B"
 }
+
+private fun formatTime(instant: Instant): String =
+    instant.atZone(ZoneId.systemDefault()).toLocalTime().format(chatTimeFormatter)
 
 private fun resolveDisplayName(
     context: Context,

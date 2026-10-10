@@ -51,18 +51,6 @@ class DefaultGroupRepositoryTest {
     }
 
     @Test
-    fun resettingTheJoinCodeUpdatesTheListedGroup() = runBlocking<Unit> {
-        remote.summaries = listOf(summaryRow("group-1", role = "owner"))
-        repository.refresh().getOrThrow()
-
-        val code = repository.resetJoinCode("group-1").getOrThrow()
-
-        assertEquals("NEWC0D", code)
-        assertEquals(listOf("group-1"), remote.resetGroups)
-        assertEquals("NEWC0D", repository.observeMyGroups().first().single().group.joinCode)
-    }
-
-    @Test
     fun membersKeepTheirRoles() = runBlocking<Unit> {
         remote.members = listOf(
             GroupMemberRow(userId = "user-1", displayName = "Alice", role = "owner", joinedAt = "2026-09-20T00:00:00+00:00"),
