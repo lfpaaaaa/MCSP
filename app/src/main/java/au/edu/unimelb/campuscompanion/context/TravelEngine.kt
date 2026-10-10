@@ -11,6 +11,10 @@ import au.edu.unimelb.campuscompanion.data.repository.EtaRepository
 import au.edu.unimelb.campuscompanion.data.repository.WeatherRepository
 import au.edu.unimelb.campuscompanion.sensing.location.TravelStateManager
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
+import au.edu.unimelb.campuscompanion.ui.model.CourseReminderPreference
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -45,7 +49,9 @@ class TravelEngine(
     private val preferences: () -> TravelPreferences,
     private val weather: WeatherRepository? = null,
     private val clock: () -> Instant = Instant::now,
-    private val tickInterval: Duration = TICK_INTERVAL
+    private val tickInterval: Duration = TICK_INTERVAL,
+    private val reminderPreference: ((CourseSession) -> CourseReminderPreference)? = null,
+    private val reminderChanges: Flow<Unit> = emptyFlow()
 ) {
     private val sessions = MutableStateFlow<List<CourseSession>>(emptyList())
     private val origin = MutableStateFlow<GeoPoint?>(null)
@@ -87,7 +93,7 @@ class TravelEngine(
                 delay(tickInterval.toMillis())
             }
         }
-        combine(sessions, origin, moving, leadMinutes, ticks) { sessions, origin, moving, lead, _ ->
+        combine(sessions, origin, moving, leadMinutes, merge(ticks, reminderChanges)) { sessions, origin, moving, lead, _ ->
             Inputs(sessions, origin, moving, lead)
         }
             .conflate()
@@ -117,6 +123,9 @@ class TravelEngine(
         }
 
         val minutesUntilClass = Duration.between(now, tracked.start.toInstant()).toMinutes()
+        val courseReminder = reminderPreference?.invoke(tracked)
+        val lead = courseReminder?.let { if (it.enabled) it.leadMinutes.coerceIn(0, 60) else 0 }
+            ?: inputs.leadMinutes
         val destination = building
         val from = inputs.origin
         var distance: Double? = null
@@ -141,7 +150,7 @@ class TravelEngine(
                 minutesUntilClass = minutesUntilClass.coerceIn(MINUTES_RANGE).toInt(),
                 estimatedTravelMinutes = estimate?.durationMinutes,
                 isMoving = inputs.moving,
-                bufferMinutes = inputs.leadMinutes + weatherBuffer
+                bufferMinutes = lead + weatherBuffer
             )
         }
 

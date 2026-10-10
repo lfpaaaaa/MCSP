@@ -67,6 +67,29 @@ class CourseReminderModelsTest {
         )
     }
 
+    @Test
+    fun parsedActivitiesWithTheSameCleanedTitleHaveSeparateSwitches() {
+        val base = session("one", dateTime(2026, 10, 12, 11, 0), title = "Mobile Computing")
+        val courses = buildCourseReminderSeries(listOf(
+            base.copy(activity = "lecture"),
+            base.copy(id = "two", activity = "tutorial"),
+            base.copy(id = "three", activity = "workshop"),
+            base.copy(id = "four", activity = "tutorial", start = base.start.plusWeeks(1), end = base.end.plusWeeks(1))
+        ))
+        assertEquals(3, courses.size)
+        assertEquals(setOf("COMP90018 · Lecture", "COMP90018 · Tutorial", "COMP90018 · Workshop"), courses.map { it.displayName }.toSet())
+        assertEquals(2, courses.single { it.nextSession.activity == "tutorial" }.occurrenceCount)
+    }
+
+    @Test
+    fun reminderKeysSurviveTitleAndRoomChangesButStayWithinTheSubject() {
+        val base = session("one", dateTime(2026, 10, 12, 11, 0)).copy(activity = "tutorial")
+        assertEquals(base.reminderSeriesKey(), base.copy(title = "Renamed subject", room = "PAR-104").reminderSeriesKey())
+        assertTrue(base.reminderSeriesKey() != base.copy(code = "COMP90015").reminderSeriesKey())
+        assertTrue(base.copy(code = "EVENT", title = "First event").reminderSeriesKey() !=
+            base.copy(code = "EVENT", title = "Second event").reminderSeriesKey())
+    }
+
     private fun session(
         id: String,
         start: ZonedDateTime,

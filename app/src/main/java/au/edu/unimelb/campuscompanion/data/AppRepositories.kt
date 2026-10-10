@@ -37,6 +37,12 @@ import au.edu.unimelb.campuscompanion.data.repository.GroupRepository
 import au.edu.unimelb.campuscompanion.data.repository.InviteRepository
 import au.edu.unimelb.campuscompanion.data.repository.RoutedEtaRepository
 import au.edu.unimelb.campuscompanion.data.repository.WeatherRepository
+import au.edu.unimelb.campuscompanion.ui.CourseReminderPreferencesStore
+import au.edu.unimelb.campuscompanion.ui.model.CourseReminderPreference
+import au.edu.unimelb.campuscompanion.ui.model.CourseSession
+import au.edu.unimelb.campuscompanion.ui.model.reminderSeriesKey
+import au.edu.unimelb.campuscompanion.ui.model.legacyReminderSeriesKey
+import kotlinx.coroutines.flow.map
 import au.edu.unimelb.campuscompanion.push.DepartureNotifier
 import au.edu.unimelb.campuscompanion.push.FirebaseTokenSource
 import au.edu.unimelb.campuscompanion.push.PushTokens
@@ -79,15 +85,15 @@ object AppRepositories {
             // Messages that were still sending when the app stopped can now be retried by the user.
             database.messageDao().replaceStatus(MessageStatus.Sending.name, MessageStatus.Failed.name)
         }
-        // The lead time and the reminders follow the saved preferences from the first tick.
-        val travelPreferencesStore = TravelPreferencesStore(appContext)
-        travel.updateLeadMinutes(travelPreferencesStore.load().reminderLeadMinutes)
+        // Resolve reminders for the tracked course directly, even without an open settings screen.
         applicationScope.launch { travel.run() }
         applicationScope.launch {
             DepartureReminders(
                 snapshots = travel.snapshot,
-                preferences = travelPreferencesStore::load,
-                notify = { reminder -> DepartureNotifier.show(appContext, reminder) }
+                preferences = ::courseReminderPreference,
+                notify = { reminder -> DepartureNotifier.show(appContext, reminder) },
+                preferenceChanges = CourseReminderPreferencesStore.changes.map { Unit },
+                cancelCourse = { key -> DepartureNotifier.cancelCourse(appContext, key) }
             ).run()
         }
         SupabaseProvider.client?.let { client ->
@@ -207,13 +213,23 @@ object AppRepositories {
     /** Weather at the class's building; Open-Meteo needs no key, so it is always the real service. */
     val weather: WeatherRepository by lazy { DefaultWeatherRepository(OpenMeteoWeatherDataSource()) }
 
+    private fun courseReminderPreference(session: CourseSession): CourseReminderPreference {
+        val userId = SupabaseProvider.client?.auth?.currentUserOrNull()?.id
+            ?: return CourseReminderPreference(enabled = false)
+        return CourseReminderPreferencesStore(appContext, userId).load(
+            session.reminderSeriesKey(), session.legacyReminderSeriesKey()
+        )
+    }
+
     /** Tracks the trip to the next class from the timetable, the sensors, [eta] and [weather]; runs from [init]. */
     val travel: TravelEngine by lazy {
         TravelEngine(
             eta = eta,
             buildings = BuildingLocationRepository(appContext),
             preferences = { TravelPreferencesStore(appContext).load() },
-            weather = weather
+            weather = weather,
+            reminderPreference = ::courseReminderPreference,
+            reminderChanges = CourseReminderPreferencesStore.changes.map { Unit }
         )
     }
 }

@@ -231,7 +231,7 @@ private fun DepartureReminderSettingRow(
                     text = if (courseCount == 0) {
                         "No courses available"
                     } else {
-                        "$enabledCount of $courseCount courses enabled"
+                        "$enabledCount of $courseCount class reminders enabled"
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant

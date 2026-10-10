@@ -350,7 +350,7 @@ class IcsTimetableParser {
     companion object {
         private const val FALLBACK_EVENT_CODE = "EVENT"
         private const val MAX_IMPORTED_SESSIONS = 500
-        private val ACTIVITY_FIELD = Regex("(?im)^(?:activity(?: type)?|class(?: type)?|type)\\s*:\\s*(tutorial|workshop)\\b")
+        private val ACTIVITY_FIELD = Regex("(?im)^(?:activity(?: type)?|class(?: type)?|type)\\s*:\\s*(tutorial|workshop|lecture)\\b")
         private val ACTIVITY_SUFFIX = Regex("(?i)(?:^|[\\s_:/|(-])(tutorial|workshop|lecture)(?:[\\s_:#-]*[A-Z]?\\d+)?[)\\s]*$")
         private val ACTIVITY_PREFIX = Regex("(?i)^(tutorial|workshop|lecture)(?:[\\s_:#-]*\\d+)?(?:[\\s_:/|-]+|$)")
         private val SUBJECT_NAME = Regex("(?im)^(?:subject|course)(?: name| title)\\s*:\\s*(.+)$")

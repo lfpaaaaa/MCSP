@@ -13,6 +13,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.NotificationsActive
+import androidx.compose.material.icons.outlined.NotificationsOff
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -94,10 +97,18 @@ fun CourseReminderSettingsScreen(
         } else {
             item {
                 Text(
-                    text = "COURSES IN THIS TIMETABLE",
+                    text = "CLASS REMINDERS",
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary
+                )
+            }
+            item {
+                Text(
+                    text = "Control lecture, tutorial and workshop reminders separately. Changes are saved automatically.",
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             items(courses, key = CourseReminderSeries::key) { course ->
@@ -106,7 +117,7 @@ fun CourseReminderSettingsScreen(
                     modifier = Modifier.clickable { selectedCourseKey = course.key },
                     leadingContent = {
                         Icon(
-                            imageVector = Icons.Outlined.NotificationsActive,
+                            imageVector = if (preference.enabled) Icons.Outlined.NotificationsActive else Icons.Outlined.NotificationsOff,
                             contentDescription = null,
                             tint = if (preference.enabled) {
                                 MaterialTheme.colorScheme.primary
@@ -117,7 +128,7 @@ fun CourseReminderSettingsScreen(
                     },
                     headlineContent = {
                         Text(
-                            text = course.code,
+                            text = course.displayName,
                             fontWeight = FontWeight.SemiBold
                         )
                     },
@@ -132,6 +143,7 @@ fun CourseReminderSettingsScreen(
                     },
                     trailingContent = {
                         Switch(
+                            modifier = Modifier.semantics { contentDescription = "${course.displayName} reminders" },
                             checked = preference.enabled,
                             onCheckedChange = { enabled ->
                                 onPreferenceChange(
@@ -167,7 +179,7 @@ private fun CourseReminderDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(course.code) },
+        title = { Text(course.displayName) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -202,6 +214,7 @@ private fun CourseReminderDialog(
                         style = MaterialTheme.typography.bodyLarge
                     )
                     Switch(
+                        modifier = Modifier.semantics { contentDescription = "${course.displayName} reminders" },
                         checked = preference.enabled,
                         onCheckedChange = { enabled ->
                             onPreferenceChange(preference.copy(enabled = enabled))
