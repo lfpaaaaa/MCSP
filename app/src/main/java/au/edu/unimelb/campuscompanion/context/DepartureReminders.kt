@@ -1,9 +1,12 @@
 package au.edu.unimelb.campuscompanion.context
 
 import au.edu.unimelb.campuscompanion.data.TravelMode
-import au.edu.unimelb.campuscompanion.data.TravelPreferences
 import au.edu.unimelb.campuscompanion.sensing.location.TravelState
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
+import au.edu.unimelb.campuscompanion.ui.model.CourseReminderPreference
+import au.edu.unimelb.campuscompanion.ui.model.reminderSeriesKey
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.Flow
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -11,6 +14,7 @@ import java.util.Locale
 /** A departure notification: what it says and which class it is about. */
 data class DepartureReminder(
     val sessionId: String,
+    val courseKey: String,
     val state: TravelState,
     val title: String,
     val text: String
@@ -22,18 +26,21 @@ data class DepartureReminder(
 /**
  * Turns the travel engine's snapshots into departure notifications: one when a class reaches
  * "leave soon" and one more if the user is running late, never repeated for the same class.
- * Reminders can be switched off in the travel preferences.
+ * Each notification reads the saved preference of its own course, including in the background.
  */
 class DepartureReminders(
     private val snapshots: Flow<TravelSnapshot>,
-    private val preferences: () -> TravelPreferences,
-    private val notify: (DepartureReminder) -> Unit
+    private val preferences: (CourseSession) -> CourseReminderPreference,
+    private val notify: (DepartureReminder) -> Unit,
+    private val preferenceChanges: Flow<Unit> = flowOf(Unit),
+    private val cancelCourse: (String) -> Unit = {}
 ) {
     private var remindedSessionId: String? = null
     private val remindedStates = mutableSetOf<TravelState>()
 
     suspend fun run() {
-        snapshots.collect { snapshot -> consider(snapshot) }
+        combine(snapshots, preferenceChanges) { snapshot, _ -> snapshot }
+            .collect { snapshot -> consider(snapshot) }
     }
 
     /** Sends a reminder for [snapshot] when it is due; returns it, or null when nothing was sent. */
@@ -48,12 +55,16 @@ class DepartureReminders(
             remindedSessionId = session.id
             remindedStates.clear()
         }
+        if (!preferences(session).enabled) {
+            cancelCourse(session.reminderSeriesKey())
+            return null
+        }
         if (snapshot.state !in REMINDED_STATES) return null
-        if (!preferences().remindersEnabled) return null
         if (!remindedStates.add(snapshot.state)) return null
 
         val reminder = DepartureReminder(
             sessionId = session.id,
+            courseKey = session.reminderSeriesKey(),
             state = snapshot.state,
             title = when (snapshot.state) {
                 TravelState.RUNNING_LATE -> "Running late for ${session.code}"

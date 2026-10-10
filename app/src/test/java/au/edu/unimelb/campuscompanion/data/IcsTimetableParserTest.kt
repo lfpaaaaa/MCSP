@@ -122,6 +122,13 @@ class IcsTimetableParserTest {
         assertEquals("COMP90018|tutorial|4|15:00|16:00|parkville campus,par-160", result.groups.last().timetableKey)
     }
 
+    @Test fun lectureDescriptionIsPreservedForIndependentReminders() {
+        val result = parseEvents(event("lecture", summary = "COMP90018 - Mobile Computing",
+            description = "Activity Type: Lecture"))
+        assertTrue(result.sessions.all { it.activity == "lecture" })
+        assertEquals(1, result.groups.size)
+    }
+
     @Test fun workshopsUseWorkshopSuffixAndDescriptionActivity() {
         val result = parseEvents(event("one", summary = "COMP90018 - Mobile Computing",
             description = "Activity Type: Workshop"))

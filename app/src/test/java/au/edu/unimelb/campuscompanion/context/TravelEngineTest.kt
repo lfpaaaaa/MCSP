@@ -10,6 +10,7 @@ import au.edu.unimelb.campuscompanion.data.repository.EtaRepository
 import au.edu.unimelb.campuscompanion.data.repository.WeatherRepository
 import au.edu.unimelb.campuscompanion.sensing.location.TravelState
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
+import au.edu.unimelb.campuscompanion.ui.model.CourseReminderPreference
 import au.edu.unimelb.campuscompanion.ui.model.RouteEstimate
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -202,6 +203,24 @@ class TravelEngineTest {
         engine.refresh()
 
         assertEquals(listOf(TravelMode.Driving), eta.requests.map { it.mode })
+    }
+
+    @Test
+    fun eachClassUsesItsOwnLeadTimeWithoutAScreenUpdatingGlobalPreferences() = runBlocking<Unit> {
+        val perCourse = TravelEngine(
+            eta = eta, buildings = FakeBuildingLookup(), preferences = { preferences }, clock = { now },
+            reminderPreference = { CourseReminderPreference(leadMinutes = if (it.id == lecture.id) 0 else 30) }
+        )
+        perCourse.updateSessions(listOf(lecture, tutorial))
+        perCourse.updateOrigin(HOME)
+        now = now.plus(Duration.ofMinutes(36))
+        perCourse.refresh()
+        assertEquals(TravelState.UPCOMING_CLASS, perCourse.snapshot.value.state)
+
+        now = now.plus(Duration.ofMinutes(120))
+        perCourse.refresh()
+        assertEquals(tutorial.id, perCourse.snapshot.value.session?.id)
+        assertEquals(TravelState.SHOULD_LEAVE_SOON, perCourse.snapshot.value.state)
     }
 
     private fun session(id: String, startsIn: Duration, room: String): CourseSession {

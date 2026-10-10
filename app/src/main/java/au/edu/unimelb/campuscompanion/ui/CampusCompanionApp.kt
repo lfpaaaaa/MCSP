@@ -87,7 +87,8 @@ import au.edu.unimelb.campuscompanion.ui.model.foldedOverrideAfterEdit
 import au.edu.unimelb.campuscompanion.ui.model.isFolded
 import au.edu.unimelb.campuscompanion.ui.model.isValidGroupJoinCode
 import au.edu.unimelb.campuscompanion.ui.model.mergePendingDocuments
-import au.edu.unimelb.campuscompanion.ui.model.reminderSeriesKey
+import au.edu.unimelb.campuscompanion.push.DepartureNotifier
+import au.edu.unimelb.campuscompanion.ui.model.legacyReminderSeriesKey
 import au.edu.unimelb.campuscompanion.ui.navigation.CampusDestination
 import au.edu.unimelb.campuscompanion.ui.components.RequestLocationPermissionOnFirstUse
 import au.edu.unimelb.campuscompanion.ui.screens.AuthLoadingScreen
@@ -381,28 +382,13 @@ private fun AuthenticatedCampusApp(
         user.id
     ) {
         reminderCourses.associate { course ->
-            course.key to courseReminderStore.load(course.key)
+            course.key to courseReminderStore.load(course.key, course.nextSession.legacyReminderSeriesKey())
         }
     }
     val updateCourseReminder: (String, CourseReminderPreference) -> Unit = { key, preference ->
         courseReminderStore.save(key, preference)
+        if (!preference.enabled) DepartureNotifier.cancelCourse(context, key)
         courseReminderVersion += 1
-    }
-
-    // The travel engine and the departure notifier read the travel preferences, so the tracked
-    // class's own reminder setting is copied there: a class with reminders off stays silent.
-    LaunchedEffect(travelSnapshot.session?.id, courseReminderVersion, user.id) {
-        val trackedSession = travelSnapshot.session ?: return@LaunchedEffect
-        val preference = courseReminderStore.load(trackedSession.reminderSeriesKey())
-        val aligned = travelPreferences.copy(
-            remindersEnabled = preference.enabled,
-            reminderLeadMinutes = preference.leadMinutes.coerceIn(TravelPreferences.REMINDER_LEAD_RANGE)
-        )
-        if (aligned != travelPreferences) {
-            travelPreferencesStore.save(aligned)
-            travelPreferences = aligned
-        }
-        travel.updateLeadMinutes(if (preference.enabled) preference.leadMinutes else 0)
     }
 
     val groupRepository = remember { AppRepositories.groups }

@@ -1,6 +1,7 @@
 package au.edu.unimelb.campuscompanion.ui.model
 
 import java.time.ZonedDateTime
+import java.util.Locale
 
 const val DEFAULT_COURSE_REMINDER_LEAD_MINUTES = 10
 const val MAX_COURSE_REMINDER_LEAD_MINUTES = 60
@@ -18,14 +19,28 @@ data class CourseReminderSeries(
     val room: String,
     val nextSession: CourseSession,
     val occurrenceCount: Int
-)
-
-fun CourseSession.reminderSeriesKey(): String {
-    return "course:${code.normalizedReminderKey()}:${title.normalizedReminderKey()}"
+) {
+    val displayName: String get() = listOfNotNull(
+        code, nextSession.reminderActivity()?.replaceFirstChar { it.titlecase(Locale.ROOT) }
+    ).joinToString(" · ")
 }
 
+/** Every recurrence of one activity shares a switch, independently of the other activity types. */
+fun CourseSession.reminderSeriesKey(): String = reminderActivity()?.let {
+    val subject = code.normalizedReminderKey().takeUnless { code.isBlank() || code.equals("EVENT", true) }
+        ?: legacyReminderSeriesKey()
+    "activity:$subject:$it"
+} ?: legacyReminderSeriesKey()
+
+fun CourseSession.legacyReminderSeriesKey(): String =
+    "course:${code.normalizedReminderKey()}:${title.normalizedReminderKey()}"
+
+fun CourseSession.reminderActivity(): String? = activity?.normalizedReminderKey()?.takeIf { it.isNotBlank() }
+    ?: Regex("(?i)\\b(lecture|tutorial|workshop)(?:[\\s_:#-]*[A-Z]?\\d+)?\\b")
+        .find(title)?.groupValues?.get(1)?.lowercase(Locale.ROOT)
+
 private fun String.normalizedReminderKey(): String = trim()
-    .lowercase()
+    .lowercase(Locale.ROOT)
     .replace(Regex("\\s+"), " ")
 
 fun buildCourseReminderSeries(

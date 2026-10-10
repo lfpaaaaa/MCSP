@@ -41,8 +41,20 @@ object DepartureNotifier {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .build()
-        NotificationManagerCompat.from(context).notify(reminder.notificationId, notification)
+        NotificationManagerCompat.from(context).notify(
+            courseTag(reminder.courseKey), reminder.notificationId, notification
+        )
     }
+
+    /** Clears this course's visible reminders without affecting chats or other courses. */
+    fun cancelCourse(context: Context, courseKey: String) {
+        val manager = context.getSystemService(NotificationManager::class.java)
+        manager.activeNotifications.filter { it.tag == courseTag(courseKey) }.forEach {
+            manager.cancel(it.tag, it.id)
+        }
+    }
+
+    private fun courseTag(key: String) = "departure:$key"
 
     private fun createChannel(context: Context) {
         val channel = NotificationChannel(
