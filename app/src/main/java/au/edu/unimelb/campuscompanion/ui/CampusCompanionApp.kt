@@ -61,6 +61,8 @@ import au.edu.unimelb.campuscompanion.auth.AuthViewModel
 import au.edu.unimelb.campuscompanion.auth.AuthenticatedUser
 import au.edu.unimelb.campuscompanion.auth.SupabaseProvider
 import au.edu.unimelb.campuscompanion.data.AppRepositories
+import au.edu.unimelb.campuscompanion.data.TimetableCache
+import au.edu.unimelb.campuscompanion.data.TimetableImport
 import au.edu.unimelb.campuscompanion.data.TimetableImporter
 import au.edu.unimelb.campuscompanion.data.TimetableSubscriptionStore
 import au.edu.unimelb.campuscompanion.data.TravelPreferences
@@ -107,8 +109,10 @@ import java.time.Duration
 import java.time.Instant
 import java.time.ZonedDateTime
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private const val GROUP_CHAT_ROUTE = "group_chat/{groupId}"
 private const val COURSE_REMINDERS_ROUTE = "course_reminders"
@@ -334,6 +338,7 @@ private fun AuthenticatedCampusApp(
     val context = LocalContext.current
     val timetableStore = remember(context) { TimetableSubscriptionStore(context) }
     val timetableImporter = remember { TimetableImporter() }
+    val timetableCache = remember(context) { TimetableCache(context) }
     val travelPreferencesStore = remember(context) { TravelPreferencesStore(context) }
     var travelPreferences by remember(user.id) {
         mutableStateOf(travelPreferencesStore.load())
@@ -488,23 +493,33 @@ private fun AuthenticatedCampusApp(
     LaunchedEffect(user.id, savedTimetableUrl) {
         if (savedTimetableUrl.isBlank()) return@LaunchedEffect
 
-        timetableImporter.importFromUrl(savedTimetableUrl).fold(
-            onSuccess = { imported ->
-                timetableState = TimetableState(
-                    url = savedTimetableUrl,
-                    sessions = imported.sessions,
-                    groups = imported.groups,
-                    detectedEventCount = imported.sourceEventCount,
-                    isConnected = true
-                )
-            },
-            onFailure = { error ->
-                timetableState = TimetableState(
-                    url = savedTimetableUrl,
-                    errorMessage = error.message
-                )
-            }
-        )
+        // The copy saved on the device opens the timetable at once, offline included; the
+        // download then replaces it, or explains why it could not.
+        val saved = withContext(Dispatchers.IO) { timetableCache.load(user.id) }
+            ?.takeIf { it.url == savedTimetableUrl }
+        val savedImport = saved?.let { timetableImporter.parse(it.bytes).getOrNull() }
+        if (saved != null && savedImport != null) {
+            timetableState = savedImport.toTimetableState(savedTimetableUrl, savedAt = saved.savedAt)
+        }
+
+        timetableImporter.download(savedTimetableUrl)
+            .fold(
+                onSuccess = { bytes -> timetableImporter.parse(bytes).map { it to bytes } },
+                onFailure = { Result.failure<Pair<TimetableImport, ByteArray>>(it) }
+            )
+            .fold(
+                onSuccess = { (imported, bytes) ->
+                    withContext(Dispatchers.IO) { timetableCache.save(user.id, savedTimetableUrl, bytes) }
+                    timetableState = imported.toTimetableState(savedTimetableUrl)
+                },
+                onFailure = { error ->
+                    timetableState = if (savedImport != null) {
+                        timetableState.copy(refreshError = error.message)
+                    } else {
+                        TimetableState(url = savedTimetableUrl, errorMessage = error.message)
+                    }
+                }
+            )
     }
 
     LaunchedEffect(user.id, timetableState.groups, timetableState.isConnected, lifecycleOwner) {
@@ -533,27 +548,28 @@ private fun AuthenticatedCampusApp(
 
     val connectTimetable: suspend (String) -> Result<Unit> = { url ->
         val previousState = timetableState
-        timetableImporter.importFromUrl(url).fold(
-            onSuccess = { imported ->
-                timetableStore.saveUrl(user.id, url)
-                timetableState = TimetableState(
-                    url = url,
-                    sessions = imported.sessions,
-                    groups = imported.groups,
-                    detectedEventCount = imported.sourceEventCount,
-                    isConnected = true
-                )
-                Result.success(Unit)
-            },
-            onFailure = { error ->
-                timetableState = previousState.copy(errorMessage = error.message)
-                Result.failure(error)
-            }
-        )
+        timetableImporter.download(url)
+            .fold(
+                onSuccess = { bytes -> timetableImporter.parse(bytes).map { it to bytes } },
+                onFailure = { Result.failure<Pair<TimetableImport, ByteArray>>(it) }
+            )
+            .fold(
+                onSuccess = { (imported, bytes) ->
+                    timetableStore.saveUrl(user.id, url)
+                    withContext(Dispatchers.IO) { timetableCache.save(user.id, url, bytes) }
+                    timetableState = imported.toTimetableState(url)
+                    Result.success(Unit)
+                },
+                onFailure = { error ->
+                    timetableState = previousState.copy(errorMessage = error.message)
+                    Result.failure(error)
+                }
+            )
     }
 
     val removeTimetable = {
         timetableStore.clear(user.id)
+        timetableCache.clear(user.id)
         courseReminderStore.clear()
         courseReminderVersion += 1
         timetableState = TimetableState()
@@ -1222,3 +1238,12 @@ private fun resolveDocument(
         sizeBytes = sizeBytes
     )
 }
+
+private fun TimetableImport.toTimetableState(url: String, savedAt: Instant? = null): TimetableState = TimetableState(
+    url = url,
+    sessions = sessions,
+    groups = groups,
+    detectedEventCount = sourceEventCount,
+    isConnected = true,
+    savedAt = savedAt
+)

@@ -180,24 +180,23 @@ Both are the same commands as in the quick check above, so a green run means a f
 ## Main screens
 
 - Home: context-aware next-class card, travel status, upcoming classes, and group updates.
-- Schedule: timetable list with sync/manual edit entry points.
-- Timetable connection: prompts on Home after sign-in, then saves and validates a MyTimetable calendar subscription URL on device; network fetching and ICS parsing are the next data-layer step.
+- Schedule: the upcoming sessions from the subscribed calendar and the per-course departure reminders.
+- Timetable connection: prompts on Home after sign-in, then saves a MyTimetable calendar subscription URL on the device. The calendar is downloaded and parsed on every start (`data/TimetableImporter`), and the last successful download is kept in the app's private storage (`data/TimetableCache`), so the schedule, the reminders and the course groups still work offline; the screens say when they show the saved copy because the download failed.
 - Groups: course groups, join by code, QR code or NFC, and the group chat: messages and shared files come from Supabase (realtime feed plus the Room cache, so saved messages stay readable offline), with optimistic sending, retry of failed messages, paging of older history, upload progress and photo previews.
 - Profile: account summary, travel preferences (walking range and the mode for longer trips), the timetable URL, the real state of each permission with a note on where location data goes, credits for the data sources, the app version, and sign-out.
 
 ## Status and next steps
 
-Working end to end: sign-in (Google and email code), timetable import from a MyTimetable subscription URL, the next-class card with travel state, routed travel times with weather buffers, departure reminders ("time to leave" and "running late" notifications, switched on and timed per course from the Schedule screen), groups with join codes, QR and NFC invitations, real-time chat with an offline cache, shared files and photos, push notifications for new messages, and a Profile screen with the real permission state and the data credits. A fresh clone with `local.properties` and `google-services.json` added builds, installs and signs in (checked 9 October 2026).
+Working end to end: sign-in (Google and email code), timetable import from a MyTimetable subscription URL (with a saved copy for offline use), the next-class card with travel state, routed travel times with weather buffers, departure reminders ("time to leave" and "running late" notifications, switched on and timed per course from the Schedule screen), groups with join codes, QR and NFC invitations, real-time chat with an offline cache, shared files and photos, push notifications for new messages, and a Profile screen with the real permission state and the data credits. A fresh clone with `local.properties` and `google-services.json` added builds, installs and signs in (checked 9 October 2026).
 
 Measured on 9 October 2026 with two emulators on one laptop and the Supabase project in Sydney, 50 one-character messages in one group: the insert round trip (`send()` until the server confirmed, logged under the `ChatLatency` tag) had a median of 58 ms and a 95th percentile of 77 ms; delivery to the second device through Realtime took about 0.1 to 0.6 s after correcting the emulators' clock offsets, and every message arrived.
 
 Still to do, in order:
 
-1. Cache the timetable on the device so the Schedule screen opens offline.
-2. Restore the open screen when the system has killed the app in the background (it currently comes back on Home unless a chat was open).
-3. Strip sensor debug logging from release builds and ask Transitous for permission before switching public transport routing on.
-4. Confirm the source and licence of the bundled campus building outlines and name them in the About section.
-5. Apple sign-in once an Apple developer account is available.
+1. Restore the open screen when the system has killed the app in the background (it currently comes back on Home unless a chat was open).
+2. Strip sensor debug logging from release builds and ask Transitous for permission before switching public transport routing on.
+3. Confirm the source and licence of the bundled campus building outlines and name them in the About section.
+4. Apple sign-in once an Apple developer account is available.
 
 ## Licence
 

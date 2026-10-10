@@ -148,7 +148,8 @@ fun HomeScreen(
 
                 ImportSummaryCard(
                     detectedEventCount = timetableState.detectedEventCount,
-                    groupCount = timetableState.groups.size
+                    groupCount = timetableState.groups.size,
+                    notice = timetableState.offlineNotice()
                 )
 
                 SectionHeader(title = "Course groups")
@@ -442,6 +443,7 @@ private fun TimetableSetupPrompt(
 private fun ImportSummaryCard(
     detectedEventCount: Int,
     groupCount: Int,
+    notice: String?,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -465,6 +467,12 @@ private fun ImportSummaryCard(
                     text = "$detectedEventCount calendar events detected. $groupCount groups available.",
                     style = MaterialTheme.typography.bodyMedium
                 )
+                if (notice != null) {
+                    Text(
+                        text = notice,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
             }
         }
     }

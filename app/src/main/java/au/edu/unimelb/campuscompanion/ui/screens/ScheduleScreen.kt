@@ -70,7 +70,7 @@ fun ScheduleScreen(
             )
             Text(
                 text = if (timetableState.isConnected) {
-                    "Upcoming sessions parsed from your calendar subscription."
+                    timetableState.offlineNotice() ?: "Upcoming sessions parsed from your calendar subscription."
                 } else {
                     "No classes are shown until a timetable URL is verified."
                 },
