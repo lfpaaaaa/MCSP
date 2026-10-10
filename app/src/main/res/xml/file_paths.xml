@@ -3,4 +3,5 @@
     <cache-path
         name="camera_images"
         path="camera/" />
+    <cache-path name="group_downloads" path="group-downloads/" />
 </paths>

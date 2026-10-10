@@ -1,5 +1,8 @@
 package au.edu.unimelb.campuscompanion.data.remote
 
+import au.edu.unimelb.campuscompanion.data.model.TimetableGroupSpec
+
+import kotlinx.serialization.builtins.ListSerializer
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
 import kotlinx.serialization.builtins.serializer
@@ -12,6 +15,23 @@ import kotlinx.serialization.json.put
  * from the session, and row-level security limits every call to the user's own groups.
  */
 class SupabaseGroupDataSource(private val client: SupabaseClient) : GroupRemoteDataSource {
+
+    override suspend fun transferAndLeave(groupId: String, newOwnerId: String) { remoteCall {
+        client.postgrest.rpc("transfer_group_and_leave", buildJsonObject {
+            put("p_group_id", groupId); put("p_new_owner_id", newOwnerId)
+        })
+    } }
+
+    override suspend fun dissolveGroup(groupId: String) { remoteCall {
+        client.postgrest.rpc("dissolve_group", buildJsonObject { put("p_group_id", groupId) })
+    } }
+
+    override suspend fun syncTimetableGroups(specs: List<TimetableGroupSpec>): List<GroupRow> = remoteCall {
+        val result = client.postgrest.rpc("sync_timetable_groups", buildJsonObject {
+            put("p_groups", remoteJson.encodeToJsonElement(ListSerializer(TimetableGroupSpec.serializer()), specs))
+        })
+        decodeRows(result.data, GroupRow.serializer())
+    }
 
     override suspend fun fetchMyGroups(): List<GroupSummaryRow> = remoteCall {
         val result = client.postgrest.rpc("my_group_summaries")

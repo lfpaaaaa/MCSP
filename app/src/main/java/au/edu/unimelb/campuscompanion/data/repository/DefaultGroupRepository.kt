@@ -1,7 +1,10 @@
 package au.edu.unimelb.campuscompanion.data.repository
 
+import au.edu.unimelb.campuscompanion.data.model.TimetableGroupSpec
+
 import au.edu.unimelb.campuscompanion.data.DataError
 import au.edu.unimelb.campuscompanion.data.model.Group
+import au.edu.unimelb.campuscompanion.data.model.GroupRole
 import au.edu.unimelb.campuscompanion.data.model.GroupMember
 import au.edu.unimelb.campuscompanion.data.model.GroupSummary
 import au.edu.unimelb.campuscompanion.data.remote.GroupMemberRow
@@ -32,6 +35,17 @@ class DefaultGroupRepository(
     /** Emits after the first successful [refresh], then after every change. */
     override fun observeMyGroups(): Flow<List<GroupSummary>> = groups.filterNotNull()
 
+    override suspend fun syncTimetableGroups(specs: List<TimetableGroupSpec>): Result<Unit> = dataResult {
+        val joined = remote.syncTimetableGroups(specs).map { it.toModel() }
+        groups.update { current ->
+            val existing = current.orEmpty().associateBy { it.group.id }
+            joined.map { group -> existing[group.id]?.copy(group = group) ?: GroupSummary(
+                group, GroupRole.Member, 1, 0, null, group.createdAt, null
+            ) } + current.orEmpty().filterNot { old -> joined.any { it.id == old.group.id } }
+        }
+        refresh().getOrThrow()
+    }
+
     override suspend fun refresh(): Result<Unit> = dataResult {
         groups.value = remote.fetchMyGroups()
             .map(GroupSummaryRow::toModel)
@@ -41,7 +55,21 @@ class DefaultGroupRepository(
     override suspend fun createGroup(name: String, courseCode: String?): Result<Group> {
         val input = NewGroupInput.parse(name, courseCode).getOrElse { return Result.failure(it) }
         return dataResult { remote.createGroup(input.name, input.courseCode).toModel() }
-            .onSuccess { refresh() }
+            .onSuccess { group ->
+                // Creation already succeeded: publish it even if the follow-up refresh fails.
+                groups.update { current ->
+                    listOf(GroupSummary(
+                        group = group,
+                        myRole = GroupRole.Owner,
+                        memberCount = 1,
+                        unreadCount = 0,
+                        latestMessagePreview = null,
+                        latestActivityAt = group.createdAt,
+                        latestFileName = null
+                    )) + current.orEmpty().filterNot { it.group.id == group.id }
+                }
+                refresh()
+            }
     }
 
     /** Loads the member list once. The flow fails with a [DataError] when the list cannot be loaded. */
@@ -49,14 +77,14 @@ class DefaultGroupRepository(
         emit(remoteCall { remote.fetchMembers(groupId).map(GroupMemberRow::toModel) })
     }
 
-    override suspend fun resetJoinCode(groupId: String): Result<String> = dataResult {
-        val code = remote.resetJoinCode(groupId)
-        groups.update { list ->
-            list?.map { summary ->
-                if (summary.group.id == groupId) summary.copy(group = summary.group.copy(joinCode = code)) else summary
-            }
-        }
-        code
+    override suspend fun transferAndLeave(groupId: String, newOwnerId: String): Result<Unit> = dataResult {
+        remote.transferAndLeave(groupId, newOwnerId)
+        groups.update { list -> list?.filterNot { it.group.id == groupId } }
+    }
+
+    override suspend fun dissolveGroup(groupId: String): Result<Unit> = dataResult {
+        remote.dissolveGroup(groupId)
+        groups.update { list -> list?.filterNot { it.group.id == groupId } }
     }
 
     override suspend fun leaveGroup(groupId: String): Result<Unit> {

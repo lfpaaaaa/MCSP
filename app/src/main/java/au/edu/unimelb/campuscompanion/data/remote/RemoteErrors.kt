@@ -24,6 +24,7 @@ fun Throwable.toDataError(): DataError = when (this) {
  */
 fun dataErrorFor(statusCode: Int, message: String?, cause: Throwable? = null): DataError =
     when (message) {
+        "join_code_expired" -> DataError.Validation("The 6-character code expired 5 minutes after group creation. Join using QR or NFC.")
         "invite_not_found" -> DataError.InvalidInvite(DataError.InvalidInvite.Reason.Unknown, cause)
         "invite_expired" -> DataError.InvalidInvite(DataError.InvalidInvite.Reason.Expired, cause)
         "invite_used_up" -> DataError.InvalidInvite(DataError.InvalidInvite.Reason.UsedUp, cause)

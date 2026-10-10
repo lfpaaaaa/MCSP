@@ -1,11 +1,19 @@
 package au.edu.unimelb.campuscompanion.data.remote
 
+import au.edu.unimelb.campuscompanion.data.model.TimetableGroupSpec
+
 /**
  * Server calls behind the group and invite repositories. Implementations throw
  * [au.edu.unimelb.campuscompanion.data.DataError] when a call fails.
  */
 interface GroupRemoteDataSource {
+    suspend fun syncTimetableGroups(specs: List<TimetableGroupSpec>): List<GroupRow>
+
     /** Groups of the signed-in user with member counts, unread counts and latest activity. */
+    suspend fun transferAndLeave(groupId: String, newOwnerId: String)
+
+    suspend fun dissolveGroup(groupId: String)
+
     suspend fun fetchMyGroups(): List<GroupSummaryRow>
 
     /** Creates a group with the signed-in user as its owner. */

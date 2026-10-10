@@ -33,6 +33,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -83,6 +85,18 @@ fun GroupsScreen(
     var showFoldedGroups by rememberSaveable { mutableStateOf(false) }
     var showStartGroup by rememberSaveable { mutableStateOf(false) }
     var showJoinGroup by rememberSaveable { mutableStateOf(false) }
+    var showQrJoin by rememberSaveable { mutableStateOf(false) }
+
+    if (showQrJoin) {
+        QrJoinDialog(
+            onDismiss = { showQrJoin = false },
+            onJoinGroup = onJoinGroup,
+            onEnterCode = {
+                showQrJoin = false
+                showJoinGroup = true
+            }
+        )
+    }
 
     if (showStartGroup) {
         StartGroupDialog(
@@ -132,6 +146,13 @@ fun GroupsScreen(
             )
         }
 
+        if (timetableState.isSyncingGroups) {
+            Text("Joining your course and tutorial/workshop groups…")
+        }
+        timetableState.groupSyncError?.let {
+            Text(it, color = MaterialTheme.colorScheme.error)
+        }
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -162,7 +183,7 @@ fun GroupsScreen(
             QuickActionChip(
                 label = "Scan QR",
                 icon = Icons.Outlined.QrCodeScanner,
-                onClick = onScanQr
+                onClick = { showQrJoin = true }
             )
             QuickActionChip(
                 label = "NFC join",
@@ -395,6 +416,10 @@ private fun StartGroupDialog(
     var errorMessage by rememberSaveable { mutableStateOf<String?>(null) }
     var isSubmitting by rememberSaveable { mutableStateOf(false) }
     var startedGroup by remember { mutableStateOf<StartedGroupAccess?>(null) }
+    var now by remember { mutableStateOf(Instant.now()) }
+    LaunchedEffect(startedGroup) {
+        if (startedGroup != null) while (true) { now = Instant.now(); delay(1_000) }
+    }
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
 
@@ -443,9 +468,12 @@ private fun StartGroupDialog(
                     }
                 }
             } else {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
                     Text("${result.groupName} is ready.")
-                    if (result.joinCode != null) {
+                    if (result.joinCode != null && result.expiresAt != null && now.isBefore(result.expiresAt)) {
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(8.dp),
@@ -477,24 +505,11 @@ private fun StartGroupDialog(
                                 }
                             }
                         }
-                        val expiresAt = result.expiresAt
-                        val expiryText = if (expiresAt != null) {
-                            val minutesRemaining = Duration.between(Instant.now(), expiresAt)
-                                .toMinutes()
-                                .coerceAtLeast(1L)
-                            "Expires in $minutesRemaining minutes."
-                        } else {
-                            "Share this code with your group. It does not expire, and you can " +
-                                "replace it from the group settings."
-                        }
-                        Text(
-                            text = expiryText,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        val remaining = Duration.between(now, result.expiresAt).seconds.coerceAtLeast(0)
+                        Text("Code expires in ${remaining / 60}:${(remaining % 60).toString().padStart(2, '0')}. Valid only during the first 5 minutes after group creation.")
                     } else {
                         Text(
-                            text = "A join code is temporarily unavailable.",
+                            text = "The 6-character code is unavailable or expired. Use Share QR code or NFC in group settings.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -571,7 +586,7 @@ private fun JoinGroupDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    text = "Enter the 6-character code from the group creator.",
+                    text = "Enter the 6-character code. It works only within 5 minutes of group creation; afterwards use QR or NFC.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

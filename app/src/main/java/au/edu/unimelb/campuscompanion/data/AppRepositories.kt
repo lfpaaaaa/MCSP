@@ -21,6 +21,7 @@ import au.edu.unimelb.campuscompanion.data.remote.SupabaseFileDataSource
 import au.edu.unimelb.campuscompanion.data.remote.SupabaseGroupDataSource
 import au.edu.unimelb.campuscompanion.data.remote.SupabasePushDataSource
 import au.edu.unimelb.campuscompanion.data.remote.SupabaseRouteDataSource
+import au.edu.unimelb.campuscompanion.data.repository.ChatMessageSender
 import au.edu.unimelb.campuscompanion.data.repository.ChatRepository
 import au.edu.unimelb.campuscompanion.data.repository.DefaultChatRepository
 import au.edu.unimelb.campuscompanion.data.repository.DefaultFileRepository
@@ -44,6 +45,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.contentOrNull
 
 /**
@@ -136,6 +139,10 @@ object AppRepositories {
         }
     }
 
+    val chatSender: ChatMessageSender by lazy {
+        ChatMessageSender(chat, applicationScope) { groups.refresh() }
+    }
+
     val files: FileRepository by lazy {
         val client = SupabaseProvider.client
         if (client == null) {
@@ -143,6 +150,18 @@ object AppRepositories {
         } else {
             DefaultFileRepository(SupabaseFileDataSource(client), currentUser = { client.currentUser() })
         }
+    }
+
+    val attachmentUploads: AttachmentUploadQueue by lazy {
+        val preferences = appContext.getSharedPreferences("attachment-uploads", Context.MODE_PRIVATE)
+        val serializer = ListSerializer(AttachmentUpload.serializer())
+        val json = Json { ignoreUnknownKeys = true }
+        val restored = runCatching { json.decodeFromString(serializer, preferences.getString("queue", "[]")!!) }.getOrDefault(emptyList())
+        AttachmentUploadQueue(files, applicationScope,
+            currentUserId = { SupabaseProvider.client?.auth?.currentUserOrNull()?.id },
+            readBytes = { readAttachment(appContext, it) }, restored = restored,
+            persist = { preferences.edit().putString("queue", json.encodeToString(serializer, it)).apply() },
+            onCompleted = { groups.refresh() })
     }
 
     /** One shared instance, so its cache and request limits apply across all screens. */

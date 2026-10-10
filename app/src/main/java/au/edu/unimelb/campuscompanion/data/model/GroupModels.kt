@@ -20,7 +20,9 @@ data class Group(
     val createdBy: String?,
     val createdAt: Instant,
     /** Shown to members so that they can pass it on; null only for data from older servers. */
-    val joinCode: String? = null
+    val joinCode: String? = null,
+    val timetableKey: String? = null,
+    val timetableSlot: String? = null
 )
 
 /** A group as shown in lists, with activity details for the signed-in user. */

@@ -1,5 +1,6 @@
 package au.edu.unimelb.campuscompanion.ui.model
 
+import au.edu.unimelb.campuscompanion.data.timetableGroupSpec
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -56,6 +57,14 @@ class GroupPresentationTest {
         )
 
         assertTrue(override == null)
+    }
+
+
+    @Test fun tutorialFoldsAfterItsOwnLastClassEvenIfAnotherRoomHasClasses() {
+        val tutorial = session(now.plusDays(1), now.plusDays(1).plusHours(1)).copy(activity = "tutorial")
+        val group = timetableGroup().copy(timetableKey = tutorial.timetableGroupSpec()!!.key)
+        assertFalse(group.isAutomaticallyFolded(listOf(tutorial), now))
+        assertTrue(group.isAutomaticallyFolded(listOf(tutorial.copy(room = "999")), now))
     }
 
     private fun timetableGroup() = CourseGroup(

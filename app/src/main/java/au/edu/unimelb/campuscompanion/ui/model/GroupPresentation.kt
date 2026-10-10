@@ -1,6 +1,7 @@
 package au.edu.unimelb.campuscompanion.ui.model
 
 import java.time.ZonedDateTime
+import au.edu.unimelb.campuscompanion.data.timetableGroupSpec
 
 data class GroupChatPreferences(
     val foldedOverride: Boolean? = null,
@@ -14,7 +15,10 @@ fun CourseGroup.isAutomaticallyFolded(
 ): Boolean {
     if (origin != GroupOrigin.Timetable) return false
 
-    val courseSessions = sessions.filter { it.code.equals(courseCode, ignoreCase = true) }
+    val courseSessions = sessions.filter {
+        it.code.equals(courseCode, ignoreCase = true) &&
+            (timetableKey == null || timetableKey.endsWith("|course") || it.timetableGroupSpec()?.key == timetableKey)
+    }
     if (courseSessions.isEmpty()) return true
 
     return courseSessions.none { session ->

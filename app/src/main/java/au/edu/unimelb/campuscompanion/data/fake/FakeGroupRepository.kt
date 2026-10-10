@@ -1,5 +1,8 @@
 package au.edu.unimelb.campuscompanion.data.fake
 
+import au.edu.unimelb.campuscompanion.data.model.TimetableGroupSpec
+
+import au.edu.unimelb.campuscompanion.data.slotLabel
 import au.edu.unimelb.campuscompanion.data.DataError
 import au.edu.unimelb.campuscompanion.data.model.Group
 import au.edu.unimelb.campuscompanion.data.model.GroupMember
@@ -25,12 +28,26 @@ class FakeGroupRepository(
 
     private val summaries = MutableStateFlow(FakeData.groupSummaries(clock()))
     private val members = MutableStateFlow(FakeData.members(clock()))
-    private val otherGroups = listOf(FakeData.joinableGroup(clock())).associateBy { it.id }
+    private val otherGroups = listOf(FakeData.joinableGroup(clock())).associateBy { it.id }.toMutableMap()
 
     override fun observeMyGroups(): Flow<List<GroupSummary>> =
         summaries.map { list ->
             list.sortedByDescending { it.latestActivityAt ?: it.group.createdAt }
         }
+
+    override suspend fun syncTimetableGroups(specs: List<TimetableGroupSpec>): Result<Unit> {
+        val now = clock()
+        specs.forEach { spec ->
+            val id = UUID.nameUUIDFromBytes(spec.key.toByteArray()).toString()
+            if (summaries.value.none { it.group.id == id }) {
+                val group = Group(id, spec.name, spec.courseCode, false, null, now,
+                    timetableKey = spec.key, timetableSlot = spec.slotLabel())
+                members.update { it + (id to listOf(currentMember(GroupRole.Member, now))) }
+                summaries.update { it + GroupSummary(group, GroupRole.Member, 1, 0, null, now, null) }
+            }
+        }
+        return Result.success(Unit)
+    }
 
     override suspend fun refresh(): Result<Unit> {
         delay(latencyMillis)
@@ -85,6 +102,25 @@ class FakeGroupRepository(
                 compareBy<GroupMember> { it.role != GroupRole.Owner }.thenBy { it.displayName }
             )
         }
+
+    override suspend fun transferAndLeave(groupId: String, newOwnerId: String): Result<Unit> {
+        val summary = summaries.value.firstOrNull { it.group.id == groupId }
+        if (summary?.myRole != GroupRole.Owner) return Result.failure(DataError.Forbidden())
+        if (newOwnerId == currentUserId || members.value[groupId].orEmpty().none { it.userId == newOwnerId })
+            return Result.failure(DataError.Forbidden())
+        members.update { map -> map + (groupId to map[groupId].orEmpty().map {
+            if (it.userId == newOwnerId) it.copy(role = GroupRole.Owner) else it
+        }) }
+        return leaveGroup(groupId)
+    }
+
+    override suspend fun dissolveGroup(groupId: String): Result<Unit> {
+        val summary = summaries.value.firstOrNull { it.group.id == groupId }
+            ?: return Result.failure(DataError.NotFound())
+        if (summary.myRole != GroupRole.Owner) return Result.failure(DataError.Forbidden())
+        otherGroups.remove(groupId)
+        return leaveGroup(groupId)
+    }
 
     override suspend fun leaveGroup(groupId: String): Result<Unit> {
         delay(latencyMillis)

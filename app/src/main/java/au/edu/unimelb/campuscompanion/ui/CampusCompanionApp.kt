@@ -36,6 +36,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -69,6 +70,7 @@ import au.edu.unimelb.campuscompanion.nfc.NfcInviteHostSession
 import au.edu.unimelb.campuscompanion.nfc.NfcInviteReader
 import au.edu.unimelb.campuscompanion.push.NotificationTaps
 import au.edu.unimelb.campuscompanion.ui.model.CourseGroup
+import au.edu.unimelb.campuscompanion.ui.model.CourseReminderPreference
 import au.edu.unimelb.campuscompanion.ui.model.GroupChatPreferences
 import au.edu.unimelb.campuscompanion.ui.model.GroupOrigin
 import au.edu.unimelb.campuscompanion.ui.model.MAX_PENDING_DOCUMENTS
@@ -78,14 +80,17 @@ import au.edu.unimelb.campuscompanion.ui.model.PendingDocument
 import au.edu.unimelb.campuscompanion.ui.model.QrShareUiState
 import au.edu.unimelb.campuscompanion.ui.model.StartedGroupAccess
 import au.edu.unimelb.campuscompanion.ui.model.TimetableState
+import au.edu.unimelb.campuscompanion.ui.model.buildCourseReminderSeries
 import au.edu.unimelb.campuscompanion.ui.model.foldedOverrideAfterEdit
 import au.edu.unimelb.campuscompanion.ui.model.isFolded
 import au.edu.unimelb.campuscompanion.ui.model.isValidGroupJoinCode
 import au.edu.unimelb.campuscompanion.ui.model.mergePendingDocuments
+import au.edu.unimelb.campuscompanion.ui.model.reminderSeriesKey
 import au.edu.unimelb.campuscompanion.ui.navigation.CampusDestination
 import au.edu.unimelb.campuscompanion.ui.components.RequestLocationPermissionOnFirstUse
 import au.edu.unimelb.campuscompanion.ui.screens.AuthLoadingScreen
 import au.edu.unimelb.campuscompanion.ui.screens.CompleteProfileScreen
+import au.edu.unimelb.campuscompanion.ui.screens.CourseReminderSettingsScreen
 import au.edu.unimelb.campuscompanion.ui.screens.GroupChatScreen
 import au.edu.unimelb.campuscompanion.ui.screens.GroupSettingsDialog
 import au.edu.unimelb.campuscompanion.ui.screens.GroupsScreen
@@ -103,10 +108,12 @@ import java.io.File
 import java.time.Duration
 import java.time.Instant
 import java.time.ZonedDateTime
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private const val GROUP_CHAT_ROUTE = "group_chat/{groupId}"
+private const val COURSE_REMINDERS_ROUTE = "course_reminders"
 
 private fun groupChatRoute(groupId: String): String = "group_chat/${Uri.encode(groupId)}"
 
@@ -204,7 +211,10 @@ fun CampusCompanionApp(authViewModel: AuthViewModel) {
         contract = ActivityResultContracts.OpenMultipleDocuments()
     ) { uris ->
         if (uris.isNotEmpty()) {
-            val selected = uris.map { uri -> resolveDocument(context, uri) }
+            val selected = uris.map { uri ->
+                runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+                resolveDocument(context, uri)
+            }
             val result = mergePendingDocuments(pendingDocuments, selected)
             savePendingDocuments(result.documents)
 
@@ -356,6 +366,33 @@ private fun AuthenticatedCampusApp(
     val displayedTimetable = remember(timetableState, travelSnapshot) {
         timetableState.copy(sessions = travelSnapshot.applyTo(timetableState.sessions))
     }
+    val courseReminderStore = remember(context, user.id) {
+        CourseReminderPreferencesStore(context, user.id)
+    }
+    var courseReminderVersion by remember(user.id) { mutableIntStateOf(0) }
+    val reminderCourses = remember(displayedTimetable.sessions) {
+        buildCourseReminderSeries(displayedTimetable.sessions, ZonedDateTime.now())
+    }
+    val courseReminderPreferences = remember(
+        reminderCourses,
+        courseReminderVersion,
+        user.id
+    ) {
+        reminderCourses.associate { course ->
+            course.key to courseReminderStore.load(course.key)
+        }
+    }
+    val updateCourseReminder: (String, CourseReminderPreference) -> Unit = { key, preference ->
+        courseReminderStore.save(key, preference)
+        courseReminderVersion += 1
+    }
+
+    // Keep the existing travel calculation aligned with the preference for its tracked class.
+    LaunchedEffect(travelSnapshot.session?.id, courseReminderVersion, user.id) {
+        val trackedSession = travelSnapshot.session ?: return@LaunchedEffect
+        val preference = courseReminderStore.load(trackedSession.reminderSeriesKey())
+        travel.updateLeadMinutes(if (preference.enabled) preference.leadMinutes else 0)
+    }
 
     val groupRepository = remember { AppRepositories.groups }
     val inviteRepository = remember { AppRepositories.invites }
@@ -385,8 +422,9 @@ private fun AuthenticatedCampusApp(
     LaunchedEffect(user.id) {
         if (SupabaseProvider.isConfigured) {
             groupSyncReady = false
-            groupRepository.refresh().onSuccess {
-                groupSyncReady = true
+            while (true) {
+                groupRepository.refresh().onSuccess { groupSyncReady = true }
+                delay(30_000)
             }
         }
     }
@@ -398,12 +436,8 @@ private fun AuthenticatedCampusApp(
         }
     }
     val allGroups = remember(timetableState.groups, syncedGroups) {
-        // A class from the timetable is only a placeholder until a real group carries its course code.
-        val linkedCourseCodes = syncedGroups.mapNotNullTo(mutableSetOf()) { group ->
-            group.courseCode.takeIf(String::isNotBlank)?.uppercase()
-        }
-        val placeholders = timetableState.groups.filterNot { it.courseCode.uppercase() in linkedCourseCodes }
-        (placeholders + syncedGroups).distinctBy(CourseGroup::id)
+        if (SupabaseProvider.isConfigured) syncedGroups
+        else (timetableState.groups + syncedGroups).distinctBy(CourseGroup::id)
     }
     val groupPreferencesStore = remember(context, user.id) {
         GroupChatPreferencesStore(context, user.id)
@@ -465,6 +499,23 @@ private fun AuthenticatedCampusApp(
         )
     }
 
+    LaunchedEffect(user.id, timetableState.groups, timetableState.isConnected) {
+        if (!SupabaseProvider.isConfigured || !timetableState.isConnected) return@LaunchedEffect
+        val specs = timetableState.groups.mapNotNull { it.timetableSpec }
+        timetableState = timetableState.copy(isSyncingGroups = true, groupSyncError = null)
+        while (true) {
+            val result = groupRepository.syncTimetableGroups(specs)
+            if (result.isSuccess) {
+                groupSyncReady = true
+                timetableState = timetableState.copy(isSyncingGroups = false, groupSyncError = null)
+                break
+            }
+            timetableState = timetableState.copy(isSyncingGroups = false,
+                groupSyncError = "Could not join timetable groups. Retrying automatically…")
+            delay(30_000)
+        }
+    }
+
     val connectTimetable: suspend (String) -> Result<Unit> = { url ->
         val previousState = timetableState
         timetableImporter.importFromUrl(url).fold(
@@ -488,6 +539,8 @@ private fun AuthenticatedCampusApp(
 
     val removeTimetable = {
         timetableStore.clear(user.id)
+        courseReminderStore.clear()
+        courseReminderVersion += 1
         timetableState = TimetableState()
     }
     val updateTravelPreferences: (TravelPreferences) -> Unit = { updatedPreferences ->
@@ -505,6 +558,8 @@ private fun AuthenticatedCampusApp(
     val currentRoute = currentDestination?.route ?: homeDestination.route
     val currentScreen = destinations.firstOrNull { it.route == currentRoute } ?: homeDestination
     val isGroupChat = currentRoute == GROUP_CHAT_ROUTE
+    val isCourseReminderSettings = currentRoute == COURSE_REMINDERS_ROUTE
+    val isDetailScreen = isGroupChat || isCourseReminderSettings
     var showGroupSettings by rememberSaveable { mutableStateOf(false) }
     val selectedGroup = backStackEntry
         ?.arguments
@@ -674,6 +729,9 @@ private fun AuthenticatedCampusApp(
     BackHandler(enabled = isGroupChat) {
         closeGroup()
     }
+    BackHandler(enabled = isCourseReminderSettings) {
+        navController.navigateUp()
+    }
 
     DisposableEffect(nfcJoinState, nfcAdapter, activity) {
         val shouldRead = nfcJoinState is NfcJoinUiState.Waiting
@@ -840,8 +898,22 @@ private fun AuthenticatedCampusApp(
             initialDisplayName = selectedPreferences.displayName.ifBlank { user.profileName },
             onDismiss = { showGroupSettings = false },
             onInviteWithNfc = { startNfcShare(selectedGroup) },
-            onShowQrCode = { startQrShare(selectedGroup) },
-            onReplaceJoinCode = { groupRepository.resetJoinCode(selectedGroup.id) },
+            createQrInvite = { inviteRepository.createInvite(selectedGroup.id) },
+            loadMembers = { groupRepository.observeMembers(selectedGroup.id).first() },
+            onTransfer = { newOwnerId ->
+                groupRepository.transferAndLeave(selectedGroup.id, newOwnerId).onSuccess {
+                    showGroupSettings = false
+                    closeGroup()
+                }
+            },
+            onExitGroup = { dissolve ->
+                val result = if (dissolve) groupRepository.dissolveGroup(selectedGroup.id)
+                    else groupRepository.leaveGroup(selectedGroup.id)
+                result.onSuccess {
+                    showGroupSettings = false
+                    closeGroup()
+                }
+            },
             onSave = { folded, muted, displayName ->
                 val foldedOverride = foldedOverrideAfterEdit(
                     existingOverride = selectedPreferences.foldedOverride,
@@ -859,6 +931,7 @@ private fun AuthenticatedCampusApp(
                 if (folded) closeGroup()
             }
         )
+        return
     }
 
     Scaffold(
@@ -868,7 +941,10 @@ private fun AuthenticatedCampusApp(
                     if (isGroupChat) {
                         Column {
                             Text(
-                                selectedGroup?.courseCode
+                                selectedGroup?.name?.takeIf {
+                                    it == "${selectedGroup?.courseCode}-tutorial" ||
+                                        it == "${selectedGroup?.courseCode}-workshop"
+                                } ?: selectedGroup?.courseCode
                                     ?.takeIf(String::isNotBlank)
                                     ?: selectedGroup?.name
                                     ?: "Group"
@@ -885,6 +961,8 @@ private fun AuthenticatedCampusApp(
                                 )
                             }
                         }
+                    } else if (isCourseReminderSettings) {
+                        Text("Departure reminders")
                     } else {
                         Text(currentScreen.title)
                     }
@@ -895,6 +973,13 @@ private fun AuthenticatedCampusApp(
                             Icon(
                                 imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
                                 contentDescription = "Back to groups"
+                            )
+                        }
+                    } else if (isCourseReminderSettings) {
+                        IconButton(onClick = { navController.navigateUp() }) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                                contentDescription = "Back to schedule"
                             )
                         }
                     }
@@ -913,7 +998,7 @@ private fun AuthenticatedCampusApp(
             )
         },
         bottomBar = {
-            if (!isGroupChat) {
+            if (!isDetailScreen) {
                 NavigationBar {
                     destinations.forEach { destination ->
                         val selected = currentDestination?.hierarchy?.any { it.route == destination.route } == true
@@ -971,7 +1056,20 @@ private fun AuthenticatedCampusApp(
                         )
                     },
                     onTimetableUrlSave = connectTimetable,
-                    onTimetableUrlRemove = removeTimetable
+                    reminderCourseCount = reminderCourses.size,
+                    enabledReminderCount = courseReminderPreferences.values.count { it.enabled },
+                    onOpenDepartureReminders = {
+                        navController.navigate(COURSE_REMINDERS_ROUTE) {
+                            launchSingleTop = true
+                        }
+                    }
+                )
+            }
+            composable(COURSE_REMINDERS_ROUTE) {
+                CourseReminderSettingsScreen(
+                    courses = reminderCourses,
+                    preferences = courseReminderPreferences,
+                    onPreferenceChange = updateCourseReminder
                 )
             }
             composable(CampusDestination.Groups.route) {
@@ -984,12 +1082,12 @@ private fun AuthenticatedCampusApp(
                         openGroup(group)
                     },
                     onStartGroup = { name, courseCode ->
-                        // The server gives every new group a six-character code that does not expire.
                         groupRepository.createGroup(name, courseCode).map { group ->
+                            groupSyncReady = true
                             StartedGroupAccess(
                                 groupName = group.name,
                                 joinCode = group.joinCode?.takeIf(::isValidGroupJoinCode),
-                                expiresAt = null
+                                expiresAt = group.createdAt.plusSeconds(300)
                             )
                         }
                     },
@@ -1047,6 +1145,10 @@ private fun AuthenticatedCampusApp(
                     group != null -> GroupChatScreen(
                         group = group,
                         currentUserId = user.id,
+                        myDisplayName = groupPreferences[group.id]
+                            ?.displayName
+                            ?.takeIf(String::isNotBlank)
+                            ?: user.profileName,
                         pendingDocuments = pendingDocuments,
                         pendingDocumentError = pendingDocumentError,
                         capturedCameraUri = capturedCameraUri,
@@ -1059,6 +1161,10 @@ private fun AuthenticatedCampusApp(
                     groupsStillLoading && cachedGroup != null -> GroupChatScreen(
                         group = cachedGroup,
                         currentUserId = user.id,
+                        myDisplayName = groupPreferencesStore.load(cachedGroup.id)
+                            .displayName
+                            .takeIf(String::isNotBlank)
+                            ?: user.profileName,
                         pendingDocuments = pendingDocuments,
                         pendingDocumentError = pendingDocumentError,
                         capturedCameraUri = capturedCameraUri,
@@ -1119,12 +1225,16 @@ private fun GroupSummary.toCourseGroup(currentUserId: String): CourseGroup = Cou
     latestMessage = latestMessagePreview ?: "No messages yet.",
     latestFileName = latestFileName,
     privateContentEnabled = group.privateContentEnabled,
-    origin = if (group.createdBy == currentUserId) {
+    origin = if (group.timetableKey != null) {
+        GroupOrigin.Timetable
+    } else if (myRole == au.edu.unimelb.campuscompanion.data.model.GroupRole.Owner) {
         GroupOrigin.CreatedByUser
     } else {
         GroupOrigin.Joined
     },
-    joinCode = group.joinCode
+    joinCode = group.joinCode,
+    timetableKey = group.timetableKey,
+    timetableSlot = group.timetableSlot
 )
 
 private fun Context.findActivity(): Activity? = when (this) {

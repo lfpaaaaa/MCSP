@@ -1,5 +1,7 @@
 package au.edu.unimelb.campuscompanion.ui.model
 
+import au.edu.unimelb.campuscompanion.data.model.TimetableGroupSpec
+
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZonedDateTime
@@ -13,7 +15,8 @@ data class CourseSession(
     val start: ZonedDateTime,
     val end: ZonedDateTime,
     val etaMinutes: Int? = null,
-    val routeEstimate: RouteEstimate? = null
+    val routeEstimate: RouteEstimate? = null,
+    val activity: String? = null
 ) {
     val startDate: LocalDate get() = start.toLocalDate()
     val startTime: LocalTime get() = start.toLocalTime()
@@ -74,8 +77,10 @@ data class CourseGroup(
     val latestFileName: String?,
     val privateContentEnabled: Boolean,
     val origin: GroupOrigin = GroupOrigin.Timetable,
-    /** The six-character code other people type to join; null for timetable groups. */
-    val joinCode: String? = null
+    val joinCode: String? = null,
+    val timetableKey: String? = null,
+    val timetableSlot: String? = null,
+    val timetableSpec: TimetableGroupSpec? = null
 )
 
 data class TimetableState(
@@ -85,5 +90,7 @@ data class TimetableState(
     val detectedEventCount: Int = 0,
     val isConnected: Boolean = false,
     val isLoading: Boolean = false,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val groupSyncError: String? = null,
+    val isSyncingGroups: Boolean = false
 )
