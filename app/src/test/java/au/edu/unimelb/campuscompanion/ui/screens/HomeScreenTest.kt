@@ -110,6 +110,19 @@ class HomeScreenTest {
     }
 
     @Test
+    fun aStraightLineEstimateIsMarkedApproximate() {
+        val routed = session("routed", 10, 11).copy(
+            routeEstimate = RouteEstimate(distanceMeters = 900, walkingMinutes = 12)
+        )
+        val estimated = session("estimated", 10, 11).copy(
+            routeEstimate = RouteEstimate(distanceMeters = 900, walkingMinutes = 12, isApproximate = true)
+        )
+
+        assertEquals(false, selectTravelSummary(routed, TravelPreferences()).isApproximate)
+        assertEquals(true, selectTravelSummary(estimated, TravelPreferences()).isApproximate)
+    }
+
+    @Test
     fun missingRouteDataDoesNotInventDistanceOrMode() {
         val travel = selectTravelSummary(
             session = session("pending", 10, 11),
