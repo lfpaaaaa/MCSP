@@ -52,6 +52,9 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import au.edu.unimelb.campuscompanion.auth.AuthViewModel
@@ -64,7 +67,6 @@ import au.edu.unimelb.campuscompanion.data.TravelPreferences
 import au.edu.unimelb.campuscompanion.data.TravelPreferencesStore
 import au.edu.unimelb.campuscompanion.data.toUserMessage
 import au.edu.unimelb.campuscompanion.data.model.Group
-import au.edu.unimelb.campuscompanion.data.model.GroupInvite
 import au.edu.unimelb.campuscompanion.data.model.GroupSummary
 import au.edu.unimelb.campuscompanion.nfc.NfcInviteHostSession
 import au.edu.unimelb.campuscompanion.nfc.NfcInviteReader
@@ -77,7 +79,6 @@ import au.edu.unimelb.campuscompanion.ui.model.MAX_PENDING_DOCUMENTS
 import au.edu.unimelb.campuscompanion.ui.model.NfcJoinUiState
 import au.edu.unimelb.campuscompanion.ui.model.NfcShareUiState
 import au.edu.unimelb.campuscompanion.ui.model.PendingDocument
-import au.edu.unimelb.campuscompanion.ui.model.QrShareUiState
 import au.edu.unimelb.campuscompanion.ui.model.StartedGroupAccess
 import au.edu.unimelb.campuscompanion.ui.model.TimetableState
 import au.edu.unimelb.campuscompanion.ui.model.buildCourseReminderSeries
@@ -95,15 +96,12 @@ import au.edu.unimelb.campuscompanion.ui.screens.GroupChatScreen
 import au.edu.unimelb.campuscompanion.ui.screens.GroupSettingsDialog
 import au.edu.unimelb.campuscompanion.ui.screens.GroupsScreen
 import au.edu.unimelb.campuscompanion.ui.screens.HomeScreen
-import au.edu.unimelb.campuscompanion.ui.screens.InviteQrDialog
 import au.edu.unimelb.campuscompanion.ui.screens.LoginScreen
 import au.edu.unimelb.campuscompanion.ui.screens.NfcShareDialog
 import au.edu.unimelb.campuscompanion.ui.screens.ProfileScreen
 import au.edu.unimelb.campuscompanion.ui.screens.ScheduleScreen
 import au.edu.unimelb.campuscompanion.ui.screens.TimetableGroupScreen
 import au.edu.unimelb.campuscompanion.ui.theme.CampusCompanionTheme
-import com.journeyapps.barcodescanner.ScanContract
-import com.journeyapps.barcodescanner.ScanOptions
 import java.io.File
 import java.time.Duration
 import java.time.Instant
@@ -387,10 +385,19 @@ private fun AuthenticatedCampusApp(
         courseReminderVersion += 1
     }
 
-    // Keep the existing travel calculation aligned with the preference for its tracked class.
+    // The travel engine and the departure notifier read the travel preferences, so the tracked
+    // class's own reminder setting is copied there: a class with reminders off stays silent.
     LaunchedEffect(travelSnapshot.session?.id, courseReminderVersion, user.id) {
         val trackedSession = travelSnapshot.session ?: return@LaunchedEffect
         val preference = courseReminderStore.load(trackedSession.reminderSeriesKey())
+        val aligned = travelPreferences.copy(
+            remindersEnabled = preference.enabled,
+            reminderLeadMinutes = preference.leadMinutes.coerceIn(TravelPreferences.REMINDER_LEAD_RANGE)
+        )
+        if (aligned != travelPreferences) {
+            travelPreferencesStore.save(aligned)
+            travelPreferences = aligned
+        }
         travel.updateLeadMinutes(if (preference.enabled) preference.leadMinutes else 0)
     }
 
@@ -413,15 +420,16 @@ private fun AuthenticatedCampusApp(
     var nfcShareState by remember(user.id) {
         mutableStateOf<NfcShareUiState>(NfcShareUiState.Idle)
     }
-    var qrShareState by remember(user.id) {
-        mutableStateOf<QrShareUiState>(QrShareUiState.Idle)
-    }
     val syncedGroupSummaries by groupRepository.observeMyGroups()
         .collectAsState(initial = emptyList())
     var groupSyncReady by remember(user.id) { mutableStateOf(false) }
-    LaunchedEffect(user.id) {
-        if (SupabaseProvider.isConfigured) {
-            groupSyncReady = false
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(user.id, lifecycleOwner) {
+        if (!SupabaseProvider.isConfigured) return@LaunchedEffect
+        groupSyncReady = false
+        // Member counts and previews are refreshed while the app is on screen; nothing polls
+        // in the background, where pushes and the next open bring the list up to date.
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             while (true) {
                 groupRepository.refresh().onSuccess { groupSyncReady = true }
                 delay(30_000)
@@ -499,20 +507,27 @@ private fun AuthenticatedCampusApp(
         )
     }
 
-    LaunchedEffect(user.id, timetableState.groups, timetableState.isConnected) {
+    LaunchedEffect(user.id, timetableState.groups, timetableState.isConnected, lifecycleOwner) {
         if (!SupabaseProvider.isConfigured || !timetableState.isConnected) return@LaunchedEffect
         val specs = timetableState.groups.mapNotNull { it.timetableSpec }
         timetableState = timetableState.copy(isSyncingGroups = true, groupSyncError = null)
-        while (true) {
-            val result = groupRepository.syncTimetableGroups(specs)
-            if (result.isSuccess) {
-                groupSyncReady = true
-                timetableState = timetableState.copy(isSyncingGroups = false, groupSyncError = null)
-                break
+        // Retries back off from 30 s to 10 min and only run while the app is on screen.
+        var retryDelayMillis = 30_000L
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                val result = groupRepository.syncTimetableGroups(specs)
+                if (result.isSuccess) {
+                    groupSyncReady = true
+                    timetableState = timetableState.copy(isSyncingGroups = false, groupSyncError = null)
+                    return@repeatOnLifecycle
+                }
+                timetableState = timetableState.copy(
+                    isSyncingGroups = false,
+                    groupSyncError = "Could not join timetable groups. Retrying automatically…"
+                )
+                delay(retryDelayMillis)
+                retryDelayMillis = (retryDelayMillis * 2).coerceAtMost(600_000L)
             }
-            timetableState = timetableState.copy(isSyncingGroups = false,
-                groupSyncError = "Could not join timetable groups. Retrying automatically…")
-            delay(30_000)
         }
     }
 
@@ -604,66 +619,6 @@ private fun AuthenticatedCampusApp(
     fun stopNfcShare() {
         NfcInviteHostSession.clear()
         nfcShareState = NfcShareUiState.Idle
-    }
-
-    fun startQrShare(group: CourseGroup) {
-        showGroupSettings = false
-        qrShareState = QrShareUiState.CreatingInvite
-        scope.launch {
-            inviteRepository.createInvite(group.id).fold(
-                onSuccess = { invite ->
-                    qrShareState = QrShareUiState.Ready(
-                        groupName = group.name,
-                        joinUri = invite.joinUri,
-                        expiresAt = invite.expiresAt
-                    )
-                },
-                onFailure = { error ->
-                    val message = error.toUserMessage()
-                    qrShareState = QrShareUiState.Failed(message.title, message.body)
-                }
-            )
-        }
-    }
-
-    // A scanned invite joins through the same path as a link that opened the app; a scanned
-    // six-character code is typed in on the user's behalf.
-    val qrScanner = rememberLauncherForActivityResult(ScanContract()) { result ->
-        val contents = result.contents?.trim() ?: return@rememberLauncherForActivityResult
-        if (AppRepositories.joinLinks.offer(contents)) return@rememberLauncherForActivityResult
-        val code = GroupInvite.joinCodeFromText(contents)
-        if (code == null) {
-            nfcJoinState = NfcJoinUiState.Failed(
-                title = "Not an invitation",
-                message = "That QR code is not a Campus Companion invitation. Ask a group member to show theirs."
-            )
-            return@rememberLauncherForActivityResult
-        }
-        nfcJoinState = NfcJoinUiState.Joining
-        scope.launch {
-            inviteRepository.joinWithToken(code).fold(
-                onSuccess = { group ->
-                    groupSyncReady = true
-                    nfcJoinState = NfcJoinUiState.Joined(group.name)
-                },
-                onFailure = { error ->
-                    val message = error.toUserMessage()
-                    nfcJoinState = NfcJoinUiState.Failed(message.title, message.body)
-                }
-            )
-        }
-    }
-
-    fun startQrScan() {
-        NfcInviteHostSession.clear()
-        nfcShareState = NfcShareUiState.Idle
-        qrScanner.launch(
-            ScanOptions()
-                .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                .setPrompt("Point the camera at a Campus Companion invitation")
-                .setBeepEnabled(false)
-                .setOrientationLocked(true)
-        )
     }
 
     fun startNfcShare(group: CourseGroup) {
@@ -804,10 +759,6 @@ private fun AuthenticatedCampusApp(
     }
 
     // The travel engine keeps the saved lead time in hand on top of the travel time.
-    LaunchedEffect(travelPreferences.reminderLeadMinutes) {
-        travel.updateLeadMinutes(travelPreferences.reminderLeadMinutes)
-    }
-
     // A tapped notification opens its chat (once the groups are known) or the Schedule screen.
     LaunchedEffect(tappedNotification, allGroups, groupSyncReady) {
         when (val target = tappedNotification) {
@@ -867,16 +818,6 @@ private fun AuthenticatedCampusApp(
         if (currentRoute == CampusDestination.Groups.route && SupabaseProvider.isConfigured) {
             groupRepository.refresh()
         }
-    }
-
-    if (qrShareState !is QrShareUiState.Idle) {
-        InviteQrDialog(
-            state = qrShareState,
-            onDismiss = { qrShareState = QrShareUiState.Idle },
-            onNewCode = {
-                selectedGroup?.let(::startQrShare) ?: run { qrShareState = QrShareUiState.Idle }
-            }
-        )
     }
 
     if (nfcShareState !is NfcShareUiState.Idle) {
@@ -1049,12 +990,6 @@ private fun AuthenticatedCampusApp(
             composable(CampusDestination.Schedule.route) {
                 ScheduleScreen(
                     timetableState = displayedTimetable,
-                    travelPreferences = travelPreferences,
-                    onReminderPreferencesChange = { enabled, leadMinutes ->
-                        updateTravelPreferences(
-                            travelPreferences.copy(remindersEnabled = enabled, reminderLeadMinutes = leadMinutes)
-                        )
-                    },
                     onTimetableUrlSave = connectTimetable,
                     reminderCourseCount = reminderCourses.size,
                     enabledReminderCount = courseReminderPreferences.values.count { it.enabled },
@@ -1098,7 +1033,6 @@ private fun AuthenticatedCampusApp(
                         }
                     },
                     nfcJoinState = nfcJoinState,
-                    onScanQr = ::startQrScan,
                     onStartNfcJoin = ::startNfcJoin,
                     onDismissNfcJoin = {
                         nfcJoinState = NfcJoinUiState.Idle

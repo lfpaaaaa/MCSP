@@ -1,6 +1,7 @@
 package au.edu.unimelb.campuscompanion.data
 
 import android.content.Context
+import android.util.Log
 import au.edu.unimelb.campuscompanion.auth.SupabaseProvider
 import au.edu.unimelb.campuscompanion.context.DepartureReminders
 import au.edu.unimelb.campuscompanion.context.TravelEngine
@@ -54,6 +55,9 @@ import kotlinx.serialization.json.contentOrNull
  * publishable key are set in local.properties; otherwise the in-memory fakes with sample data
  * are used, so that screens can still be built and previewed.
  */
+/** Logcat tag of the chat latency samples; the chat screen logs the received ones under it too. */
+private const val CHAT_LATENCY_TAG = "ChatLatency"
+
 object AppRepositories {
     /** Join links received by the main activity. */
     val joinLinks = JoinLinkInbox()
@@ -140,7 +144,11 @@ object AppRepositories {
     }
 
     val chatSender: ChatMessageSender by lazy {
-        ChatMessageSender(chat, applicationScope) { groups.refresh() }
+        ChatMessageSender(
+            repository = chat,
+            scope = applicationScope,
+            onConfirmed = { millis -> Log.i(CHAT_LATENCY_TAG, "send_confirmed ms=$millis") }
+        ) { groups.refresh() }
     }
 
     val files: FileRepository by lazy {
