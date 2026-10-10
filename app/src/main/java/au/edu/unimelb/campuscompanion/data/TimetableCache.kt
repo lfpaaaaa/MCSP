@@ -11,9 +11,15 @@ import java.time.Instant
  * The calendar is stored as the bytes the server sent and parsed again on each start, which
  * keeps the weekly occurrences correct as the days go by. One entry is kept per signed-in user.
  */
-class TimetableCache(private val directory: File) {
+class TimetableCache private constructor(private val directoryHolder: Lazy<File>) {
 
-    constructor(context: Context) : this(File(context.applicationContext.filesDir, DIRECTORY_NAME))
+    /** Looks the directory up on first use, so constructing the cache touches no disk. */
+    constructor(context: Context) : this(lazy { File(context.applicationContext.filesDir, DIRECTORY_NAME) })
+
+    constructor(directory: File) : this(lazyOf(directory))
+
+    private val directory: File
+        get() = directoryHolder.value
 
     /** A saved calendar: where it came from, its bytes and when it was saved. */
     class Entry(val url: String, val bytes: ByteArray, val savedAt: Instant)

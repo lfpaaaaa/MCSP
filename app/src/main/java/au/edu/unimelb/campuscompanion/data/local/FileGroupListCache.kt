@@ -7,8 +7,16 @@ import kotlinx.serialization.json.Json
 import java.io.File
 import java.security.MessageDigest
 
-/** [GroupListCache] that writes one JSON file per user into [directory] (the app's private storage). */
-class FileGroupListCache(private val directory: File) : GroupListCache {
+/**
+ * [GroupListCache] that writes one JSON file per user into a directory in the app's private
+ * storage. The directory is looked up on first use, so constructing the cache touches no disk.
+ */
+class FileGroupListCache(private val directoryHolder: Lazy<File>) : GroupListCache {
+
+    constructor(directory: File) : this(lazyOf(directory))
+
+    private val directory: File
+        get() = directoryHolder.value
 
     private val json = Json { ignoreUnknownKeys = true }
     private val serializer = ListSerializer(GroupSummaryRow.serializer())
