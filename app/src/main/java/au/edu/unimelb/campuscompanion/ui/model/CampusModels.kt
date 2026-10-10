@@ -10,6 +10,7 @@ import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
+/** One timetabled class, with the travel time to its building once it is known. */
 data class CourseSession(
     val id: String,
     val code: String,
@@ -43,6 +44,7 @@ data class CourseSession(
     }
 }
 
+/** Travel times to a class's building by mode, from the routing service or the straight-line fallback. */
 data class RouteEstimate(
     val distanceMeters: Int,
     val walkingMinutes: Int? = null,
@@ -52,12 +54,14 @@ data class RouteEstimate(
     val isApproximate: Boolean = false
 )
 
+/** When to leave for this class: its start minus the travel time and [leadMinutes]. */
 fun CourseSession.departureReminderTime(leadMinutes: Int): ZonedDateTime {
     require(leadMinutes >= 0) { "Lead time cannot be negative" }
     val safeEtaMinutes = (etaMinutes ?: 0).coerceAtLeast(0)
     return start.minusMinutes((safeEtaMinutes + leadMinutes).toLong())
 }
 
+/** Where the user is relative to a class, as the Home card shows it. */
 enum class SessionStatus {
     Upcoming,
     LeaveSoon,
@@ -67,12 +71,14 @@ enum class SessionStatus {
     Finished
 }
 
+/** How a group came to be in the user's list. */
 enum class GroupOrigin {
     Timetable,
     CreatedByUser,
     Joined
 }
 
+/** A group as the Groups screen and the Home card show it. */
 data class CourseGroup(
     val id: String,
     val courseCode: String,
@@ -89,6 +95,7 @@ data class CourseGroup(
     val timetableSpec: TimetableGroupSpec? = null
 )
 
+/** The timetable as the screens show it, with the state of the download and of the group sync. */
 data class TimetableState(
     val url: String = "",
     val sessions: List<CourseSession> = emptyList(),

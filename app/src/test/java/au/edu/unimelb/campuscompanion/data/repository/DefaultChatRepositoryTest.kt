@@ -161,6 +161,27 @@ class DefaultChatRepositoryTest {
     }
 
     @Test
+    fun messagesThatFailedOfflineAreSentOnceTheChatIsBackOnline() = runBlocking<Unit> {
+        remote.fetchFailure = DataError.Offline()
+        remote.insertFailure = DataError.Offline()
+        assertTrue(repository.sendMessage(CHAT_GROUP_ID, "Running five minutes late").isFailure)
+        assertEquals(MessageStatus.Failed.name, dao.all.single().status)
+
+        observing {
+            awaitConnection(ChatConnection.Offline)
+            remote.fetchFailure = null
+            remote.insertFailure = null
+
+            awaitConnection(ChatConnection.Live)
+            val sent = awaitShown { it.singleOrNull()?.status == MessageStatus.Sent }
+            assertEquals("Running five minutes late", sent.single().body)
+        }
+
+        assertEquals(listOf("local-1", "local-1"), remote.insertedClientIds)
+        assertEquals(1, remote.stored.size)
+    }
+
+    @Test
     fun aLostResponseDoesNotMarkADeliveredMessageAsFailed() = runBlocking<Unit> {
         remote.beforeInsert = { clientId ->
             // The realtime feed confirms the message, then the response to the insert is lost.

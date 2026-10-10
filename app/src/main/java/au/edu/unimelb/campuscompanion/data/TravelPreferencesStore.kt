@@ -2,12 +2,17 @@ package au.edu.unimelb.campuscompanion.data
 
 import android.content.Context
 
+/** How the user travels to class; [displayName] is the label on screen. */
 enum class TravelMode(val displayName: String) {
     Walking("Walking"),
     PublicTransport("Public transport"),
     Driving("Driving")
 }
 
+/**
+ * The user's travel settings: up to which distance they walk, which mode they use for longer
+ * trips, and whether and how early the departure reminders are posted.
+ */
 data class TravelPreferences(
     val walkingThresholdMeters: Int = DEFAULT_WALKING_THRESHOLD_METERS,
     val longerDistanceMode: TravelMode = TravelMode.PublicTransport,
@@ -32,6 +37,7 @@ data class TravelPreferences(
     }
 }
 
+/** Keeps [TravelPreferences] in SharedPreferences; missing values fall back to the defaults. */
 class TravelPreferencesStore(context: Context) {
     private val preferences = context.applicationContext.getSharedPreferences(
         PREFERENCES_NAME,

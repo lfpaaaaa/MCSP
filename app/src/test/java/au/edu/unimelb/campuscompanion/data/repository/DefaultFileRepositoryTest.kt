@@ -3,6 +3,7 @@ package au.edu.unimelb.campuscompanion.data.repository
 import au.edu.unimelb.campuscompanion.data.DataError
 import au.edu.unimelb.campuscompanion.data.model.CurrentUser
 import au.edu.unimelb.campuscompanion.data.model.UploadState
+import au.edu.unimelb.campuscompanion.data.remote.SharedFileRow
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.toList
@@ -112,6 +113,37 @@ class DefaultFileRepositoryTest {
     }
 
     @Test
+    fun savedFilesAreShownWhileOfflineAndReplacedOnceTheServerAnswers() = runBlocking<Unit> {
+        val cache = InMemorySharedFileListCache()
+        cache.save(SELF_ID, FILE_GROUP_ID, listOf(fileRow(1)))
+        remote.fetchFailure = DataError.Offline()
+        val repository = repositoryWith(cache)
+
+        val saved = withTimeout(5_000) { repository.observeFiles(FILE_GROUP_ID).first() }
+        assertEquals(listOf("notes-1.pdf"), saved.map { it.fileName })
+
+        remote.stored += listOf(fileRow(1), fileRow(2))
+        remote.fetchFailure = null
+        val fresh = withTimeout(5_000) { repository.observeFiles(FILE_GROUP_ID).first { it.size == 2 } }
+
+        assertEquals(listOf("notes-2.pdf", "notes-1.pdf"), fresh.map { it.fileName })
+        assertEquals(listOf("file-2", "file-1"), cache.load(SELF_ID, FILE_GROUP_ID)?.map { it.id })
+    }
+
+    @Test
+    fun uploadsAndDeletionsUpdateTheSavedList() = runBlocking<Unit> {
+        val cache = InMemorySharedFileListCache()
+        val repository = repositoryWith(cache)
+
+        val states = repository.uploadFile(FILE_GROUP_ID, "report.pdf", "application/pdf", ByteArray(100)).toList()
+        val uploaded = (states.last() as UploadState.Completed).file
+        assertEquals(listOf("report.pdf"), cache.load(SELF_ID, FILE_GROUP_ID)?.map { it.fileName })
+
+        repository.deleteFile(uploaded.id).getOrThrow()
+        assertEquals(emptyList<String>(), cache.load(SELF_ID, FILE_GROUP_ID)?.map { it.id })
+    }
+
+    @Test
     fun filesAddedByOthersAppearWhileTheListIsOpen() = runBlocking<Unit> {
         val listed = async {
             withTimeout(5_000) { repository.observeFiles(FILE_GROUP_ID).first { it.size == 1 } }
@@ -125,7 +157,27 @@ class DefaultFileRepositoryTest {
         assertEquals("notes-3.pdf", listed.await().single().fileName)
     }
 
+    private fun repositoryWith(cache: SharedFileListCache) = DefaultFileRepository(
+        remote = remote,
+        currentUser = { CurrentUser(SELF_ID, "Cedric") },
+        cache = cache,
+        newObjectId = { "object-${++objectIds}" },
+        firstRetryDelayMillis = 5,
+        maxRetryDelayMillis = 20
+    )
+
     private companion object {
         const val SELF_ID = "user-1"
+    }
+}
+
+/** [SharedFileListCache] in memory, for the tests. */
+private class InMemorySharedFileListCache : SharedFileListCache {
+    private val lists = mutableMapOf<Pair<String, String>, List<SharedFileRow>>()
+
+    override fun load(userId: String, groupId: String): List<SharedFileRow>? = lists[userId to groupId]
+
+    override fun save(userId: String, groupId: String, rows: List<SharedFileRow>) {
+        lists[userId to groupId] = rows
     }
 }

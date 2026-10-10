@@ -7,6 +7,7 @@ import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
 
+/** Distances between [GeoPoint]s on a spherical Earth. */
 object GeoMath {
     /** Mean radius of the Earth in metres. */
     const val EARTH_RADIUS_METERS = 6_371_000.0

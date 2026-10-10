@@ -14,9 +14,14 @@ import kotlinx.serialization.Serializable
 import java.time.Instant
 import java.util.UUID
 
+/** Where an attachment is on its way to the group: being uploaded, stopped by an error, or stored. */
 @Serializable
 enum class AttachmentPhase { Uploading, Failed, Completed }
 
+/**
+ * An attachment the user chose to share, with the progress of its upload. The queue keeps it
+ * across restarts, so a failed upload can be retried later.
+ */
 @Serializable
 data class AttachmentUpload(
     val id: String,

@@ -46,6 +46,7 @@ data class PendingUpload(
     val isFailed: Boolean get() = error != null
 }
 
+/** Everything the chat screen renders: the timeline, the connection state, paging and uploads. */
 data class GroupChatUiState(
     val items: List<ChatTimelineItem> = emptyList(),
     val connection: ChatConnection = ChatConnection.Connecting,

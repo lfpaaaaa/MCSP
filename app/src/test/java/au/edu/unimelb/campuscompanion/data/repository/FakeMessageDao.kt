@@ -27,6 +27,9 @@ class FakeMessageDao : MessageDao {
     override suspend fun newest(groupId: String, status: String): MessageEntity? =
         inGroup(groupId, status).lastOrNull()
 
+    override suspend fun withStatus(groupId: String, senderId: String, status: String): List<MessageEntity> =
+        inGroup(groupId, status).filter { it.senderId == senderId }
+
     override suspend fun upsert(messages: List<MessageEntity>) {
         rows.update { byKey -> byKey + messages.associateBy { it.senderId to it.clientId } }
     }
