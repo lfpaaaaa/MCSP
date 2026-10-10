@@ -17,6 +17,7 @@ import au.edu.unimelb.campuscompanion.data.remote.MessageRow
 import au.edu.unimelb.campuscompanion.data.remote.dataResult
 import au.edu.unimelb.campuscompanion.data.remote.parseTimestamp
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -27,6 +28,7 @@ import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -39,7 +41,9 @@ import java.util.concurrent.ConcurrentHashMap
  * - new messages arrive through the realtime feed, and every reconnection fetches missed ones;
  * - a sent message appears at once as [MessageStatus.Sending] and then becomes
  *   [MessageStatus.Sent] or [MessageStatus.Failed]. A retry keeps the client id, so the server
- *   stores the message only once.
+ *   stores the message only once;
+ * - messages that failed while the server was unreachable are sent again, with the same client
+ *   id, as soon as the chat is in sync with the server again.
  */
 class DefaultChatRepository(
     private val remote: ChatRemoteDataSource,
@@ -163,11 +167,30 @@ class DefaultChatRepository(
         while (true) {
             if (dataResult { catchUp(groupId) }.isSuccess) {
                 connectionState.value = ChatConnection.Live
+                resendFailed(groupId)
                 return
             }
             connectionState.value = ChatConnection.Offline
             attempt++
             delay(retryDelay(attempt))
+        }
+    }
+
+    /**
+     * Sends again the messages of [groupId] that failed while the server was unreachable. The
+     * client id keeps the server from storing any of them twice, and the sends finish even if the
+     * chat is closed in the meantime.
+     */
+    private suspend fun resendFailed(groupId: String) {
+        val user = currentUser() ?: return
+        val failed = messages.withStatus(groupId, user.id, MessageStatus.Failed.name)
+        if (failed.isEmpty()) return
+        withContext(NonCancellable) {
+            failed.forEach { message ->
+                val pending = message.copy(status = MessageStatus.Sending.name)
+                messages.upsert(listOf(pending))
+                deliver(pending)
+            }
         }
     }
 

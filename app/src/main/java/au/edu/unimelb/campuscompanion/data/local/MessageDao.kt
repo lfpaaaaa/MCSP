@@ -5,6 +5,7 @@ import androidx.room.Query
 import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
+/** Room access to the cached messages. */
 @Dao
 interface MessageDao {
     /** Messages of a group in chronological order. Emits again whenever they change. */
@@ -25,6 +26,13 @@ interface MessageDao {
             "ORDER BY createdAtMicros DESC, serverId DESC LIMIT 1"
     )
     suspend fun newest(groupId: String, status: String): MessageEntity?
+
+    /** The messages of [senderId] in [groupId] that are in [status], oldest first. */
+    @Query(
+        "SELECT * FROM messages WHERE groupId = :groupId AND senderId = :senderId AND status = :status " +
+            "ORDER BY createdAtMicros, serverId"
+    )
+    suspend fun withStatus(groupId: String, senderId: String, status: String): List<MessageEntity>
 
     @Upsert
     suspend fun upsert(messages: List<MessageEntity>)

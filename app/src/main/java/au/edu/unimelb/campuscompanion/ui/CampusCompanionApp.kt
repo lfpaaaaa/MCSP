@@ -119,6 +119,7 @@ private const val COURSE_REMINDERS_ROUTE = "course_reminders"
 
 private fun groupChatRoute(groupId: String): String = "group_chat/${Uri.encode(groupId)}"
 
+/** Root of the app: the sign-in screens until there is a session, then the signed-in navigation shell. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CampusCompanionApp(authViewModel: AuthViewModel) {

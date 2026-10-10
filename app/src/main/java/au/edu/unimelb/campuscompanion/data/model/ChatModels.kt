@@ -14,6 +14,7 @@ enum class ChatConnection {
     Offline
 }
 
+/** How far a message written on this device has got on its way to the server. */
 enum class MessageStatus {
     /** Shown immediately after sending, before the server has confirmed it. */
     Sending,
@@ -24,6 +25,7 @@ enum class MessageStatus {
     Failed
 }
 
+/** A message as the chat shows it, read from the on-device cache. */
 data class ChatMessage(
     /** Server id once stored; equal to [clientId] while the message only exists on the device. */
     val id: String,

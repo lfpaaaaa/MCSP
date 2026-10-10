@@ -13,6 +13,8 @@ const val FILE_GROUP_ID = "group-2"
 
 /** Keeps files in memory the way storage and the database do, and records every call. */
 class FakeFileRemoteDataSource : FileRemoteDataSource {
+    /** Makes every fetch fail, as if the device were offline. */
+    var fetchFailure: DataError? = null
     var uploadFailure: DataError? = null
     var recordFailure: DataError? = null
 
@@ -25,6 +27,7 @@ class FakeFileRemoteDataSource : FileRemoteDataSource {
 
     override suspend fun fetchFiles(groupId: String): List<SharedFileRow> {
         fetchCount.value += 1
+        fetchFailure?.let { throw it }
         return stored.filter { it.groupId == groupId }.sortedByDescending { it.createdAt }
     }
 

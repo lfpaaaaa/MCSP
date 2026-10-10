@@ -2,6 +2,7 @@ package au.edu.unimelb.campuscompanion.data.model
 
 import java.time.Instant
 
+/** What a member may do: owners can also reset the join code, hand the group over and dissolve it. */
 enum class GroupRole {
     Owner,
     Member
@@ -36,6 +37,7 @@ data class GroupSummary(
     val latestFileName: String?
 )
 
+/** A member of a group as the members page lists them. */
 data class GroupMember(
     val userId: String,
     val displayName: String,

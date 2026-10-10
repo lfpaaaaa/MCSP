@@ -15,6 +15,7 @@ enum class RecoveryAction {
     ScanNewInvite
 }
 
+/** The title, body and recovery action shown for this error: what happened and what to do next. */
 fun DataError.toUserMessage(): UserMessage = when (this) {
     is DataError.Offline -> UserMessage(
         title = "No connection",

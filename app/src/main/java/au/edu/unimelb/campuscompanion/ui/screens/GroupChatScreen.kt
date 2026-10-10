@@ -557,7 +557,8 @@ private fun ConnectionBanner(
     val text = when (connection) {
         ChatConnection.Live -> return
         ChatConnection.Connecting -> if (showConnecting) "Connecting…" else return
-        ChatConnection.Offline -> "You're offline. Saved messages are shown; new ones arrive once you're back online."
+        ChatConnection.Offline ->
+            "You're offline. Saved messages and files are shown; unsent messages go out once you're back online."
     }
     Surface(
         modifier = modifier.fillMaxWidth(),

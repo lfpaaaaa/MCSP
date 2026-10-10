@@ -2,6 +2,7 @@ package au.edu.unimelb.campuscompanion.data
 
 import android.content.Context
 
+/** The MyTimetable subscription URL of each user, kept in SharedPreferences. */
 class TimetableSubscriptionStore(context: Context) {
     private val preferences = context.getSharedPreferences(
         "timetable_subscription",

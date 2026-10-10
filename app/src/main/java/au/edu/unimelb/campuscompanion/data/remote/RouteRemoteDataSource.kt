@@ -21,12 +21,15 @@ interface RouteRemoteDataSource {
     suspend fun route(origin: GeoPoint, destination: GeoPoint, mode: TravelMode): RouteOutcome
 }
 
+/** A position in a request to the route-eta function, already rounded on the device. */
 @Serializable
 data class RoutePoint(val lat: Double, val lng: Double)
 
+/** The JSON body sent to the route-eta function; [mode] is the travel mode's wire name. */
 @Serializable
 data class RouteRequestBody(val origin: RoutePoint, val destination: RoutePoint, val mode: String)
 
+/** The JSON body the route-eta function returns; [cached] is true when it answered from its cache. */
 @Serializable
 data class RouteResponseBody(
     @SerialName("duration_seconds") val durationSeconds: Long,
