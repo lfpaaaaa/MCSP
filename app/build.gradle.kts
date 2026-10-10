@@ -74,6 +74,9 @@ kotlin {
 }
 
 dependencies {
+    implementation(libs.zxing.core)
+    implementation(libs.zxing.embedded)
+    implementation(libs.androidx.fragment)
     coreLibraryDesugaring(libs.desugar.jdk.libs)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

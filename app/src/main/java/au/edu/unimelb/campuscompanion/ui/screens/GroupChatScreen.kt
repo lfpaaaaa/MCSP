@@ -460,7 +460,7 @@ private fun GroupNotice(
             Text(
                 text = when (group.origin) {
                     GroupOrigin.Timetable -> {
-                        "You joined ${group.courseCode} from your timetable"
+                        "You joined ${group.name} from your timetable"
                     }
                     GroupOrigin.CreatedByUser -> "You created this group"
                     GroupOrigin.Joined -> "You joined this group"

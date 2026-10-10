@@ -7,6 +7,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Nfc
+import androidx.compose.material.icons.outlined.Groups
+import androidx.compose.material.icons.outlined.QrCode
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
@@ -26,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import au.edu.unimelb.campuscompanion.ui.model.CourseGroup
 import au.edu.unimelb.campuscompanion.ui.model.GroupOrigin
+import au.edu.unimelb.campuscompanion.ui.model.isValidGroupJoinCode
 
 @Composable
 fun GroupSettingsDialog(
@@ -35,17 +40,59 @@ fun GroupSettingsDialog(
     initialDisplayName: String,
     onDismiss: () -> Unit,
     onInviteWithNfc: () -> Unit,
+    createQrInvite: suspend () -> Result<au.edu.unimelb.campuscompanion.data.model.GroupInvite>,
+    loadMembers: suspend () -> List<au.edu.unimelb.campuscompanion.data.model.GroupMember>,
+    onTransfer: suspend (String) -> Result<Unit>,
+    onExitGroup: suspend (Boolean) -> Result<Unit>,
     onSave: (folded: Boolean, muted: Boolean, displayName: String) -> Unit
 ) {
     var folded by rememberSaveable(group.id) { mutableStateOf(initialFolded) }
     var muted by rememberSaveable(group.id) { mutableStateOf(initialMuted) }
     var displayName by rememberSaveable(group.id) { mutableStateOf(initialDisplayName) }
 
-    AlertDialog(
+    var showMembers by rememberSaveable(group.id) { mutableStateOf(false) }
+    if (showMembers) {
+        GroupSettingsPage(
+            onDismissRequest = { showMembers = false },
+            title = { Text("Group members") },
+            text = {
+                GroupMembersSection(
+                    isOwner = group.origin == GroupOrigin.CreatedByUser,
+                    loadMembers = loadMembers,
+                    onTransfer = onTransfer
+                )
+            },
+            confirmButton = {},
+            dismissButton = {},
+            bottomAction = {}
+        )
+        return
+    }
+
+    var showQr by rememberSaveable(group.id) { mutableStateOf(false) }
+    if (showQr) {
+        GroupInviteQrDialog(group.name, createQrInvite, onDismiss = { showQr = false })
+    }
+
+    GroupSettingsPage(
         onDismissRequest = onDismiss,
         title = { Text("Group settings") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(18.dp)
+            ) {
+                OutlinedButton(
+                    onClick = { showMembers = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Outlined.Groups, contentDescription = null)
+                    Text("Members (${group.members})", modifier = Modifier.padding(start = 8.dp))
+                }
+                OutlinedButton(onClick = { showQr = true }, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Outlined.QrCode, contentDescription = null)
+                    Text("Share QR code", modifier = Modifier.padding(start = 8.dp))
+                }
                 OutlinedButton(
                     onClick = onInviteWithNfc,
                     modifier = Modifier.fillMaxWidth()
@@ -82,6 +129,14 @@ fun GroupSettingsDialog(
                     label = { Text("Your name in this group") },
                     supportingText = { Text("${displayName.length}/40") },
                     singleLine = true
+                )
+            }
+        },
+        bottomAction = {
+            if (group.origin != GroupOrigin.Timetable) {
+                GroupExitAction(
+                    isOwner = group.origin == GroupOrigin.CreatedByUser,
+                    onExit = onExitGroup
                 )
             }
         },

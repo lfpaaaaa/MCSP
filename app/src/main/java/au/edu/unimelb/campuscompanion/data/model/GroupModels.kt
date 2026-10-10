@@ -8,8 +8,9 @@ enum class GroupRole {
 }
 
 /**
- * A course group. Members join by invitation (QR code or NFC); [courseCode] is an optional tag.
- * [createdBy] is null when the creator has deleted their account.
+ * A course group. Members join with the group's six-character [joinCode] or by invitation (QR code
+ * or NFC); [courseCode] is an optional tag. [createdBy] is null when the creator has deleted their
+ * account.
  */
 data class Group(
     val id: String,
@@ -17,7 +18,11 @@ data class Group(
     val courseCode: String?,
     val privateContentEnabled: Boolean,
     val createdBy: String?,
-    val createdAt: Instant
+    val createdAt: Instant,
+    /** Shown to members so that they can pass it on; null only for data from older servers. */
+    val joinCode: String? = null,
+    val timetableKey: String? = null,
+    val timetableSlot: String? = null
 )
 
 /** A group as shown in lists, with activity details for the signed-in user. */
@@ -59,5 +64,15 @@ data class GroupInvite(
                 .takeIf { it.startsWith(JOIN_URI_PREFIX) }
                 ?.removePrefix(JOIN_URI_PREFIX)
                 ?.takeIf { it.isNotBlank() && it.none(Char::isWhitespace) }
+
+        /**
+         * Returns a typed six-character group code in the form the server expects (upper case, no
+         * spaces or dashes), or null when the text is not a code.
+         */
+        fun joinCodeFromText(text: String): String? =
+            text.trim().uppercase().replace(JOIN_CODE_SEPARATORS, "").takeIf { JOIN_CODE_PATTERN.matches(it) }
+
+        private val JOIN_CODE_SEPARATORS = Regex("[\\s-]")
+        private val JOIN_CODE_PATTERN = Regex("[A-Z0-9]{6}")
     }
 }

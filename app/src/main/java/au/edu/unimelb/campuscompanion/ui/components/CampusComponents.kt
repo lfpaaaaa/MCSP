@@ -261,7 +261,9 @@ fun GroupUpdateRow(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = listOf(group.courseCode, group.name)
+                        text = if (group.name == "${group.courseCode}-tutorial" ||
+                            group.name == "${group.courseCode}-workshop") group.name
+                        else listOf(group.courseCode, group.name)
                             .filter(String::isNotBlank)
                             .joinToString(" "),
                         style = MaterialTheme.typography.titleMedium,
@@ -302,6 +304,11 @@ fun GroupUpdateRow(
                 )
             }
             Spacer(Modifier.height(12.dp))
+            group.timetableSlot?.let { slot ->
+                Text(slot, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(8.dp))
+            }
             IconTextLine(
                 icon = Icons.Outlined.ChatBubbleOutline,
                 text = group.latestMessage

@@ -22,6 +22,22 @@ class FakeGroupRemoteDataSource : GroupRemoteDataSource {
     val deletedMemberships = mutableListOf<Pair<String, String>>()
     val joinedTokens = mutableListOf<String>()
 
+    val dissolvedGroups = mutableListOf<String>()
+    override suspend fun transferAndLeave(groupId: String, newOwnerId: String) { failIfRequested() }
+
+    override suspend fun dissolveGroup(groupId: String) {
+        failIfRequested()
+        dissolvedGroups += groupId
+    }
+
+    val timetableSyncs = mutableListOf<List<au.edu.unimelb.campuscompanion.data.model.TimetableGroupSpec>>()
+    var timetableRows: List<GroupRow> = emptyList()
+    override suspend fun syncTimetableGroups(specs: List<au.edu.unimelb.campuscompanion.data.model.TimetableGroupSpec>): List<GroupRow> {
+        failIfRequested()
+        timetableSyncs += specs
+        return timetableRows
+    }
+
     override suspend fun fetchMyGroups(): List<GroupSummaryRow> {
         failIfRequested()
         summaryFetches++

@@ -1,0 +1,30 @@
+BEGIN;
+SELECT plan(18);
+INSERT INTO auth.users(id,email) VALUES
+('a1000000-0000-4000-8000-000000000001','timetable-a@example.com'),
+('b2000000-0000-4000-8000-000000000002','timetable-b@example.com');
+SELECT set_config('test.specs','[{"course_code":"COMP90018","name":"Mobile Computing","activity":"course"},{"course_code":"COMP90018","name":"Mobile Computing- tutorial","activity":"tutorial","day":4,"start":"15:00","end":"16:00","location":"Parkville Campus, PAR-160"}]',true);
+SELECT throws_ok($$SELECT public.sync_timetable_groups(current_setting('test.specs')::jsonb)$$,'28000','not_authenticated','requires signed-in user');
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub','a1000000-0000-4000-8000-000000000001',true);
+SELECT lives_ok($$SELECT public.sync_timetable_groups(current_setting('test.specs')::jsonb)$$,'first import creates shared groups');
+SELECT is((SELECT count(*) FROM public.my_group_summaries()),2::bigint,'course and tutorial both in group list');
+SELECT is((SELECT count(*) FROM public.my_group_summaries() WHERE my_role='owner'),0::bigint,'students do not own system groups');
+SELECT set_config('test.first_ids',(SELECT string_agg(id::text,',' ORDER BY id) FROM public.my_group_summaries()),true);
+SELECT lives_ok($$SELECT public.sync_timetable_groups(current_setting('test.specs')::jsonb)$$,'reimport succeeds');
+SELECT is((SELECT count(*) FROM public.my_group_summaries()),2::bigint,'reimport does not duplicate groups');
+SELECT is((SELECT count(*) FROM public.my_group_summaries() WHERE member_count=1),2::bigint,'reimport does not duplicate memberships');
+SELECT set_config('request.jwt.claim.sub','b2000000-0000-4000-8000-000000000002',true);
+SELECT is((SELECT count(*) FROM public.my_group_summaries()),0::bigint,'other account not assigned before importing');
+SELECT lives_ok($$SELECT public.sync_timetable_groups(replace(current_setting('test.specs'),'Parkville Campus, PAR-160','  PARKVILLE   CAMPUS,PAR-160  ')::jsonb)$$,'second student imports same class with normalized location');
+SELECT is((SELECT string_agg(id::text,',' ORDER BY id) FROM public.my_group_summaries()),current_setting('test.first_ids'),'same course and slot use same server group IDs');
+SELECT is((SELECT count(*) FROM public.my_group_summaries() WHERE member_count=2),2::bigint,'both students appear as members');
+SELECT is((SELECT timetable_key FROM public.my_group_summaries() WHERE timetable_slot IS NOT NULL),'COMP90018|tutorial|4|15:00|16:00|parkville campus,par-160','server key matches client folding key');
+SELECT lives_ok($$SELECT public.sync_timetable_groups(replace(current_setting('test.specs'),'PAR-160','PAR-161')::jsonb)$$,'different room creates separate tutorial');
+SELECT is((SELECT count(*) FROM public.my_group_summaries()),3::bigint,'different room still shares course group');
+SELECT lives_ok($$SELECT public.sync_timetable_groups(replace(replace(current_setting('test.specs'),'15:00','16:00'),'"end":"16:00"','"end":"17:00"')::jsonb)$$,'different time accepted');
+SELECT is((SELECT count(*) FROM public.my_group_summaries()),4::bigint,'different time creates separate tutorial');
+SELECT throws_ok($$SELECT public.sync_timetable_groups('[{"course_code":"COMP90018","name":"Broken","activity":"tutorial","day":4,"start":"15:00","end":"16:00"}]'::jsonb)$$,'22023','invalid_timetable_groups','missing location cannot form a tutorial');
+SELECT throws_ok($$SELECT public.sync_timetable_groups('[{"course_code":"COMP90018","name":"Broken","activity":"tutorial","day":4,"start":"25:00","end":"16:00","location":"Room"}]'::jsonb)$$,'22023','invalid_timetable_groups','invalid time rejected');
+SELECT * FROM finish();
+ROLLBACK;

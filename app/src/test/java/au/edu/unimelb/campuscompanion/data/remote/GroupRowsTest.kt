@@ -16,11 +16,12 @@ class GroupRowsTest {
               "created_at":"2026-09-25T05:30:00.123456+00:00","my_role":"owner","member_count":3,
               "unread_count":2,"latest_message_preview":"Meeting at 3 pm",
               "latest_activity_at":"2026-09-25T06:00:00+00:00","latest_file_name":null,
-              "column_added_later":true}]
+              "join_code":"ABC234","column_added_later":true}]
         """.trimIndent()
 
         val summary = decodeRows(body, GroupSummaryRow.serializer()).single().toModel()
 
+        assertEquals("ABC234", summary.group.joinCode)
         assertEquals("Mobile team", summary.group.name)
         assertEquals("COMP90018", summary.group.courseCode)
         assertEquals(Instant.parse("2026-09-25T05:30:00.123456Z"), summary.group.createdAt)

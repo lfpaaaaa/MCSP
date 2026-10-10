@@ -1,5 +1,6 @@
 package au.edu.unimelb.campuscompanion.data
 
+import au.edu.unimelb.campuscompanion.data.model.TimetableGroupSpec
 import au.edu.unimelb.campuscompanion.ui.model.CourseGroup
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
 import io.ktor.client.HttpClient
@@ -141,6 +142,12 @@ class IcsTimetableParser {
             .filterNot { it.getStatus()?.value.equals("CANCELLED", ignoreCase = true) }
 
         val courseTitles = linkedMapOf<String, String>()
+        events.map(::detailsFor).forEach { details ->
+            if (details.code != FALLBACK_EVENT_CODE &&
+                (courseTitles[details.code] == null || courseTitles[details.code] == details.code)) {
+                courseTitles[details.code] = details.title
+            }
+        }
         val rangeStart = now.minusDays(1)
         val rangeEnd = now.plusMonths(6)
         val sessions = events.flatMapIndexed { index, event ->
@@ -162,7 +169,11 @@ class IcsTimetableParser {
                     location = eventDetails.location,
                     room = eventDetails.room,
                     start = start,
-                    end = end
+                    end = end,
+                    activity = eventDetails.activity.takeIf {
+                        rawEnd.isAfter(start) && event.getProperty<DtStart<Temporal>>(Property.DTSTART)
+                            .orElse(null)?.date !is LocalDate
+                    }
                 )
             }
         }
@@ -173,16 +184,23 @@ class IcsTimetableParser {
             .sortedBy { it.start.toInstant() }
             .take(MAX_IMPORTED_SESSIONS)
 
-        val groups = courseTitles.map { (code, title) ->
+        val specs = courseTitles.map { (code, title) -> TimetableGroupSpec(code, title.take(60), "course") } +
+            sessions.mapNotNull { session ->
+                session.copy(title = courseTitles[session.code] ?: session.title).timetableGroupSpec()
+            }.distinctBy { it.key }
+        val groups = specs.map { spec ->
             CourseGroup(
-                id = "${code.lowercase()}-group",
-                courseCode = code,
-                name = title,
+                id = spec.key,
+                courseCode = spec.courseCode,
+                name = spec.name,
                 members = 0,
                 unreadCount = 0,
                 latestMessage = "Added from your connected timetable.",
                 latestFileName = null,
-                privateContentEnabled = false
+                privateContentEnabled = false,
+                timetableKey = spec.key,
+                timetableSlot = spec.slotLabel(),
+                timetableSpec = spec
             )
         }
 
@@ -201,11 +219,21 @@ class IcsTimetableParser {
             ?.replace(" ", "")
             ?.uppercase()
             ?: FALLBACK_EVENT_CODE
-        val cleanedTitle = summary
+        // Prefer an explicit activity field, then an activity suffix/prefix in the summary.
+        val activity = ACTIVITY_FIELD.find(description)?.groupValues?.get(1)?.lowercase()
+            ?: ACTIVITY_SUFFIX.find(summary)?.groupValues?.get(1)?.lowercase()
+            ?: ACTIVITY_PREFIX.find(summary.replace(COURSE_CODE_REGEX, "").trim(' ', '-', ':', '|', '/', '_'))
+                ?.groupValues?.get(1)?.lowercase()
+        val subjectName = SUBJECT_NAME.find(description)?.groupValues?.get(1)?.trim()
+        val cleanedTitle = (subjectName ?: summary)
+            .replace(ACTIVITY_SUFFIX, "")
+            .replace(ACTIVITY_PREFIX, "")
             .replace(COURSE_CODE_REGEX, "")
             .replace('_', ' ')
             .trim(' ', '-', ':', '|', '/')
-            .ifBlank { summary }
+            .replace(ACTIVITY_PREFIX, "")
+            .trim(' ', '-', ':', '|', '/')
+            .ifBlank { code }
 
         val locationParts = event.getLocation()?.value
             .orEmpty()
@@ -217,7 +245,8 @@ class IcsTimetableParser {
             code = code,
             title = cleanedTitle,
             location = locationParts.firstOrNull() ?: "Location not provided",
-            room = locationParts.drop(1).joinToString(", ")
+            room = locationParts.drop(1).joinToString(", "),
+            activity = activity
         )
     }
 
@@ -266,7 +295,7 @@ class IcsTimetableParser {
         is ZonedDateTime -> withZoneSameInstant(zone)
         is OffsetDateTime -> atZoneSameInstant(zone)
         is Instant -> atZone(zone)
-        is LocalDateTime -> atZone(zone)
+        is LocalDateTime -> atZone(ZoneId.of("Australia/Melbourne")).withZoneSameInstant(zone)
         is LocalDate -> atStartOfDay(zone)
         else -> null
     }
@@ -275,7 +304,8 @@ class IcsTimetableParser {
         val code: String,
         val title: String,
         val location: String,
-        val room: String
+        val room: String,
+        val activity: String?
     )
 
     private data class Occurrence(
@@ -286,6 +316,10 @@ class IcsTimetableParser {
     companion object {
         private const val FALLBACK_EVENT_CODE = "EVENT"
         private const val MAX_IMPORTED_SESSIONS = 500
+        private val ACTIVITY_FIELD = Regex("(?im)^(?:activity(?: type)?|class(?: type)?|type)\\s*:\\s*(tutorial|workshop)\\b")
+        private val ACTIVITY_SUFFIX = Regex("(?i)(?:^|[\\s_:/|(-])(tutorial|workshop|lecture)(?:[\\s_:#-]*[A-Z]?\\d+)?[)\\s]*$")
+        private val ACTIVITY_PREFIX = Regex("(?i)^(tutorial|workshop|lecture)(?:[\\s_:#-]*\\d+)?(?:[\\s_:/|-]+|$)")
+        private val SUBJECT_NAME = Regex("(?im)^(?:subject|course)(?: name| title)\\s*:\\s*(.+)$")
         private val COURSE_CODE_REGEX = Regex(
             pattern = "(?<![A-Z0-9])[A-Z]{4}\\s?\\d{5}(?!\\d)",
             option = RegexOption.IGNORE_CASE

@@ -18,7 +18,10 @@ data class GroupRow(
     @SerialName("course_code") val courseCode: String? = null,
     @SerialName("private_content_enabled") val privateContentEnabled: Boolean = false,
     @SerialName("created_by") val createdBy: String? = null,
-    @SerialName("created_at") val createdAt: String
+    @SerialName("created_at") val createdAt: String,
+    @SerialName("join_code") val joinCode: String? = null,
+    @SerialName("timetable_key") val timetableKey: String? = null,
+    @SerialName("timetable_slot") val timetableSlot: String? = null
 )
 
 /** A row returned by `my_group_summaries`. */
@@ -35,7 +38,10 @@ data class GroupSummaryRow(
     @SerialName("unread_count") val unreadCount: Int = 0,
     @SerialName("latest_message_preview") val latestMessagePreview: String? = null,
     @SerialName("latest_activity_at") val latestActivityAt: String? = null,
-    @SerialName("latest_file_name") val latestFileName: String? = null
+    @SerialName("latest_file_name") val latestFileName: String? = null,
+    @SerialName("join_code") val joinCode: String? = null,
+    @SerialName("timetable_key") val timetableKey: String? = null,
+    @SerialName("timetable_slot") val timetableSlot: String? = null
 )
 
 /** A row returned by `group_members`. */
@@ -61,7 +67,10 @@ fun GroupRow.toModel(): Group = Group(
     courseCode = courseCode,
     privateContentEnabled = privateContentEnabled,
     createdBy = createdBy,
-    createdAt = parseTimestamp(createdAt)
+    createdAt = parseTimestamp(createdAt),
+    joinCode = joinCode,
+    timetableKey = timetableKey,
+    timetableSlot = timetableSlot
 )
 
 fun GroupSummaryRow.toModel(): GroupSummary = GroupSummary(
@@ -71,7 +80,10 @@ fun GroupSummaryRow.toModel(): GroupSummary = GroupSummary(
         courseCode = courseCode,
         privateContentEnabled = privateContentEnabled,
         createdBy = createdBy,
-        createdAt = parseTimestamp(createdAt)
+        createdAt = parseTimestamp(createdAt),
+        joinCode = joinCode,
+        timetableKey = timetableKey,
+        timetableSlot = timetableSlot
     ),
     myRole = parseRole(myRole),
     memberCount = memberCount,

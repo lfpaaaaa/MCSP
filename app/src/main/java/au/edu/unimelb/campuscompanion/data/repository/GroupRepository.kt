@@ -1,5 +1,7 @@
 package au.edu.unimelb.campuscompanion.data.repository
 
+import au.edu.unimelb.campuscompanion.data.model.TimetableGroupSpec
+
 import au.edu.unimelb.campuscompanion.data.model.Group
 import au.edu.unimelb.campuscompanion.data.model.GroupMember
 import au.edu.unimelb.campuscompanion.data.model.GroupSummary
@@ -7,6 +9,8 @@ import kotlinx.coroutines.flow.Flow
 
 /** Course groups the signed-in user belongs to. */
 interface GroupRepository {
+    suspend fun syncTimetableGroups(specs: List<TimetableGroupSpec>): Result<Unit>
+
     /** Emits the cached list first and then every change, most recent activity first. */
     fun observeMyGroups(): Flow<List<GroupSummary>>
 
@@ -17,6 +21,10 @@ interface GroupRepository {
     suspend fun createGroup(name: String, courseCode: String?): Result<Group>
 
     fun observeMembers(groupId: String): Flow<List<GroupMember>>
+
+    suspend fun transferAndLeave(groupId: String, newOwnerId: String): Result<Unit>
+
+    suspend fun dissolveGroup(groupId: String): Result<Unit>
 
     suspend fun leaveGroup(groupId: String): Result<Unit>
 
