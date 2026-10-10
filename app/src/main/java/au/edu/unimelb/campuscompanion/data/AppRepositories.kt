@@ -14,6 +14,7 @@ import au.edu.unimelb.campuscompanion.data.fake.FakeInviteRepository
 import au.edu.unimelb.campuscompanion.data.invite.JoinLinkInbox
 import au.edu.unimelb.campuscompanion.data.local.CampusDatabase
 import au.edu.unimelb.campuscompanion.data.local.FileGroupListCache
+import au.edu.unimelb.campuscompanion.data.local.FileSharedFileListCache
 import au.edu.unimelb.campuscompanion.data.model.CurrentUser
 import au.edu.unimelb.campuscompanion.data.model.MessageStatus
 import au.edu.unimelb.campuscompanion.data.remote.GroupRemoteDataSource
@@ -52,14 +53,14 @@ import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.contentOrNull
 import java.io.File
 
+/** Logcat tag of the chat latency samples; the chat screen logs the received ones under it too. */
+private const val CHAT_LATENCY_TAG = "ChatLatency"
+
 /**
  * App-wide repositories. The Supabase-backed versions are used when the project URL and
  * publishable key are set in local.properties; otherwise the in-memory fakes with sample data
  * are used, so that screens can still be built and previewed.
  */
-/** Logcat tag of the chat latency samples; the chat screen logs the received ones under it too. */
-private const val CHAT_LATENCY_TAG = "ChatLatency"
-
 object AppRepositories {
     /** Join links received by the main activity. */
     val joinLinks = JoinLinkInbox()
@@ -162,7 +163,11 @@ object AppRepositories {
         if (client == null) {
             FakeFileRepository()
         } else {
-            DefaultFileRepository(SupabaseFileDataSource(client), currentUser = { client.currentUser() })
+            DefaultFileRepository(
+                remote = SupabaseFileDataSource(client),
+                currentUser = { client.currentUser() },
+                cache = FileSharedFileListCache(lazy { File(appContext.filesDir, "files") })
+            )
         }
     }
 

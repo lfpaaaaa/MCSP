@@ -61,6 +61,7 @@ data class InviteRow(
     @SerialName("expires_at") val expiresAt: String
 )
 
+/** The row as the screens use it, with the timestamp parsed. */
 fun GroupRow.toModel(): Group = Group(
     id = id,
     name = name,
@@ -73,6 +74,7 @@ fun GroupRow.toModel(): Group = Group(
     timetableSlot = timetableSlot
 )
 
+/** The row as the group list uses it, with the role and the timestamps parsed. */
 fun GroupSummaryRow.toModel(): GroupSummary = GroupSummary(
     group = Group(
         id = id,
@@ -93,6 +95,7 @@ fun GroupSummaryRow.toModel(): GroupSummary = GroupSummary(
     latestFileName = latestFileName
 )
 
+/** The row as the members page uses it. */
 fun GroupMemberRow.toModel(): GroupMember = GroupMember(
     userId = userId,
     displayName = displayName,
@@ -101,6 +104,7 @@ fun GroupMemberRow.toModel(): GroupMember = GroupMember(
     joinedAt = parseTimestamp(joinedAt)
 )
 
+/** The invite for [groupId] as the QR and NFC screens use it. */
 fun InviteRow.toModel(groupId: String): GroupInvite = GroupInvite(
     groupId = groupId,
     token = token,

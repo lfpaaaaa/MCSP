@@ -11,6 +11,8 @@ import au.edu.unimelb.campuscompanion.data.remote.dataResult
 import au.edu.unimelb.campuscompanion.data.remote.toDataError
 import au.edu.unimelb.campuscompanion.data.remote.toModel
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -22,19 +24,24 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.util.UUID
 
 /**
  * [FileRepository] for files kept in private cloud storage. While a group's files are observed,
- * the list is refreshed whenever a member adds a file. An upload stores the object first and then
- * its record; if the record cannot be saved, the object is removed again.
+ * the list is refreshed whenever a member adds a file; the last list of each group is kept in
+ * [cache], so an open chat still shows what was shared when there is no connection. An upload
+ * stores the object first and then its record; if the record cannot be saved, the object is
+ * removed again.
  */
 class DefaultFileRepository(
     private val remote: FileRemoteDataSource,
     private val currentUser: () -> CurrentUser?,
+    private val cache: SharedFileListCache? = null,
     private val newObjectId: () -> String = { UUID.randomUUID().toString() },
     private val firstRetryDelayMillis: Long = FIRST_RETRY_DELAY_MILLIS,
     private val maxRetryDelayMillis: Long = MAX_RETRY_DELAY_MILLIS
@@ -44,6 +51,7 @@ class DefaultFileRepository(
     private val refreshLock = Mutex()
 
     override fun observeFiles(groupId: String): Flow<List<SharedFile>> = channelFlow {
+        showSavedList(groupId)
         launch { keepFresh(groupId) }
         filesByGroup
             .map { byGroup -> byGroup[groupId] }
@@ -92,9 +100,7 @@ class DefaultFileRepository(
             throw error
         }
         val row = inserted.copy(uploaderName = user.displayName)
-        filesByGroup.update { byGroup ->
-            byGroup + (groupId to listOf(row) + byGroup[groupId].orEmpty().filterNot { it.id == row.id })
-        }
+        storeList(groupId) { rows -> listOf(row) + rows.filterNot { it.id == row.id } }
         emit(UploadState.Completed(row.toModel()))
     }.catch { error -> emit(UploadState.Failed(error.toDataError())) }
 
@@ -113,9 +119,7 @@ class DefaultFileRepository(
             if (remote.deleteFileRecord(fileId) == 0) {
                 throw DataError.NotFound()
             }
-            filesByGroup.update { byGroup ->
-                byGroup.mapValues { (_, rows) -> rows.filterNot { it.id == fileId } }
-            }
+            storeList(row.groupId) { rows -> rows.filterNot { it.id == fileId } }
             // The record is gone, so a failure here only leaves an unreachable object behind.
             dataResult { remote.deleteObject(row.storagePath) }
             Unit
@@ -153,9 +157,35 @@ class DefaultFileRepository(
     }
 
     private suspend fun refresh(groupId: String): Boolean = refreshLock.withLock {
-        dataResult { remote.fetchFiles(groupId) }
-            .onSuccess { rows -> filesByGroup.update { byGroup -> byGroup + (groupId to rows) } }
-            .isSuccess
+        val fetched = dataResult { remote.fetchFiles(groupId) }
+        fetched.onSuccess { rows -> storeList(groupId) { rows } }
+        fetched.isSuccess
+    }
+
+    /**
+     * Seeds the list of [groupId] from the copy on the device, so the chat shows its files before
+     * the server answers and without a connection. A fresh list replaces it as soon as one arrives.
+     */
+    private suspend fun showSavedList(groupId: String) {
+        val fileCache = cache ?: return
+        if (filesByGroup.value[groupId] != null) return
+        val userId = currentUser()?.id ?: return
+        val saved = withContext(Dispatchers.IO) { runCatching { fileCache.load(userId, groupId) }.getOrNull() }
+            ?: return
+        filesByGroup.update { byGroup -> if (byGroup[groupId] == null) byGroup + (groupId to saved) else byGroup }
+    }
+
+    /**
+     * Replaces the list of [groupId] with [transform] of the current one and keeps a copy on the
+     * device. The copy is written even if the caller is cancelled meanwhile, so it never lags.
+     */
+    private suspend fun storeList(groupId: String, transform: (List<SharedFileRow>) -> List<SharedFileRow>) {
+        val rows = filesByGroup
+            .updateAndGet { byGroup -> byGroup + (groupId to transform(byGroup[groupId].orEmpty())) }
+            .getValue(groupId)
+        val fileCache = cache ?: return
+        val userId = currentUser()?.id ?: return
+        withContext(Dispatchers.IO + NonCancellable) { runCatching { fileCache.save(userId, groupId, rows) } }
     }
 
     private fun cachedRow(fileId: String): SharedFileRow? =

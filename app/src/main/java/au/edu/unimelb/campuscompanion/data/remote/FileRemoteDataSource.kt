@@ -30,6 +30,7 @@ data class NewFileRecord(
     val isPrivate: Boolean
 )
 
+/** The row as the screens use it; a missing uploader name is shown as "Group member". */
 fun SharedFileRow.toModel(): SharedFile = SharedFile(
     id = id,
     groupId = groupId,

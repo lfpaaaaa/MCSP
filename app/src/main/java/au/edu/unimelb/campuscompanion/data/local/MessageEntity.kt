@@ -31,5 +31,6 @@ data class MessageEntity(
 fun Instant.toEpochMicros(): Long =
     Math.addExact(Math.multiplyExact(epochSecond, 1_000_000L), (nano / 1_000).toLong())
 
+/** The instant [micros] microseconds after the epoch; the inverse of [toEpochMicros]. */
 fun instantOfEpochMicros(micros: Long): Instant =
     Instant.ofEpochSecond(Math.floorDiv(micros, 1_000_000L), Math.floorMod(micros, 1_000_000L) * 1_000L)

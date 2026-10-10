@@ -3,6 +3,7 @@ package au.edu.unimelb.campuscompanion.data.model
 import au.edu.unimelb.campuscompanion.data.DataError
 import java.time.Instant
 
+/** A file shared in a group, as the chat and the file list show it. */
 data class SharedFile(
     val id: String,
     val groupId: String,
@@ -16,6 +17,11 @@ data class SharedFile(
     val createdAt: Instant
 )
 
+/**
+ * Progress of an upload, emitted by
+ * [au.edu.unimelb.campuscompanion.data.repository.FileRepository.uploadFile] until it completes
+ * or fails.
+ */
 sealed interface UploadState {
     data class InProgress(val bytesSent: Long, val totalBytes: Long) : UploadState {
         val fraction: Float

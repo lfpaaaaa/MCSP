@@ -35,12 +35,20 @@ import java.time.temporal.Temporal
 import java.time.zone.ZoneRules
 import java.util.concurrent.ConcurrentHashMap
 
+/**
+ * What a calendar parsed into: the sessions of the coming months, the course groups they imply
+ * and how many events the calendar held.
+ */
 data class TimetableImport(
     val sessions: List<CourseSession>,
     val groups: List<CourseGroup>,
     val sourceEventCount: Int
 )
 
+/**
+ * Downloads a MyTimetable calendar subscription and turns it into a [TimetableImport]. [close]
+ * releases the HTTP client.
+ */
 class TimetableImporter(
     private val client: HttpClient = defaultHttpClient(),
     private val parser: IcsTimetableParser = IcsTimetableParser()
@@ -142,6 +150,10 @@ class TimetableImporter(
     }
 }
 
+/**
+ * Parses an iCalendar timetable into the sessions from the day before [parse]'s `now` to six
+ * months after it, expanding recurring events and showing them in the given display zone.
+ */
 class IcsTimetableParser {
     fun parse(
         bytes: ByteArray,
@@ -349,6 +361,7 @@ class IcsTimetableParser {
     }
 }
 
+/** A calendar that could not be downloaded or parsed; [message] is written for the user. */
 class TimetableImportException(
     message: String,
     cause: Throwable? = null

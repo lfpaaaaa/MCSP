@@ -26,6 +26,7 @@ fun CourseSession.timetableGroupSpec(): TimetableGroupSpec? {
     )
 }
 
+/** The slot shown under a timetable group ("Tue 10:00–11:00 · location"), or null when it has no day. */
 fun TimetableGroupSpec.slotLabel(): String? = day?.let {
     "${listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")[it - 1]} $start–$end · $location"
 }
