@@ -207,6 +207,35 @@ class DefaultChatRepositoryTest {
         assertEquals(listOf(CHAT_GROUP_ID), remote.markedRead)
     }
 
+    @Test
+    fun screenSenderPersistsMessagesForAFreshCache() = runBlocking<Unit> {
+        val sender = ChatMessageSender(repository, this)
+        sender.send(CHAT_GROUP_ID, "Saved on the server").await().getOrThrow()
+        assertEquals("Saved on the server", remote.stored.single().body)
+        val reopened = DefaultChatRepository(remote, groups, FakeMessageDao(),
+            { CurrentUser(SELF_ID, "Cedric") })
+        withTimeout(5_000) {
+            val history = reopened.observeMessages(CHAT_GROUP_ID).first { it.isNotEmpty() }
+            assertEquals("Saved on the server", history.single().body)
+            assertEquals(MessageStatus.Sent, history.single().status)
+        }
+    }
+
+    @Test
+    fun leavingScreenDoesNotCancelAcceptedSend() = runBlocking<Unit> {
+        val release = CompletableDeferred<Unit>()
+        remote.beforeInsert = { release.await() }
+        val sender = ChatMessageSender(repository, this)
+        val delivery = sender.send(CHAT_GROUP_ID, "Still delivered")
+        val screen = launch { delivery.await() }
+        withTimeout(5_000) { dao.observeGroup(CHAT_GROUP_ID).first { it.isNotEmpty() } }
+        screen.cancel()
+        screen.join()
+        release.complete(Unit)
+        assertEquals(MessageStatus.Sent, delivery.await().getOrThrow().status)
+        assertEquals(1, remote.stored.size)
+    }
+
     /** Runs [block] while the chat is open on screen, and fails if it takes more than five seconds. */
     private suspend fun observing(block: suspend CoroutineScope.() -> Unit) = coroutineScope {
         val screen = launch { repository.observeMessages(CHAT_GROUP_ID).collect { shown.value = it } }

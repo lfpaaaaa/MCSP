@@ -69,8 +69,9 @@ fun GroupSettingsDialog(
         return
     }
 
+    val canInvite = group.origin != GroupOrigin.Timetable && group.timetableKey == null
     var showQr by rememberSaveable(group.id) { mutableStateOf(false) }
-    if (showQr) {
+    if (canInvite && showQr) {
         GroupInviteQrDialog(group.name, createQrInvite, onDismiss = { showQr = false })
     }
 
@@ -89,22 +90,24 @@ fun GroupSettingsDialog(
                     Icon(Icons.Outlined.Groups, contentDescription = null)
                     Text("Members (${group.members})", modifier = Modifier.padding(start = 8.dp))
                 }
-                OutlinedButton(onClick = { showQr = true }, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Outlined.QrCode, contentDescription = null)
-                    Text("Share QR code", modifier = Modifier.padding(start = 8.dp))
-                }
-                OutlinedButton(
-                    onClick = onInviteWithNfc,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Nfc,
-                        contentDescription = null
-                    )
-                    Text(
-                        text = "Invite with NFC",
-                        modifier = Modifier.padding(start = 8.dp)
-                    )
+                if (canInvite) {
+                    OutlinedButton(onClick = { showQr = true }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Outlined.QrCode, contentDescription = null)
+                        Text("Share QR code", modifier = Modifier.padding(start = 8.dp))
+                    }
+                    OutlinedButton(
+                        onClick = onInviteWithNfc,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Nfc,
+                            contentDescription = null
+                        )
+                        Text(
+                            text = "Invite with NFC",
+                            modifier = Modifier.padding(start = 8.dp)
+                        )
+                    }
                 }
                 SettingSwitchRow(
                     title = "Fold this group",

@@ -203,7 +203,10 @@ fun CampusCompanionApp(authViewModel: AuthViewModel) {
         contract = ActivityResultContracts.OpenMultipleDocuments()
     ) { uris ->
         if (uris.isNotEmpty()) {
-            val selected = uris.map { uri -> resolveDocument(context, uri) }
+            val selected = uris.map { uri ->
+                runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+                resolveDocument(context, uri)
+            }
             val result = mergePendingDocuments(pendingDocuments, selected)
             savePendingDocuments(result.documents)
 
@@ -997,6 +1000,7 @@ private fun AuthenticatedCampusApp(
                 when {
                     group != null -> GroupChatScreen(
                         group = group,
+                        currentUserId = user.id,
                         myDisplayName = groupPreferences[group.id]
                             ?.displayName
                             ?.takeIf(String::isNotBlank)
@@ -1012,6 +1016,7 @@ private fun AuthenticatedCampusApp(
                     )
                     timetableState.isLoading && cachedGroup != null -> GroupChatScreen(
                         group = cachedGroup,
+                        currentUserId = user.id,
                         myDisplayName = groupPreferencesStore.load(cachedGroup.id)
                             .displayName
                             .takeIf(String::isNotBlank)
