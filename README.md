@@ -182,7 +182,7 @@ Both are the same commands as in the quick check above, so a green run means a f
 - Home: context-aware next-class card, travel status, upcoming classes, and group updates.
 - Schedule: the upcoming sessions from the subscribed calendar and the per-course departure reminders.
 - Timetable connection: prompts on Home after sign-in, then saves a MyTimetable calendar subscription URL on the device. The calendar is downloaded and parsed on every start (`data/TimetableImporter`), and the last successful download is kept in the app's private storage (`data/TimetableCache`), so the schedule, the reminders and the course groups still work offline; the screens say when they show the saved copy because the download failed.
-- Groups: course groups, join by code, QR code or NFC, and the group chat: messages and shared files come from Supabase (realtime feed plus the Room cache, so saved messages stay readable offline), with optimistic sending, retry of failed messages, paging of older history, upload progress and photo previews.
+- Groups: course groups, join by code, QR code or NFC, and the group chat: messages and shared files come from Supabase (realtime feed plus the Room cache; the group list is also kept on the device, `data/local/FileGroupListCache`, so groups and their saved messages stay readable offline), with optimistic sending, retry of failed messages, paging of older history, upload progress and photo previews.
 - Profile: account summary, travel preferences (walking range and the mode for longer trips), the timetable URL, the real state of each permission with a note on where location data goes, credits for the data sources, the app version, and sign-out.
 
 ## Status and next steps

@@ -13,27 +13,46 @@ import au.edu.unimelb.campuscompanion.data.remote.GroupSummaryRow
 import au.edu.unimelb.campuscompanion.data.remote.dataResult
 import au.edu.unimelb.campuscompanion.data.remote.remoteCall
 import au.edu.unimelb.campuscompanion.data.remote.toModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.withContext
 
 /**
  * [GroupRepository] that loads groups from [remote]. The group list is kept in memory and is
- * updated after each refresh, new group, join and leave.
+ * updated after each refresh, new group, join and leave; with a [cache] the last list is also
+ * kept on the device and shown until the first refresh, so groups open offline.
  *
  * @param currentUserId returns the signed-in user's id, or null when nobody is signed in.
  */
 class DefaultGroupRepository(
     private val remote: GroupRemoteDataSource,
+    private val cache: GroupListCache? = null,
     private val currentUserId: () -> String?
 ) : GroupRepository {
 
     private val groups = MutableStateFlow<List<GroupSummary>?>(null)
 
-    /** Emits after the first successful [refresh], then after every change. */
-    override fun observeMyGroups(): Flow<List<GroupSummary>> = groups.filterNotNull()
+    /**
+     * Emits the list saved on the device, when there is one, then the list after the first
+     * successful [refresh] and after every change.
+     */
+    override fun observeMyGroups(): Flow<List<GroupSummary>> = flow {
+        if (groups.value == null) {
+            val userId = currentUserId()
+            val saved = if (cache != null && userId != null) {
+                withContext(Dispatchers.IO) { cache.load(userId) }
+            } else {
+                null
+            }
+            if (saved != null) groups.compareAndSet(null, saved.map(GroupSummaryRow::toModel).sortedByActivity())
+        }
+        emitAll(groups.filterNotNull())
+    }
 
     override suspend fun syncTimetableGroups(specs: List<TimetableGroupSpec>): Result<Unit> = dataResult {
         val joined = remote.syncTimetableGroups(specs).map { it.toModel() }
@@ -47,10 +66,16 @@ class DefaultGroupRepository(
     }
 
     override suspend fun refresh(): Result<Unit> = dataResult {
-        groups.value = remote.fetchMyGroups()
-            .map(GroupSummaryRow::toModel)
-            .sortedByDescending { it.latestActivityAt ?: it.group.createdAt }
+        val rows = remote.fetchMyGroups()
+        groups.value = rows.map(GroupSummaryRow::toModel).sortedByActivity()
+        val userId = currentUserId()
+        if (cache != null && userId != null) {
+            withContext(Dispatchers.IO) { cache.save(userId, rows) }
+        }
     }
+
+    private fun List<GroupSummary>.sortedByActivity(): List<GroupSummary> =
+        sortedByDescending { it.latestActivityAt ?: it.group.createdAt }
 
     override suspend fun createGroup(name: String, courseCode: String?): Result<Group> {
         val input = NewGroupInput.parse(name, courseCode).getOrElse { return Result.failure(it) }

@@ -425,13 +425,16 @@ private fun AuthenticatedCampusApp(
     var nfcShareState by remember(user.id) {
         mutableStateOf<NfcShareUiState>(NfcShareUiState.Idle)
     }
+    // Null until the repository has a list: the copy saved on the device or the first refresh.
     val syncedGroupSummaries by groupRepository.observeMyGroups()
-        .collectAsState(initial = emptyList())
+        .collectAsState(initial = null)
     var groupSyncReady by remember(user.id) { mutableStateOf(false) }
+    LaunchedEffect(syncedGroupSummaries) {
+        if (syncedGroupSummaries != null) groupSyncReady = true
+    }
     val lifecycleOwner = LocalLifecycleOwner.current
     LaunchedEffect(user.id, lifecycleOwner) {
         if (!SupabaseProvider.isConfigured) return@LaunchedEffect
-        groupSyncReady = false
         // Member counts and previews are refreshed while the app is on screen; nothing polls
         // in the background, where pushes and the next open bring the list up to date.
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -441,11 +444,11 @@ private fun AuthenticatedCampusApp(
             }
         }
     }
-    val syncedGroups = remember(syncedGroupSummaries, user.id, groupSyncReady) {
-        if (!SupabaseProvider.isConfigured || !groupSyncReady) {
+    val syncedGroups = remember(syncedGroupSummaries, user.id) {
+        if (!SupabaseProvider.isConfigured) {
             emptyList()
         } else {
-            syncedGroupSummaries.map { summary -> summary.toCourseGroup(user.id) }
+            syncedGroupSummaries.orEmpty().map { summary -> summary.toCourseGroup(user.id) }
         }
     }
     val allGroups = remember(timetableState.groups, syncedGroups) {

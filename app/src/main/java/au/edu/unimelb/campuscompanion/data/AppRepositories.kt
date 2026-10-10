@@ -13,6 +13,7 @@ import au.edu.unimelb.campuscompanion.data.fake.FakeGroupRepository
 import au.edu.unimelb.campuscompanion.data.fake.FakeInviteRepository
 import au.edu.unimelb.campuscompanion.data.invite.JoinLinkInbox
 import au.edu.unimelb.campuscompanion.data.local.CampusDatabase
+import au.edu.unimelb.campuscompanion.data.local.FileGroupListCache
 import au.edu.unimelb.campuscompanion.data.model.CurrentUser
 import au.edu.unimelb.campuscompanion.data.model.MessageStatus
 import au.edu.unimelb.campuscompanion.data.remote.GroupRemoteDataSource
@@ -49,6 +50,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.contentOrNull
+import java.io.File
 
 /**
  * App-wide repositories. The Supabase-backed versions are used when the project URL and
@@ -115,7 +117,11 @@ object AppRepositories {
         if (client == null || remote == null) {
             fakeGroups
         } else {
-            DefaultGroupRepository(remote) { client.auth.currentUserOrNull()?.id }
+            DefaultGroupRepository(
+                remote = remote,
+                currentUserId = { client.auth.currentUserOrNull()?.id },
+                cache = FileGroupListCache(File(appContext.filesDir, "groups"))
+            )
         }
     }
 
