@@ -59,6 +59,7 @@ import au.edu.unimelb.campuscompanion.auth.AuthenticatedUser
 import au.edu.unimelb.campuscompanion.auth.SupabaseProvider
 import au.edu.unimelb.campuscompanion.data.AppRepositories
 import au.edu.unimelb.campuscompanion.data.TimetableImporter
+import au.edu.unimelb.campuscompanion.data.TimetableSession
 import au.edu.unimelb.campuscompanion.data.TimetableSubscriptionStore
 import au.edu.unimelb.campuscompanion.data.TravelPreferences
 import au.edu.unimelb.campuscompanion.data.TravelPreferencesStore
@@ -340,15 +341,15 @@ private fun AuthenticatedCampusApp(
     var travelPreferences by remember(user.id) {
         mutableStateOf(travelPreferencesStore.load())
     }
-    val savedTimetableUrl = remember(user.id) { timetableStore.loadUrl(user.id) }
-    var timetableState by remember(user.id) {
-        mutableStateOf(
-            TimetableState(
-                url = savedTimetableUrl,
-                isLoading = savedTimetableUrl.isNotBlank()
-            )
-        )
+    val timetableSession = remember(user.id, timetableStore, timetableImporter) {
+        TimetableSession(user.id, timetableStore, timetableImporter::importFromUrl)
     }
+    val importedTimetable by timetableSession.state.collectAsState()
+    var isSyncingTimetableGroups by remember(user.id) { mutableStateOf(false) }
+    var timetableGroupSyncError by remember(user.id) { mutableStateOf<String?>(null) }
+    val timetableState = importedTimetable.copy(
+        isSyncingGroups = isSyncingTimetableGroups, groupSyncError = timetableGroupSyncError
+    )
 
     DisposableEffect(timetableImporter) {
         onDispose(timetableImporter::close)
@@ -477,71 +478,37 @@ private fun AuthenticatedCampusApp(
         groupPreferences.filterValues(GroupChatPreferences::muted).keys
     }
 
-    LaunchedEffect(user.id, savedTimetableUrl) {
-        if (savedTimetableUrl.isBlank()) return@LaunchedEffect
+    LaunchedEffect(timetableSession) { timetableSession.refresh() }
 
-        timetableImporter.importFromUrl(savedTimetableUrl).fold(
-            onSuccess = { imported ->
-                timetableState = TimetableState(
-                    url = savedTimetableUrl,
-                    sessions = imported.sessions,
-                    groups = imported.groups,
-                    detectedEventCount = imported.sourceEventCount,
-                    isConnected = true
-                )
-            },
-            onFailure = { error ->
-                timetableState = TimetableState(
-                    url = savedTimetableUrl,
-                    errorMessage = error.message
-                )
-            }
-        )
-    }
-
-    LaunchedEffect(user.id, timetableState.groups, timetableState.isConnected) {
-        if (!SupabaseProvider.isConfigured || !timetableState.isConnected) return@LaunchedEffect
+    LaunchedEffect(user.id, timetableState.groups, timetableState.isConnected,
+        timetableState.isCached, timetableState.isLoading) {
+        isSyncingTimetableGroups = false
+        timetableGroupSyncError = null
+        // Cached classes are readable offline, but must not change server memberships.
+        if (!SupabaseProvider.isConfigured || !timetableState.isConnected ||
+            timetableState.isCached || timetableState.isLoading) return@LaunchedEffect
         val specs = timetableState.groups.mapNotNull { it.timetableSpec }
-        timetableState = timetableState.copy(isSyncingGroups = true, groupSyncError = null)
+        isSyncingTimetableGroups = true
         while (true) {
             val result = groupRepository.syncTimetableGroups(specs)
             if (result.isSuccess) {
                 groupSyncReady = true
-                timetableState = timetableState.copy(isSyncingGroups = false, groupSyncError = null)
+                isSyncingTimetableGroups = false
+                timetableGroupSyncError = null
                 break
             }
-            timetableState = timetableState.copy(isSyncingGroups = false,
-                groupSyncError = "Could not join timetable groups. Retrying automatically…")
+            isSyncingTimetableGroups = false
+            timetableGroupSyncError = "Could not join timetable groups. Retrying automatically…"
             delay(30_000)
         }
     }
 
-    val connectTimetable: suspend (String) -> Result<Unit> = { url ->
-        val previousState = timetableState
-        timetableImporter.importFromUrl(url).fold(
-            onSuccess = { imported ->
-                timetableStore.saveUrl(user.id, url)
-                timetableState = TimetableState(
-                    url = url,
-                    sessions = imported.sessions,
-                    groups = imported.groups,
-                    detectedEventCount = imported.sourceEventCount,
-                    isConnected = true
-                )
-                Result.success(Unit)
-            },
-            onFailure = { error ->
-                timetableState = previousState.copy(errorMessage = error.message)
-                Result.failure(error)
-            }
-        )
-    }
-
+    val connectTimetable: suspend (String) -> Result<Unit> = timetableSession::connect
+    val refreshTimetable: () -> Unit = { scope.launch { timetableSession.refresh() } }
     val removeTimetable = {
-        timetableStore.clear(user.id)
+        timetableSession.clear()
         courseReminderStore.clear()
         courseReminderVersion += 1
-        timetableState = TimetableState()
     }
     val updateTravelPreferences: (TravelPreferences) -> Unit = { updatedPreferences ->
         travelPreferencesStore.save(updatedPreferences)
@@ -1041,6 +1008,7 @@ private fun AuthenticatedCampusApp(
                     ),
                     travelPreferences = travelPreferences,
                     onTimetableUrlSave = connectTimetable,
+                    onTimetableRefresh = refreshTimetable,
                     onOpenGroup = { group ->
                         openGroup(group)
                     }
@@ -1056,6 +1024,7 @@ private fun AuthenticatedCampusApp(
                         )
                     },
                     onTimetableUrlSave = connectTimetable,
+                    onTimetableRefresh = refreshTimetable,
                     reminderCourseCount = reminderCourses.size,
                     enabledReminderCount = courseReminderPreferences.values.count { it.enabled },
                     onOpenDepartureReminders = {
@@ -1193,6 +1162,7 @@ private fun AuthenticatedCampusApp(
                     timetableState = timetableState,
                     travelPreferences = travelPreferences,
                     onTimetableUrlSave = connectTimetable,
+                    onTimetableRefresh = refreshTimetable,
                     onTimetableUrlRemove = removeTimetable,
                     onTravelPreferencesChange = updateTravelPreferences,
                     onSignOut = onSignOut

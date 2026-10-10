@@ -92,5 +92,7 @@ data class TimetableState(
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
     val groupSyncError: String? = null,
-    val isSyncingGroups: Boolean = false
+    val isSyncingGroups: Boolean = false,
+    val isCached: Boolean = false,
+    val lastSyncedAt: java.time.Instant? = null
 )

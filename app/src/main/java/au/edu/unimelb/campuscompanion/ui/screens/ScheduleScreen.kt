@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import au.edu.unimelb.campuscompanion.data.TravelPreferences
 import au.edu.unimelb.campuscompanion.ui.components.CourseSessionRow
 import au.edu.unimelb.campuscompanion.ui.components.SectionHeader
+import au.edu.unimelb.campuscompanion.ui.components.TimetableSyncStatus
 import au.edu.unimelb.campuscompanion.ui.components.TimetableUrlDialog
 import au.edu.unimelb.campuscompanion.ui.model.TimetableState
 
@@ -47,6 +48,7 @@ fun ScheduleScreen(
     travelPreferences: TravelPreferences,
     onReminderPreferencesChange: (enabled: Boolean, leadMinutes: Int) -> Unit,
     onTimetableUrlSave: suspend (String) -> Result<Unit>,
+    onTimetableRefresh: () -> Unit,
     reminderCourseCount: Int,
     enabledReminderCount: Int,
     onOpenDepartureReminders: () -> Unit,
@@ -85,8 +87,10 @@ fun ScheduleScreen(
             )
         }
 
+        TimetableSyncStatus(timetableState, onRefresh = onTimetableRefresh)
+
         when {
-            timetableState.isLoading -> LoadingTimetableState()
+            timetableState.isLoading && !timetableState.isConnected -> LoadingTimetableState()
             timetableState.isConnected -> {
                 DepartureReminderSettingRow(
                     courseCount = reminderCourseCount,

@@ -181,7 +181,7 @@ Both are the same commands as in the quick check above, so a green run means a f
 
 - Home: context-aware next-class card, travel status, upcoming classes, and group updates.
 - Schedule: timetable list with sync/manual edit entry points.
-- Timetable connection: prompts on Home after sign-in, then saves and validates a MyTimetable calendar subscription URL on device; network fetching and ICS parsing are the next data-layer step.
+- Timetable connection: imports a MyTimetable subscription and saves the URL, parsed sessions, class-group information and last successful update time per account. Home and Schedule show saved classes immediately on restart while refreshing in the background. Failed refreshes keep the cache; Refresh retries without re-entering the URL. Removing the subscription deletes its cache.
 - Groups: course groups, join by code, QR code or NFC, and the group chat: messages and shared files come from Supabase (realtime feed plus the Room cache, so saved messages stay readable offline), with optimistic sending, retry of failed messages, paging of older history, upload progress and photo previews.
 - Profile: account summary, travel preferences (walking range and the mode for longer trips), the timetable URL, the real state of each permission with a note on where location data goes, credits for the data sources, the app version, and sign-out.
 
@@ -193,11 +193,10 @@ Measured on 9 October 2026 with two emulators on one laptop and the Supabase pro
 
 Still to do, in order:
 
-1. Cache the timetable on the device so the Schedule screen opens offline.
-2. Restore the open screen when the system has killed the app in the background (it currently comes back on Home unless a chat was open).
-3. Strip sensor debug logging from release builds and ask Transitous for permission before switching public transport routing on.
-4. Confirm the source and licence of the bundled campus building outlines and name them in the About section.
-5. Apple sign-in once an Apple developer account is available.
+1. Restore the open screen when the system has killed the app in the background (it currently comes back on Home unless a chat was open).
+2. Strip sensor debug logging from release builds and ask Transitous for permission before switching public transport routing on.
+3. Confirm the source and licence of the bundled campus building outlines and name them in the About section.
+4. Apple sign-in once an Apple developer account is available.
 
 ## Licence
 
