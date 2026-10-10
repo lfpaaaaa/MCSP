@@ -81,6 +81,7 @@ class SupabaseFileDataSource(private val client: SupabaseClient) : FileRemoteDat
     }
 
     override fun fileChanges(groupId: String): Flow<Unit> = channelFlow {
+        launch { groupMemberChanges(client, groupId).collect { send(Unit) } }
         val channel = client.channel("group-files-$groupId-${UUID.randomUUID()}")
         // The change listener has to be registered before the channel is subscribed.
         val inserts = channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {

@@ -43,7 +43,7 @@ internal fun GroupSettingsPage(
 @Composable
 internal fun GroupMembersSection(
     isOwner: Boolean,
-    loadMembers: suspend () -> List<GroupMember>,
+    observeMembers: () -> kotlinx.coroutines.flow.Flow<List<GroupMember>>,
     onTransfer: suspend (String) -> Result<Unit>
 ) {
     var members by remember { mutableStateOf<List<GroupMember>>(emptyList()) }
@@ -54,10 +54,12 @@ internal fun GroupMembersSection(
     var busy by remember { mutableStateOf(false) }
     var transferError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
-    val latestLoad by rememberUpdatedState(loadMembers)
+    val latestLoad by rememberUpdatedState(observeMembers)
     LaunchedEffect(retry) {
         while (true) {
-            try { members = latestLoad(); error = null }
+            try {
+                latestLoad().collect { updated -> members = updated; error = null; loading = false }
+            }
             catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Exception) { error = failure.toUserMessage().body }
             loading = false

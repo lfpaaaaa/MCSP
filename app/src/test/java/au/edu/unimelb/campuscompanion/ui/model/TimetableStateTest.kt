@@ -12,7 +12,7 @@ class TimetableStateTest {
 
     @Test
     fun theOfflineNoticeNamesWhenTheShownCopyWasSaved() {
-        val state = TimetableState(isConnected = true, savedAt = savedAt, refreshError = "No connection")
+        val state = TimetableState(isConnected = true, lastSyncedAt = savedAt, isCached = true, errorMessage = "No connection")
 
         assertEquals(
             "Could not refresh the timetable. Showing the copy saved on Fri 9 Oct at 10:01 PM.",
@@ -22,7 +22,7 @@ class TimetableStateTest {
 
     @Test
     fun thereIsNoNoticeWhileTheCopyIsFreshOrNothingIsSaved() {
-        assertNull(TimetableState(isConnected = true, savedAt = savedAt).offlineNotice(melbourne))
-        assertNull(TimetableState(isConnected = true, refreshError = "No connection").offlineNotice(melbourne))
+        assertNull(TimetableState(isConnected = true, lastSyncedAt = savedAt).offlineNotice(melbourne))
+        assertNull(TimetableState(isConnected = true, isCached = true, errorMessage = "No connection").offlineNotice(melbourne))
     }
 }

@@ -61,8 +61,6 @@ import au.edu.unimelb.campuscompanion.auth.AuthViewModel
 import au.edu.unimelb.campuscompanion.auth.AuthenticatedUser
 import au.edu.unimelb.campuscompanion.auth.SupabaseProvider
 import au.edu.unimelb.campuscompanion.data.AppRepositories
-import au.edu.unimelb.campuscompanion.data.TimetableCache
-import au.edu.unimelb.campuscompanion.data.TimetableImport
 import au.edu.unimelb.campuscompanion.data.TimetableImporter
 import au.edu.unimelb.campuscompanion.data.TimetableSession
 import au.edu.unimelb.campuscompanion.data.TimetableSubscriptionStore
@@ -339,7 +337,6 @@ private fun AuthenticatedCampusApp(
     val context = LocalContext.current
     val timetableStore = remember(context) { TimetableSubscriptionStore(context) }
     val timetableImporter = remember { TimetableImporter() }
-    val timetableCache = remember(context) { TimetableCache(context) }
     val travelPreferencesStore = remember(context) { TravelPreferencesStore(context) }
     var travelPreferences by remember(user.id) {
         mutableStateOf(travelPreferencesStore.load())
@@ -802,13 +799,14 @@ private fun AuthenticatedCampusApp(
     if (showGroupSettings && selectedGroup != null && selectedPreferences != null) {
         GroupSettingsDialog(
             group = selectedGroup,
+            currentUserId = user.id,
             initialFolded = selectedGroup.id in foldedGroupIds,
             initialMuted = selectedPreferences.muted,
             initialDisplayName = selectedPreferences.displayName.ifBlank { user.profileName },
             onDismiss = { showGroupSettings = false },
             onInviteWithNfc = { startNfcShare(selectedGroup) },
             createQrInvite = { inviteRepository.createInvite(selectedGroup.id) },
-            loadMembers = { groupRepository.observeMembers(selectedGroup.id).first() },
+            observeMembers = { groupRepository.observeMembers(selectedGroup.id) },
             onTransfer = { newOwnerId ->
                 groupRepository.transferAndLeave(selectedGroup.id, newOwnerId).onSuccess {
                     showGroupSettings = false
@@ -823,21 +821,25 @@ private fun AuthenticatedCampusApp(
                     closeGroup()
                 }
             },
-            onSave = { folded, muted, displayName ->
-                val foldedOverride = foldedOverrideAfterEdit(
-                    existingOverride = selectedPreferences.foldedOverride,
-                    initialFolded = selectedGroup.id in foldedGroupIds,
-                    selectedFolded = folded
-                )
-                groupPreferencesStore.save(
-                    groupId = selectedGroup.id,
-                    foldedOverride = foldedOverride,
-                    muted = muted,
-                    displayName = displayName
-                )
-                groupPreferencesVersion += 1
-                showGroupSettings = false
-                if (folded) closeGroup()
+            onSave = { folded, muted, displayName, nicknameChanged ->
+                val result = if (nicknameChanged) groupRepository.setMyNickname(selectedGroup.id, displayName)
+                    else Result.success(displayName)
+                result.map { savedName ->
+                    val foldedOverride = foldedOverrideAfterEdit(
+                        existingOverride = selectedPreferences.foldedOverride,
+                        initialFolded = selectedGroup.id in foldedGroupIds,
+                        selectedFolded = folded
+                    )
+                    groupPreferencesStore.save(
+                        groupId = selectedGroup.id,
+                        foldedOverride = foldedOverride,
+                        muted = muted,
+                        displayName = savedName
+                    )
+                    groupPreferencesVersion += 1
+                    showGroupSettings = false
+                    if (folded) closeGroup()
+                }
             }
         )
         return
@@ -1049,10 +1051,6 @@ private fun AuthenticatedCampusApp(
                     group != null -> GroupChatScreen(
                         group = group,
                         currentUserId = user.id,
-                        myDisplayName = groupPreferences[group.id]
-                            ?.displayName
-                            ?.takeIf(String::isNotBlank)
-                            ?: user.profileName,
                         pendingDocuments = pendingDocuments,
                         pendingDocumentError = pendingDocumentError,
                         capturedCameraUri = capturedCameraUri,
@@ -1065,10 +1063,6 @@ private fun AuthenticatedCampusApp(
                     groupsStillLoading && cachedGroup != null -> GroupChatScreen(
                         group = cachedGroup,
                         currentUserId = user.id,
-                        myDisplayName = groupPreferencesStore.load(cachedGroup.id)
-                            .displayName
-                            .takeIf(String::isNotBlank)
-                            ?: user.profileName,
                         pendingDocuments = pendingDocuments,
                         pendingDocumentError = pendingDocumentError,
                         capturedCameraUri = capturedCameraUri,
@@ -1193,12 +1187,3 @@ private fun resolveDocument(
         sizeBytes = sizeBytes
     )
 }
-
-private fun TimetableImport.toTimetableState(url: String, savedAt: Instant? = null): TimetableState = TimetableState(
-    url = url,
-    sessions = sessions,
-    groups = groups,
-    detectedEventCount = sourceEventCount,
-    isConnected = true,
-    savedAt = savedAt
-)

@@ -41,9 +41,10 @@ Deno.serve(async (request) => {
     const account = parseServiceAccount(serviceAccountJson);
 
     const [message] = await sql`
-      select m.group_id, m.body, g.name as group_name, coalesce(p.display_name, 'A member') as sender_name
+      select m.group_id, m.body, g.name as group_name, coalesce(gm.nickname, p.display_name, 'A member') as sender_name
       from public.messages as m
       join public.groups as g on g.id = m.group_id
+      left join public.memberships as gm on gm.group_id = m.group_id and gm.user_id = m.sender_id
       left join public.profiles as p on p.id = m.sender_id
       where m.id = ${messageId}::uuid
     `;

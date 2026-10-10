@@ -9,6 +9,14 @@ import au.edu.unimelb.campuscompanion.data.remote.InviteRow
 
 /** Records every call and returns canned rows. Set [failure] to make every call fail. */
 class FakeGroupRemoteDataSource : GroupRemoteDataSource {
+    val memberUpdates = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 8)
+    val nicknameUpdates = mutableListOf<Pair<String, String>>()
+    override fun memberChanges(groupId: String) = memberUpdates
+    override suspend fun setMyNickname(groupId: String, nickname: String): String {
+        failIfRequested()
+        nicknameUpdates += groupId to nickname
+        return nickname
+    }
     var failure: DataError? = null
     var summaries: List<GroupSummaryRow> = emptyList()
     var members: List<GroupMemberRow> = emptyList()

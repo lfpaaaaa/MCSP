@@ -98,6 +98,12 @@ Every group gets a six-character join code when it is created (`groups.join_code
 
 The QR code (group settings > QR code) encodes the invite link `campuscompanion://join?token=…`, so it works both with the app's own scanner (Groups > Scan QR, built on ZXing) and with the phone's camera app, which opens the link in Campus Companion. The scanner also accepts a QR code that simply contains a six-character join code, and the image can be saved or shared from the dialog.
 
+### Group nicknames
+
+Group settings > Your name in this group saves a nickname for the signed-in membership (1–40 characters). Each group can have a different nickname; the account profile is unchanged. Member lists, message history, file authors and new message push previews use the group nickname, falling back to the account name when none has been set. Open chats and member lists refresh on membership updates, with a periodic retry for missed events. A failed save keeps the settings page open and displays an error.
+
+Apply migration `20261010120000_group_nicknames.sql` before installing this version, and redeploy `notify-message` when using a hosted backend so notification previews also use group nicknames.
+
 ### Travel times
 
 The `route-eta` Edge Function returns travel times for departure reminders. Walking and driving times come from the [FOSSGIS OSRM servers](https://routing.openstreetmap.de/about.html) and public transport times from [Transitous](https://transitous.org/api/); neither needs an API key. Both services are run by volunteers, so the function rounds positions to about 110 m, caches answers, starts calls to each service at least one second apart, and applies the fair-use limits in `private.route_limits`. When a limit is reached or a service is unavailable, the app falls back to a straight-line estimate, which the next-class card marks as approximate ("~12 min", "Walking (approx.)").

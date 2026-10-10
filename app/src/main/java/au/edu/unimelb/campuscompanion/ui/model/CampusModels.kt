@@ -100,5 +100,12 @@ data class TimetableState(
     val groupSyncError: String? = null,
     val isSyncingGroups: Boolean = false,
     val isCached: Boolean = false,
-    val lastSyncedAt: java.time.Instant? = null
-)
+    val lastSyncedAt: Instant? = null
+) {
+    fun offlineNotice(zone: ZoneId = ZoneId.systemDefault()): String? {
+        val saved = lastSyncedAt ?: return null
+        if (!isCached || errorMessage == null) return null
+        val formatter = DateTimeFormatter.ofPattern("EEE d MMM 'at' h:mm a", Locale.ENGLISH)
+        return "Could not refresh the timetable. Showing the copy saved on ${saved.atZone(zone).format(formatter)}."
+    }
+}

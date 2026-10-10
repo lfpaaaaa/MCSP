@@ -88,7 +88,7 @@ class DefaultChatRepository(
             clientId = newClientId(),
             groupId = groupId,
             serverId = null,
-            senderName = user.displayName,
+            senderName = memberNames[groupId]?.get(user.id) ?: user.displayName,
             body = text,
             createdAtMicros = clock().toEpochMicros(),
             status = MessageStatus.Sending.name
@@ -114,6 +114,7 @@ class DefaultChatRepository(
         dataResult { remote.insertMessage(pending.groupId, pending.clientId, pending.body) }.fold(
             onSuccess = { row ->
                 val sent = pending.copy(
+                    senderName = memberNames[pending.groupId]?.get(pending.senderId) ?: row.senderName ?: pending.senderName,
                     serverId = row.id,
                     createdAtMicros = parseTimestamp(row.createdAt).toEpochMicros(),
                     status = MessageStatus.Sent.name
@@ -135,6 +136,7 @@ class DefaultChatRepository(
     private suspend fun keepInSync(groupId: String) {
         connectionState.value = ChatConnection.Connecting
         coroutineScope {
+            launch { keepMemberNamesFresh(groupId) }
             launch { catchUpUntilSuccessful(groupId) }
             var attempt = 0
             while (true) {
@@ -174,6 +176,7 @@ class DefaultChatRepository(
     /** Fetches the messages missed since the newest cached one, or the latest page when none are cached. */
     private suspend fun catchUp(groupId: String) {
         syncLock.withLock {
+            dataResult { refreshMemberNames(groupId) }
             var cursor = messages.newest(groupId, MessageStatus.Sent.name)?.cursor()
             var pages = 0
             while (cursor != null && pages < MAX_CATCH_UP_PAGES) {
@@ -201,7 +204,7 @@ class DefaultChatRepository(
                 clientId = row.clientId,
                 groupId = row.groupId,
                 serverId = row.id,
-                senderName = row.senderName ?: cached?.senderName ?: lookUpSenderName(groupId, row.senderId),
+                senderName = memberNames[groupId]?.get(row.senderId) ?: row.senderName ?: cached?.senderName ?: lookUpSenderName(groupId, row.senderId),
                 body = row.body,
                 createdAtMicros = parseTimestamp(row.createdAt).toEpochMicros(),
                 status = MessageStatus.Sent.name
@@ -213,14 +216,33 @@ class DefaultChatRepository(
     /** Display name of a sender whose name did not come with the message, as for realtime events. */
     private suspend fun lookUpSenderName(groupId: String, senderId: String): String? {
         val user = currentUser()
-        if (user != null && user.id == senderId) return user.displayName
         memberNames[groupId]?.get(senderId)?.let { return it }
         // Unknown sender, for example someone who joined after the names were loaded.
         val names = dataResult { groups.fetchMembers(groupId) }.getOrNull()
             ?.associate { it.userId to it.displayName }
-            ?: return null
+            ?: return user?.takeIf { it.id == senderId }?.displayName
         memberNames[groupId] = names
         return names[senderId]
+    }
+
+    private suspend fun refreshMemberNames(groupId: String) {
+        val names = groups.fetchMembers(groupId).associate { it.userId to it.displayName }
+        memberNames[groupId] = names
+        names.forEach { (userId, name) -> messages.updateSenderName(groupId, userId, name) }
+    }
+
+    private suspend fun keepMemberNamesFresh(groupId: String) {
+        var attempt = 0
+        while (true) {
+            try {
+                groups.memberChanges(groupId).collect {
+                    refreshMemberNames(groupId)
+                    attempt = 0
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { /* Keep the cached names until the connection recovers. */ }
+            delay(retryDelay(++attempt))
+        }
     }
 
     private fun retryDelay(attempt: Int): Long {

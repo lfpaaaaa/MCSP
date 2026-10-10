@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.Flow
 
 /** Course groups the signed-in user belongs to. */
 interface GroupRepository {
+    suspend fun setMyNickname(groupId: String, nickname: String): Result<String>
+
     suspend fun syncTimetableGroups(specs: List<TimetableGroupSpec>): Result<Unit>
 
     /** Emits the cached list first and then every change, most recent activity first. */

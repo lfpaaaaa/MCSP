@@ -236,6 +236,33 @@ class DefaultChatRepositoryTest {
         assertEquals(1, remote.stored.size)
     }
 
+    @Test
+    fun nicknameChangesUpdateExistingAndNewMessagesOnlyInTheirGroup() = runBlocking<Unit> {
+        groups.members = listOf(GroupMemberRow("user-2", "Bob", role = "member", joinedAt = "2026-09-25T00:00:00Z"))
+        remote.stored += messageRow(1)
+        dao.upsert(listOf(sentEntity(messageRow(9).copy(groupId = "another-group"))))
+        observing {
+            awaitShown { it.size == 1 }
+            groups.memberUpdates.subscriptionCount.first { it > 0 }
+            groups.members = groups.members.map { it.copy(displayName = "Tutorial Bob") }
+            groups.memberUpdates.emit(Unit)
+            awaitShown { it.singleOrNull()?.senderName == "Tutorial Bob" }
+            assertEquals("Bob", dao.all.single { it.groupId == "another-group" }.senderName)
+            remote.events.emit(ChatEvent.Inserted(messageRow(2, senderName = null)))
+            assertEquals(listOf("Tutorial Bob", "Tutorial Bob"), awaitShown { it.size == 2 }.map { it.senderName })
+        }
+    }
+
+    @Test
+    fun ownMessagesUseGroupNicknameInsteadOfProfileName() = runBlocking<Unit> {
+        groups.members = listOf(GroupMemberRow(SELF_ID, "Tutorial Cedric", role = "member", joinedAt = "2026-09-25T00:00:00Z"))
+        observing {
+            awaitConnection(ChatConnection.Live)
+            val message = repository.sendMessage(CHAT_GROUP_ID, "Hello").getOrThrow()
+            assertEquals("Tutorial Cedric", message.senderName)
+        }
+    }
+
     /** Runs [block] while the chat is open on screen, and fails if it takes more than five seconds. */
     private suspend fun observing(block: suspend CoroutineScope.() -> Unit) = coroutineScope {
         val screen = launch { repository.observeMessages(CHAT_GROUP_ID).collect { shown.value = it } }

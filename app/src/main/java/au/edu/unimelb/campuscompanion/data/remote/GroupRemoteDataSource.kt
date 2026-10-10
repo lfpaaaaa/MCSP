@@ -7,6 +7,9 @@ import au.edu.unimelb.campuscompanion.data.model.TimetableGroupSpec
  * [au.edu.unimelb.campuscompanion.data.DataError] when a call fails.
  */
 interface GroupRemoteDataSource {
+    suspend fun setMyNickname(groupId: String, nickname: String): String
+    fun memberChanges(groupId: String): kotlinx.coroutines.flow.Flow<Unit>
+
     suspend fun syncTimetableGroups(specs: List<TimetableGroupSpec>): List<GroupRow>
 
     /** Groups of the signed-in user with member counts, unread counts and latest activity. */
