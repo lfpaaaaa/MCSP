@@ -16,6 +16,9 @@ interface GroupRepository {
     /** Emits the cached list first and then every change, most recent activity first. */
     fun observeMyGroups(): Flow<List<GroupSummary>>
 
+    /** Drops session memory on sign-out; server records and per-user disk caches remain. */
+    fun clearSession() {}
+
     /** Fetches the latest group list from the server. */
     suspend fun refresh(): Result<Unit>
 

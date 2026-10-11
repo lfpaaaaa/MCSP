@@ -1,5 +1,7 @@
 package au.edu.unimelb.campuscompanion.ui
 
+import au.edu.unimelb.campuscompanion.ui.model.trimTrailingCommas
+import au.edu.unimelb.campuscompanion.ui.model.CourseSession
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
@@ -68,6 +70,8 @@ import au.edu.unimelb.campuscompanion.data.TravelPreferences
 import au.edu.unimelb.campuscompanion.data.TravelPreferencesStore
 import au.edu.unimelb.campuscompanion.data.toUserMessage
 import au.edu.unimelb.campuscompanion.data.model.Group
+import au.edu.unimelb.campuscompanion.navigation.openGoogleMaps
+import au.edu.unimelb.campuscompanion.navigation.toClassDestination
 import au.edu.unimelb.campuscompanion.data.model.GroupSummary
 import au.edu.unimelb.campuscompanion.nfc.NfcInviteHostSession
 import au.edu.unimelb.campuscompanion.nfc.NfcInviteReader
@@ -98,6 +102,7 @@ import au.edu.unimelb.campuscompanion.ui.screens.GroupChatScreen
 import au.edu.unimelb.campuscompanion.ui.screens.GroupSettingsDialog
 import au.edu.unimelb.campuscompanion.ui.screens.GroupsScreen
 import au.edu.unimelb.campuscompanion.ui.screens.HomeScreen
+import au.edu.unimelb.campuscompanion.ui.screens.selectTravelSummary
 import au.edu.unimelb.campuscompanion.ui.screens.LoginScreen
 import au.edu.unimelb.campuscompanion.ui.screens.NfcShareDialog
 import au.edu.unimelb.campuscompanion.ui.screens.ProfileScreen
@@ -115,6 +120,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private const val GROUP_CHAT_ROUTE = "group_chat/{groupId}"
+private const val CLASS_NAVIGATION_ROUTE = "class_navigation"
+private const val EDIT_PROFILE_ROUTE = "edit_profile"
 private const val COURSE_REMINDERS_ROUTE = "course_reminders"
 
 private fun groupChatRoute(groupId: String): String = "group_chat/${Uri.encode(groupId)}"
@@ -124,6 +131,7 @@ private fun groupChatRoute(groupId: String): String = "group_chat/${Uri.encode(g
 @Composable
 fun CampusCompanionApp(authViewModel: AuthViewModel) {
     val authState by authViewModel.uiState.collectAsState()
+    val profileSaveState by authViewModel.profileState.collectAsState()
     val context = LocalContext.current
     var openGroupId by rememberSaveable { mutableStateOf<String?>(null) }
     var openGroupCourseCode by rememberSaveable { mutableStateOf<String?>(null) }
@@ -204,7 +212,6 @@ fun CampusCompanionApp(authViewModel: AuthViewModel) {
             unreadCount = 0,
             latestMessage = openGroupLatestMessage,
             latestFileName = null,
-            privateContentEnabled = false,
             origin = GroupOrigin.entries.firstOrNull { it.name == openGroupOrigin }
                 ?: GroupOrigin.Timetable
         )
@@ -276,6 +283,9 @@ fun CampusCompanionApp(authViewModel: AuthViewModel) {
             )
             else -> AuthenticatedCampusApp(
                 user = user,
+                profileSaveState = profileSaveState,
+                onSaveProfile = { name, photo, remove -> authViewModel.saveProfile(context, name, photo, remove) },
+                onClearProfileMessage = authViewModel::clearProfileMessage,
                 openGroupId = openGroupId,
                 restoredGroup = restoredGroup,
                 pendingDocuments = pendingDocuments.takeIf {
@@ -320,6 +330,9 @@ fun CampusCompanionApp(authViewModel: AuthViewModel) {
 @Composable
 private fun AuthenticatedCampusApp(
     user: AuthenticatedUser,
+    profileSaveState: au.edu.unimelb.campuscompanion.profile.ProfileSaveState,
+    onSaveProfile: (String, Uri?, Boolean) -> Unit,
+    onClearProfileMessage: () -> Unit,
     openGroupId: String?,
     restoredGroup: CourseGroup?,
     pendingDocuments: List<PendingDocument>,
@@ -362,9 +375,7 @@ private fun AuthenticatedCampusApp(
     LaunchedEffect(timetableState.sessions) {
         travel.updateSessions(timetableState.sessions)
     }
-    DisposableEffect(travel) {
-        onDispose { travel.updateSessions(emptyList()) }
-    }
+    // The application owns reminders; leaving/destroying this screen must not clear the timetable.
     // The screens see the next class with its travel time filled in.
     val displayedTimetable = remember(timetableState, travelSnapshot) {
         timetableState.copy(sessions = travelSnapshot.applyTo(timetableState.sessions))
@@ -411,7 +422,7 @@ private fun AuthenticatedCampusApp(
         mutableStateOf<NfcShareUiState>(NfcShareUiState.Idle)
     }
     // Null until the repository has a list: the copy saved on the device or the first refresh.
-    val syncedGroupSummaries by groupRepository.observeMyGroups()
+    val syncedGroupSummaries by remember(user.id, groupRepository) { groupRepository.observeMyGroups() }
         .collectAsState(initial = null)
     var groupSyncReady by remember(user.id) { mutableStateOf(false) }
     LaunchedEffect(syncedGroupSummaries) {
@@ -526,7 +537,20 @@ private fun AuthenticatedCampusApp(
     val currentScreen = destinations.firstOrNull { it.route == currentRoute } ?: homeDestination
     val isGroupChat = currentRoute == GROUP_CHAT_ROUTE
     val isCourseReminderSettings = currentRoute == COURSE_REMINDERS_ROUTE
-    val isDetailScreen = isGroupChat || isCourseReminderSettings
+    val isClassNavigation = currentRoute == CLASS_NAVIGATION_ROUTE
+    val isEditingProfile = currentRoute == EDIT_PROFILE_ROUTE
+    val isDetailScreen = isGroupChat || isCourseReminderSettings || isClassNavigation || isEditingProfile
+    fun navigateToClass(session: CourseSession) {
+        val building = au.edu.unimelb.campuscompanion.context.BuildingResolver.resolve(session, AppRepositories.buildings)
+        if (building == null) {
+            android.widget.Toast.makeText(context, "The timetable location could not be matched to a teaching building.", android.widget.Toast.LENGTH_LONG).show()
+            return
+        }
+        val destination = session.toClassDestination(building)
+        // Changing the destination cancels any separately selected transit reminder journey.
+        AppRepositories.navigation.open(destination)
+        openGoogleMaps(context, destination, selectTravelSummary(session, travelPreferences).mode ?: travelPreferences.longerDistanceMode)
+    }
     var showGroupSettings by rememberSaveable { mutableStateOf(false) }
     val selectedGroup = backStackEntry
         ?.arguments
@@ -715,6 +739,10 @@ private fun AuthenticatedCampusApp(
     LaunchedEffect(tappedNotification, allGroups, groupSyncReady) {
         when (val target = tappedNotification) {
             null -> Unit
+            is NotificationTaps.Target.Navigation -> {
+                NotificationTaps.clear()
+                navController.navigate(CLASS_NAVIGATION_ROUTE) { launchSingleTop = true }
+            }
             is NotificationTaps.Target.Schedule -> {
                 NotificationTaps.clear()
                 navigateToDestination(CampusDestination.Schedule.route)
@@ -859,6 +887,10 @@ private fun AuthenticatedCampusApp(
                                 )
                             }
                         }
+                    } else if (isEditingProfile) {
+                        Text("Edit profile")
+                    } else if (isClassNavigation) {
+                        Text("Class navigation")
                     } else if (isCourseReminderSettings) {
                         Text("Departure reminders")
                     } else {
@@ -873,11 +905,11 @@ private fun AuthenticatedCampusApp(
                                 contentDescription = "Back to groups"
                             )
                         }
-                    } else if (isCourseReminderSettings) {
-                        IconButton(onClick = { navController.navigateUp() }) {
+                    } else if (isCourseReminderSettings || isClassNavigation || isEditingProfile) {
+                        IconButton(enabled = !isEditingProfile || !profileSaveState.saving, onClick = { navController.navigateUp() }) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                                contentDescription = "Back to schedule"
+                                contentDescription = if (isEditingProfile) "Back to profile" else if (isClassNavigation) "Back" else "Back to schedule"
                             )
                         }
                     }
@@ -938,6 +970,7 @@ private fun AuthenticatedCampusApp(
                             .sortedBy { group -> group.origin == GroupOrigin.Timetable }
                     ),
                     travelPreferences = travelPreferences,
+                    onNavigate = ::navigateToClass,
                     onTimetableUrlSave = connectTimetable,
                     onTimetableRefresh = refreshTimetable,
                     onOpenGroup = { group ->
@@ -950,6 +983,7 @@ private fun AuthenticatedCampusApp(
                     timetableState = displayedTimetable,
                     onTimetableUrlSave = connectTimetable,
                     onTimetableRefresh = refreshTimetable,
+                    onNavigate = ::navigateToClass,
                     reminderCourseCount = reminderCourses.size,
                     enabledReminderCount = courseReminderPreferences.values.count { it.enabled },
                     onOpenDepartureReminders = {
@@ -958,6 +992,9 @@ private fun AuthenticatedCampusApp(
                         }
                     }
                 )
+            }
+            composable(CLASS_NAVIGATION_ROUTE) {
+                au.edu.unimelb.campuscompanion.ui.screens.ClassNavigationScreen()
             }
             composable(COURSE_REMINDERS_ROUTE) {
                 CourseReminderSettingsScreen(
@@ -1072,9 +1109,25 @@ private fun AuthenticatedCampusApp(
                     }
                 }
             }
+            composable(EDIT_PROFILE_ROUTE) {
+                au.edu.unimelb.campuscompanion.ui.screens.EditProfileScreen(
+                    user = user, state = profileSaveState, onSave = onSaveProfile,
+                    onClearError = onClearProfileMessage,
+                    onCancel = { navController.navigateUp() },
+                    onSaved = {
+                        onClearProfileMessage()
+                        navController.navigateUp()
+                        android.widget.Toast.makeText(context, "Profile updated", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                )
+            }
             composable(CampusDestination.Profile.route) {
                 ProfileScreen(
                     user = user,
+                    onEditProfile = {
+                        onClearProfileMessage()
+                        navController.navigate(EDIT_PROFILE_ROUTE) { launchSingleTop = true }
+                    },
                     timetableState = timetableState,
                     travelPreferences = travelPreferences,
                     onTimetableUrlSave = connectTimetable,
@@ -1097,7 +1150,6 @@ private fun Group.toCourseGroup(currentUserId: String, memberCount: Int): Course
     unreadCount = 0,
     latestMessage = "No messages yet.",
     latestFileName = null,
-    privateContentEnabled = privateContentEnabled,
     origin = if (createdBy == currentUserId) GroupOrigin.CreatedByUser else GroupOrigin.Joined,
     joinCode = joinCode
 )
@@ -1105,12 +1157,11 @@ private fun Group.toCourseGroup(currentUserId: String, memberCount: Int): Course
 private fun GroupSummary.toCourseGroup(currentUserId: String): CourseGroup = CourseGroup(
     id = group.id,
     courseCode = group.courseCode.orEmpty(),
-    name = group.name,
+    name = if (group.timetableKey != null) group.name.trimTrailingCommas() else group.name,
     members = memberCount,
     unreadCount = unreadCount,
     latestMessage = latestMessagePreview ?: "No messages yet.",
     latestFileName = latestFileName,
-    privateContentEnabled = group.privateContentEnabled,
     origin = if (group.timetableKey != null) {
         GroupOrigin.Timetable
     } else if (myRole == au.edu.unimelb.campuscompanion.data.model.GroupRole.Owner) {

@@ -66,12 +66,16 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.material3.Switch
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -129,6 +133,11 @@ private data class LocalAttachment(
     val uri: Uri,
     val displayName: String,
     val kind: AttachmentKind
+)
+
+private val localAttachmentSaver = listSaver<LocalAttachment?, String>(
+    save = { attachment -> attachment?.let { listOf(it.uri.toString(), it.displayName, it.kind.name) } ?: emptyList() },
+    restore = { values -> if (values.size == 3) LocalAttachment(Uri.parse(values[0]), values[1], AttachmentKind.valueOf(values[2])) else null }
 )
 
 private enum class AttachmentKind {
@@ -209,10 +218,14 @@ fun GroupChatScreen(
     }
     LaunchedEffect(group.id, sharedIds) { uploadQueue.acknowledge(sharedIds) }
     var selectedFile by remember(group.id) { mutableStateOf<SharedFile?>(null) }
-    selectedFile?.let { file -> ChatAttachmentViewer(file, onDismiss = { selectedFile = null }) }
+    selectedFile?.let { file -> ChatAttachmentViewer(file, currentUserId, onDismiss = { selectedFile = null }) }
 
     var draft by rememberSaveable(group.id) { mutableStateOf("") }
-    var localAttachment by remember(group.id) { mutableStateOf<LocalAttachment?>(null) }
+    var localAttachment by rememberSaveable(group.id, stateSaver = localAttachmentSaver) { mutableStateOf<LocalAttachment?>(null) }
+    var blockedDownloadUris by rememberSaveable(group.id) { mutableStateOf(arrayListOf<String>()) }
+    fun setDownloadAllowed(uri: String, allowed: Boolean) {
+        blockedDownloadUris = ArrayList(if (allowed) blockedDownloadUris - uri else (blockedDownloadUris + uri).distinct())
+    }
     var showAttachmentSheet by remember { mutableStateOf(false) }
     var cameraPermissionDenied by remember { mutableStateOf(false) }
     val attachmentSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -221,7 +234,7 @@ fun GroupChatScreen(
     // Persist the URI before reading bytes; uploads survive leaving the chat and can be retried.
     fun uploadFromUri(uri: Uri, fallbackName: String, fallbackType: String = "application/octet-stream") {
         uploadQueue.enqueue(group.id, uri.toString(), fallbackName,
-            context.contentResolver.getType(uri) ?: fallbackType)
+            context.contentResolver.getType(uri) ?: fallbackType, allowDownloads = uri.toString() !in blockedDownloadUris)
     }
 
     fun sendDraft() {
@@ -245,6 +258,7 @@ fun GroupChatScreen(
         }
         draft = ""
         localAttachment = null
+        blockedDownloadUris = arrayListOf()
         onPendingDocumentsCleared()
         focusManager.clearFocus()
     }
@@ -289,16 +303,11 @@ fun GroupChatScreen(
         }
     }
 
-    // Camera confirmation sends the original photo immediately through the persistent queue.
+    // Stage captured photos as well, so consent is chosen before the original bytes are sent.
     LaunchedEffect(group.id, capturedCameraUri) {
         val uri = capturedCameraUri?.let(Uri::parse) ?: return@LaunchedEffect
         val fileName = "Photo ${LocalDateTime.now().format(photoNameFormatter)}.jpg"
-        try {
-            uploadFromUri(uri, fileName, "image/jpeg")
-        } catch (error: Exception) {
-            stageAttachment(uri, fileName, AttachmentKind.Camera)
-            session.report(error)
-        }
+        stageAttachment(uri, fileName, AttachmentKind.Camera)
         onCapturedCameraPhotoConsumed()
     }
 
@@ -466,7 +475,12 @@ fun GroupChatScreen(
                                     displayName = document.displayName,
                                     kind = AttachmentKind.File,
                                     sizeBytes = document.sizeBytes,
-                                    onRemove = { onPendingDocumentRemoved(document.uri) }
+                                    allowDownloads = document.uri !in blockedDownloadUris,
+                                    onAllowDownloadsChange = { setDownloadAllowed(document.uri, it) },
+                                    onRemove = {
+                                        setDownloadAllowed(document.uri, true)
+                                        onPendingDocumentRemoved(document.uri)
+                                    }
                                 )
                             }
                             localAttachment?.let { attachment ->
@@ -475,7 +489,12 @@ fun GroupChatScreen(
                                         displayName = attachment.displayName,
                                         kind = attachment.kind,
                                         sizeBytes = null,
-                                        onRemove = { localAttachment = null }
+                                        allowDownloads = attachment.uri.toString() !in blockedDownloadUris,
+                                        onAllowDownloadsChange = { setDownloadAllowed(attachment.uri.toString(), it) },
+                                        onRemove = {
+                                            setDownloadAllowed(attachment.uri.toString(), true)
+                                            localAttachment = null
+                                        }
                                     )
                                 }
                             }
@@ -730,7 +749,7 @@ private fun FileBubble(
 ) {
     val file = item.file
     val isMine = item.isMine
-    val isImage = file.mimeType.startsWith("image/") && !file.isPrivate
+    val isImage = file.mimeType.startsWith("image/")
     val thumbnail by produceState<ImageBitmap?>(initialValue = null, key1 = file.id, key2 = isImage) {
         value = if (isImage) images.load(file.id) else null
     }
@@ -810,6 +829,13 @@ private fun FileBubble(
                         )
                     }
                 }
+                if (!file.allowDownloads) {
+                    Text(
+                        text = if (isMine) "Downloads disabled for others" else "Preview only",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = contentColor.copy(alpha = 0.78f)
+                    )
+                }
                 Text(
                     text = formatTime(file.createdAt),
                     modifier = Modifier.align(Alignment.End),
@@ -862,49 +888,32 @@ private fun PendingAttachment(
     displayName: String,
     kind: AttachmentKind,
     sizeBytes: Long?,
+    allowDownloads: Boolean,
+    onAllowDownloadsChange: (Boolean) -> Unit,
     onRemove: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(
-        modifier = modifier.widthIn(min = 180.dp, max = 240.dp),
+        modifier = modifier.width(240.dp),
         shape = RoundedCornerShape(6.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHigh
     ) {
-        Row(
-            modifier = Modifier.padding(start = 10.dp, top = 6.dp, bottom = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Icon(
-                imageVector = kind.icon(),
-                contentDescription = null,
-                modifier = Modifier.size(24.dp),
-                tint = MaterialTheme.colorScheme.primary
-            )
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = displayName,
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = sizeBytes
-                        ?.takeIf { it >= 0L }
-                        ?.let { "${formatFileSize(it)} - Ready to send" }
-                        ?: "Ready to send",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(kind.icon(), contentDescription = null, modifier = Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
+                Column(Modifier.weight(1f)) {
+                    Text(displayName, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(sizeBytes?.takeIf { it >= 0L }?.let { "${formatFileSize(it)} · Ready to send" } ?: "Ready to send",
+                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                IconButton(onClick = onRemove, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Outlined.Close, contentDescription = "Remove attachment")
+                }
             }
-            IconButton(
-                onClick = onRemove,
-                modifier = Modifier.size(40.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Close,
-                    contentDescription = "Remove attachment"
-                )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Allow others to download", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                Switch(checked = allowDownloads, onCheckedChange = onAllowDownloadsChange,
+                    modifier = Modifier.semantics { contentDescription = "Allow others to download $displayName" })
             }
         }
     }

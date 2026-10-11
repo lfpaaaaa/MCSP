@@ -34,8 +34,13 @@ suspend fun readAttachment(context: Context, uri: String): ByteArray = withConte
 }
 
 /** A fresh signed URL re-checks permission every time, even if a downloaded copy exists. */
-suspend fun downloadAttachment(context: Context, repository: FileRepository, file: SharedFile): File {
-    val url = repository.createDownloadUrl(file.id).getOrThrow()
+suspend fun downloadAttachment(
+    context: Context,
+    repository: FileRepository,
+    file: SharedFile,
+    forDownload: Boolean = false
+): File {
+    val url = (if (forDownload) repository.createDownloadUrl(file.id) else repository.createPreviewUrl(file.id)).getOrThrow()
     return withContext(Dispatchers.IO) {
         val directory = File(context.cacheDir, "group-downloads").apply { mkdirs() }
         val target = File(directory, file.id.replace(Regex("[^A-Za-z0-9-]"), "_"))

@@ -17,7 +17,6 @@ data class Group(
     val id: String,
     val name: String,
     val courseCode: String?,
-    val privateContentEnabled: Boolean,
     val createdBy: String?,
     val createdAt: Instant,
     /** Shown to members so that they can pass it on; null only for data from older servers. */

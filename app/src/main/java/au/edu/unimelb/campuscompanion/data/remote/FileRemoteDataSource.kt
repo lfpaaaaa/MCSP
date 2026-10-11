@@ -16,8 +16,8 @@ data class SharedFileRow(
     @SerialName("mime_type") val mimeType: String,
     @SerialName("size_bytes") val sizeBytes: Long,
     @SerialName("storage_path") val storagePath: String,
-    @SerialName("is_private") val isPrivate: Boolean = false,
-    @SerialName("created_at") val createdAt: String
+    @SerialName("created_at") val createdAt: String,
+    @SerialName("allow_downloads") val allowDownloads: Boolean = true
 )
 
 /** An uploaded object that still needs its file record. */
@@ -27,7 +27,7 @@ data class NewFileRecord(
     val mimeType: String,
     val sizeBytes: Long,
     val storagePath: String,
-    val isPrivate: Boolean
+    val allowDownloads: Boolean = true
 )
 
 /** The row as the screens use it; a missing uploader name is shown as "Group member". */
@@ -39,8 +39,8 @@ fun SharedFileRow.toModel(): SharedFile = SharedFile(
     fileName = fileName,
     mimeType = mimeType,
     sizeBytes = sizeBytes,
-    isPrivate = isPrivate,
-    createdAt = parseTimestamp(createdAt)
+    createdAt = parseTimestamp(createdAt),
+    allowDownloads = allowDownloads
 )
 
 private const val UNKNOWN_UPLOADER_NAME = "Group member"
@@ -64,8 +64,8 @@ interface FileRemoteDataSource {
 
     suspend fun deleteObject(path: String)
 
-    /** A download link for [path] that stops working after [expiresInSeconds]. */
-    suspend fun createSignedUrl(path: String, expiresInSeconds: Long): String
+    /** Server-authorized preview or download link; the server chooses its short lifetime. */
+    suspend fun createAccessUrl(fileId: String, forDownload: Boolean): String
 
     /** Emits when [groupId] may have new files: after every (re)connection and every added file. */
     fun fileChanges(groupId: String): Flow<Unit>

@@ -62,6 +62,7 @@ import kotlin.math.roundToInt
 @Composable
 fun ProfileScreen(
     user: AuthenticatedUser,
+    onEditProfile: () -> Unit,
     timetableState: TimetableState,
     travelPreferences: TravelPreferences,
     onTimetableUrlSave: suspend (String) -> Result<Unit>,
@@ -141,6 +142,7 @@ fun ProfileScreen(
                 modifier = Modifier.padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                au.edu.unimelb.campuscompanion.ui.profile.ProfileAvatar(user.profileName, user.avatarUrl, Modifier.size(72.dp))
                 Text(
                     text = user.profileName,
                     style = MaterialTheme.typography.headlineSmall,
@@ -156,6 +158,10 @@ fun ProfileScreen(
                     text = "${user.provider.displayName} account",
                     tint = MaterialTheme.colorScheme.onSecondaryContainer
                 )
+                OutlinedButton(onClick = onEditProfile) {
+                    Icon(Icons.Outlined.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Text("Edit profile", modifier = Modifier.padding(start = 8.dp))
+                }
             }
         }
 

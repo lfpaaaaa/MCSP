@@ -34,7 +34,8 @@ data class AttachmentUpload(
     val phase: AttachmentPhase = AttachmentPhase.Uploading,
     val progress: Float = 0f,
     val fileId: String? = null,
-    val error: String? = null
+    val error: String? = null,
+    val allowDownloads: Boolean = true
 )
 
 /** App-owned delivery; interrupted uploads survive restart as retryable items. */
@@ -55,10 +56,10 @@ class AttachmentUploadQueue(
     private val transferSlots = Semaphore(1) // Bound memory: existing storage API takes a byte array.
 
     @Synchronized
-    fun enqueue(groupId: String, uri: String, name: String, type: String) {
+    fun enqueue(groupId: String, uri: String, name: String, type: String, allowDownloads: Boolean = true) {
         val userId = currentUserId() ?: throw DataError.Unauthenticated()
         val task = AttachmentUpload(UUID.randomUUID().toString(), userId, groupId, uri,
-            name, type, Instant.now().toString())
+            name, type, Instant.now().toString(), allowDownloads = allowDownloads)
         state.update { it + task }
         persist(state.value)
         deliver(task)
@@ -97,7 +98,7 @@ class AttachmentUploadQueue(
                     if (currentUserId() != task.userId) throw DataError.Unauthenticated()
                     val bytes = readBytes(task.uri)
                     if (currentUserId() != task.userId) throw DataError.Unauthenticated()
-                    files.uploadFile(task.groupId, task.fileName, task.mimeType, bytes).collect { result ->
+                    files.uploadFile(task.groupId, task.fileName, task.mimeType, bytes, task.allowDownloads).collect { result ->
                         when (result) {
                             is UploadState.InProgress -> update(task.copy(progress = result.fraction), save = false)
                             is UploadState.Failed -> update(task.copy(phase = AttachmentPhase.Failed,

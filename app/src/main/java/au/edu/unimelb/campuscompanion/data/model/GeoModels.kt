@@ -19,6 +19,9 @@ enum class EstimateSource {
     /** Returned by the online routing service. */
     Routing,
 
+    /** Returned by Google Routes for the next class. */
+    GoogleMaps,
+
     /** Computed on the device from the straight-line distance when routing is unavailable. */
     StraightLine
 }

@@ -38,7 +38,7 @@ class TimetableCacheTest {
             tutorial.timetableGroupSpec()!!, workshop.timetableGroupSpec()!!)
         return TimetableImport(listOf(tutorial, workshop), specs.map { spec ->
             CourseGroup(spec.key, spec.courseCode, spec.name, 0, 0,
-                "Added from your connected timetable.", null, false,
+                "Added from your connected timetable.", null,
                 timetableKey = spec.key, timetableSlot = spec.slotLabel(), timetableSpec = spec)
         }, 2)
     }

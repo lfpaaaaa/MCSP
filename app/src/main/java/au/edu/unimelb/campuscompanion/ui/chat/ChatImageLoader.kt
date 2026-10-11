@@ -42,7 +42,7 @@ class ChatImageLoader(
     }
 
     private suspend fun fetch(fileId: String): ImageBitmap? {
-        val url = files.createDownloadUrl(fileId).getOrNull() ?: return null
+        val url = files.createPreviewUrl(fileId).getOrNull() ?: return null
         val bytes = download(url) ?: return null
         return decode(bytes)
     }

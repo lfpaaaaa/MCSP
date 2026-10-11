@@ -72,6 +72,8 @@ object AppRepositories {
     val joinLinks = JoinLinkInbox()
 
     private lateinit var appContext: Context
+    private var timetableUserId: String? = null
+    private val departureHistory by lazy { au.edu.unimelb.campuscompanion.push.DepartureReminderHistory(appContext) }
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /** Work that should finish even when the screen that started it goes away, such as file uploads. */
@@ -81,6 +83,9 @@ object AppRepositories {
     /** Prepares the on-device cache. Called once from the application's onCreate. */
     fun init(context: Context) {
         appContext = context.applicationContext
+        // An interrupted process cannot keep tracking its in-memory route.
+        au.edu.unimelb.campuscompanion.navigation.TransitNotifier.tracking(appContext, false)
+        au.edu.unimelb.campuscompanion.navigation.TransitNotifier.cancelAlert(appContext)
         applicationScope.launch {
             // Messages that were still sending when the app stopped can now be retried by the user.
             database.messageDao().replaceStatus(MessageStatus.Sending.name, MessageStatus.Failed.name)
@@ -93,16 +98,35 @@ object AppRepositories {
                 preferences = ::courseReminderPreference,
                 notify = { reminder -> DepartureNotifier.show(appContext, reminder) },
                 preferenceChanges = CourseReminderPreferencesStore.changes.map { Unit },
-                cancelCourse = { key -> DepartureNotifier.cancelCourse(appContext, key) }
+                cancelCourse = { key -> DepartureNotifier.cancelCourse(appContext, key) },
+                wasSent = { session, state -> SupabaseProvider.client?.auth?.currentUserOrNull()?.id?.let {
+                    departureHistory.wasSent(it, session, state)
+                } ?: true },
+                rememberSent = { session, state -> SupabaseProvider.client?.auth?.currentUserOrNull()?.id?.let {
+                    departureHistory.record(it, session, state)
+                }; Unit }
             ).run()
         }
         SupabaseProvider.client?.let { client ->
             applicationScope.launch {
                 client.auth.sessionStatus.collect { status ->
                     when (status) {
-                        is SessionStatus.Authenticated -> push.onSignedIn()
+                        is SessionStatus.Authenticated -> {
+                            val userId = client.auth.currentUserOrNull()?.id
+                            if (userId != timetableUserId) {
+                                timetableUserId = userId
+                                travel.updateSessions(userId?.let { TimetableSubscriptionStore(appContext).load(it).timetable?.sessions }.orEmpty())
+                            }
+                            push.onSignedIn()
+                        }
                         // Cached group data belongs to the user who was signed in.
-                        is SessionStatus.NotAuthenticated -> database.messageDao().deleteAll()
+                        is SessionStatus.NotAuthenticated -> {
+                            groups.clearSession()
+                            database.messageDao().deleteAll()
+                            navigation.clear()
+                            timetableUserId = null
+                            travel.updateSessions(emptyList())
+                        }
                         else -> Unit
                     }
                 }
@@ -189,13 +213,25 @@ object AppRepositories {
             onCompleted = { groups.refresh() })
     }
 
+    val buildings by lazy { BuildingLocationRepository(appContext) }
+
+    val navigation by lazy {
+        au.edu.unimelb.campuscompanion.navigation.NavigationSession(
+            au.edu.unimelb.campuscompanion.navigation.GoogleRouteRepository(SupabaseProvider.client),
+            applicationScope,
+            onAlert = { au.edu.unimelb.campuscompanion.navigation.TransitNotifier.show(appContext, it) },
+            onStop = { au.edu.unimelb.campuscompanion.navigation.TransitNotifier.cancelAlert(appContext) },
+            onActiveChanged = { au.edu.unimelb.campuscompanion.navigation.TransitNotifier.tracking(appContext, it) }
+        )
+    }
+
     /** One shared instance, so its cache and request limits apply across all screens. */
     val eta: EtaRepository by lazy {
         val client = SupabaseProvider.client
         if (client == null) {
             FakeEtaRepository()
         } else {
-            RoutedEtaRepository(SupabaseRouteDataSource(client))
+            RoutedEtaRepository(au.edu.unimelb.campuscompanion.data.remote.GoogleEtaDataSource(client, SupabaseRouteDataSource(client)))
         }
     }
 
@@ -225,7 +261,7 @@ object AppRepositories {
     val travel: TravelEngine by lazy {
         TravelEngine(
             eta = eta,
-            buildings = BuildingLocationRepository(appContext),
+            buildings = buildings,
             preferences = { TravelPreferencesStore(appContext).load() },
             weather = weather,
             reminderPreference = ::courseReminderPreference,

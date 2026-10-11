@@ -177,10 +177,10 @@ private fun PrivacyNote(modifier: Modifier = Modifier) {
                 style = MaterialTheme.typography.labelLarge
             )
             Text(
-                text = "Your position is used on this phone. To work out a travel time, the app sends the " +
-                    "start and end points to its own server, which rounds them to about 110 m before " +
-                    "asking the routing service and keeps a count of requests, not the positions. " +
-                    "Your location history never leaves the phone.",
+                text = "Your current position updates travel times and departure reminders. Home sends " +
+                    "points rounded to about 110 m through our server to Google Maps or the fallback router. " +
+                    "An explicit navigation request sends precise start and end points to Google. " +
+                    "Notifications are calculated on this phone; we do not store a location history.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

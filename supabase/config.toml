@@ -435,3 +435,11 @@ enabled = true
 # notify-message is called by the database (pg_net) with a shared key instead of a user JWT.
 [functions.notify-message]
 verify_jwt = false
+
+# google-routes verifies the bearer token with Auth /user (also supports signing-key JWTs).
+[functions.google-routes]
+verify_jwt = false
+
+# group-file-url verifies the JWT with Auth, then checks membership and download consent.
+[functions.group-file-url]
+verify_jwt = false

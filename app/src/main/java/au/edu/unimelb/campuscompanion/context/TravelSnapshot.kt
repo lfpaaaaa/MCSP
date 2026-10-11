@@ -24,7 +24,9 @@ data class TravelSnapshot(
     /** Weather at the class's building, when it could be fetched. */
     val weather: WeatherSnapshot? = null,
     /** Extra minutes added to the departure buffer because of the weather. */
-    val weatherBufferMinutes: Int = 0
+    val weatherBufferMinutes: Int = 0,
+    /** Clock used for this position/ETA calculation, including second-accurate reminder boundaries. */
+    val evaluatedAt: java.time.Instant? = null
 ) {
     /** The sessions with the tracked one carrying its travel time and route, for the screens. */
     fun applyTo(sessions: List<CourseSession>): List<CourseSession> {
@@ -36,7 +38,8 @@ data class TravelSnapshot(
             walkingMinutes = minutes.takeIf { travel.mode == TravelMode.Walking },
             publicTransportMinutes = minutes.takeIf { travel.mode == TravelMode.PublicTransport },
             drivingMinutes = minutes.takeIf { travel.mode == TravelMode.Driving },
-            isApproximate = travel.isApproximate
+            isApproximate = travel.isApproximate,
+            source = travel.source
         )
         return sessions.map { current ->
             if (current.id == tracked.id) current.copy(etaMinutes = minutes, routeEstimate = route) else current

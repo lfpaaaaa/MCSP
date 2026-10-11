@@ -65,7 +65,7 @@ class DefaultFileRepository(
         fileName: String,
         mimeType: String,
         bytes: ByteArray,
-        isPrivate: Boolean
+        allowDownloads: Boolean
     ): Flow<UploadState> = flow {
         val name = fileName.trim()
         if (bytes.isEmpty() || bytes.size > FileRepository.MAX_FILE_SIZE_BYTES) {
@@ -91,7 +91,7 @@ class DefaultFileRepository(
             emit(UploadState.InProgress(bytesSent = sent.coerceIn(0, total), totalBytes = total))
         }
         val inserted = try {
-            remote.insertFileRecord(NewFileRecord(groupId, name, type, total, path, isPrivate))
+            remote.insertFileRecord(NewFileRecord(groupId, name, type, total, path, allowDownloads))
         } catch (error: Throwable) {
             if (error !is CancellationException) {
                 // Without a record nobody could reach the object, so it is removed again.
@@ -104,9 +104,20 @@ class DefaultFileRepository(
         emit(UploadState.Completed(row.toModel()))
     }.catch { error -> emit(UploadState.Failed(error.toDataError())) }
 
+    override suspend fun createPreviewUrl(fileId: String): Result<String> {
+        if (currentUser() == null) return Result.failure(DataError.Unauthenticated())
+        if (cachedRow(fileId) == null) return Result.failure(DataError.NotFound())
+        return dataResult { remote.createAccessUrl(fileId, forDownload = false) }
+    }
+
     override suspend fun createDownloadUrl(fileId: String): Result<String> {
         val row = cachedRow(fileId) ?: return Result.failure(DataError.NotFound())
-        return dataResult { remote.createSignedUrl(row.storagePath, SIGNED_URL_SECONDS) }
+        val user = currentUser() ?: return Result.failure(DataError.Unauthenticated())
+        if (!row.toModel().canDownloadBy(user.id)) {
+            return Result.failure(DataError.Validation("The uploader has disabled downloads for this attachment."))
+        }
+        // The server checks the current membership and saved permission again.
+        return dataResult { remote.createAccessUrl(fileId, forDownload = true) }
     }
 
     override suspend fun deleteFile(fileId: String): Result<Unit> {
@@ -200,7 +211,6 @@ class DefaultFileRepository(
         const val MAX_FILE_NAME_LENGTH = 255
         const val MAX_MIME_TYPE_LENGTH = 255
         const val DEFAULT_MIME_TYPE = "application/octet-stream"
-        const val SIGNED_URL_SECONDS = 300L
         const val FIRST_RETRY_DELAY_MILLIS = 2_000L
         const val MAX_RETRY_DELAY_MILLIS = 30_000L
     }

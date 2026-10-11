@@ -11,6 +11,9 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 /** One timetabled class, with the travel time to its building once it is known. */
+/** Calendar titles can retain a separator after their activity suffix is removed. */
+fun String.trimTrailingCommas(): String = trimEnd { it.isWhitespace() || it == ',' || it == '，' }
+
 data class CourseSession(
     val id: String,
     val code: String,
@@ -51,7 +54,8 @@ data class RouteEstimate(
     val publicTransportMinutes: Int? = null,
     val drivingMinutes: Int? = null,
     /** True when the time was worked out from the straight-line distance because routing was unavailable. */
-    val isApproximate: Boolean = false
+    val isApproximate: Boolean = false,
+    val source: au.edu.unimelb.campuscompanion.data.model.EstimateSource = au.edu.unimelb.campuscompanion.data.model.EstimateSource.Routing
 )
 
 /** When to leave for this class: its start minus the travel time and [leadMinutes]. */
@@ -87,7 +91,6 @@ data class CourseGroup(
     val unreadCount: Int,
     val latestMessage: String,
     val latestFileName: String?,
-    val privateContentEnabled: Boolean,
     val origin: GroupOrigin = GroupOrigin.Timetable,
     val joinCode: String? = null,
     val timetableKey: String? = null,

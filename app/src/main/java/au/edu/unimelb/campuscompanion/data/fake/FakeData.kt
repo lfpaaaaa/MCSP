@@ -38,7 +38,6 @@ object FakeData {
                 id = TEAM_GROUP_ID,
                 name = "Campus Companion team",
                 courseCode = "COMP90018",
-                privateContentEnabled = true,
                 createdBy = CURRENT_USER_ID,
                 createdAt = now.minus(Duration.ofDays(14)),
                 joinCode = "TEAM42"
@@ -55,7 +54,6 @@ object FakeData {
                 id = STUDY_GROUP_ID,
                 name = "Testing revision",
                 courseCode = "SWEN90006",
-                privateContentEnabled = false,
                 createdBy = ALEX_ID,
                 createdAt = now.minus(Duration.ofDays(7)),
                 joinCode = "REV1SE"
@@ -74,7 +72,6 @@ object FakeData {
         id = JOINABLE_GROUP_ID,
         name = "Library study session",
         courseCode = null,
-        privateContentEnabled = false,
         createdBy = PRIYA_ID,
         createdAt = now.minus(Duration.ofDays(2)),
         joinCode = JOINABLE_GROUP_CODE
@@ -149,7 +146,6 @@ object FakeData {
             fileName = "proposal.pdf",
             mimeType = "application/pdf",
             sizeBytes = 482_133L,
-            isPrivate = false,
             createdAt = now.minus(Duration.ofMinutes(12))
         )
     )

@@ -31,7 +31,7 @@ class FakeFileRepository(
         fileName: String,
         mimeType: String,
         bytes: ByteArray,
-        isPrivate: Boolean
+        allowDownloads: Boolean
     ): Flow<UploadState> = flow {
         if (bytes.isEmpty() || bytes.size > FileRepository.MAX_FILE_SIZE_BYTES) {
             emit(UploadState.Failed(DataError.Validation("Files must be between 1 byte and 20 MB.")))
@@ -50,19 +50,24 @@ class FakeFileRepository(
             fileName = fileName,
             mimeType = mimeType,
             sizeBytes = total,
-            isPrivate = isPrivate,
-            createdAt = clock()
+            createdAt = clock(),
+            allowDownloads = allowDownloads
         )
         files.update { list -> list + file }
         emit(UploadState.Completed(file))
     }
 
+    override suspend fun createPreviewUrl(fileId: String): Result<String> =
+        if (files.value.any { it.id == fileId }) Result.success("https://example.invalid/preview/$fileId")
+        else Result.failure(DataError.NotFound())
+
     override suspend fun createDownloadUrl(fileId: String): Result<String> {
         delay(latencyMillis)
-        return if (files.value.any { it.id == fileId }) {
+        val file = files.value.firstOrNull { it.id == fileId } ?: return Result.failure(DataError.NotFound())
+        return if (file.canDownloadBy(currentUserId)) {
             Result.success("https://example.invalid/files/$fileId")
         } else {
-            Result.failure(DataError.NotFound())
+            Result.failure(DataError.Forbidden())
         }
     }
 

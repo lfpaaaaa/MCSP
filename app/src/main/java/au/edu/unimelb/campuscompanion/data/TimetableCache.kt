@@ -50,7 +50,7 @@ internal object TimetableCache {
         val groups = snapshot.groups.map { spec ->
             CourseGroup(id = spec.key, courseCode = spec.courseCode, name = spec.name,
                 members = 0, unreadCount = 0, latestMessage = "Added from your connected timetable.",
-                latestFileName = null, privateContentEnabled = false,
+                latestFileName = null,
                 timetableKey = spec.key, timetableSlot = spec.slotLabel(), timetableSpec = spec)
         }
         SavedTimetable(snapshot.url, TimetableImport(sessions, groups, snapshot.sourceEventCount),

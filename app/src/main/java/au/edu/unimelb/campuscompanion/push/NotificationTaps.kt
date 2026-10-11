@@ -18,6 +18,7 @@ object NotificationTaps {
         data class GroupChat(val groupId: String) : Target
 
         data object Schedule : Target
+        data object Navigation : Target
     }
 
     private val _pending = MutableStateFlow<Target?>(null)
@@ -38,6 +39,7 @@ object NotificationTaps {
     internal fun targetOf(groupId: String?, screen: String?): Target? = when {
         !groupId.isNullOrBlank() -> Target.GroupChat(groupId)
         screen == SCREEN_SCHEDULE -> Target.Schedule
+        screen == "navigation" -> Target.Navigation
         else -> null
     }
 }
