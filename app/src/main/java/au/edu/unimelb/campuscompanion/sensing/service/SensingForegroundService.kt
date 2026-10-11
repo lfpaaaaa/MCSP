@@ -394,9 +394,7 @@ class SensingForegroundService : Service() {
                     latestIsMoving =
                         isMoving
 
-                    travel.updateMoving(
-                        isMoving
-                    )
+                    // Raw phone movement alone does not prove that the user has departed.
 
                     Log.d(
                         "SensingService",
@@ -488,9 +486,9 @@ class SensingForegroundService : Service() {
                                 location.longitude
                         )
 
-                    travel.updateOrigin(
-                        currentPoint
-                    )
+                    AppRepositories.navigation.updateLocation(location)
+
+                    travel.updateOrigin(currentPoint, java.time.Instant.ofEpochMilli(location.timestampMillis))
 
                     // -------------------------------------------------
                     // Destination: the building of the next class
@@ -629,6 +627,7 @@ class SensingForegroundService : Service() {
 
                         latestStableEnRoute =
                             fusionResult.stableEnRoute
+                        travel.updateMoving(latestStableEnRoute)
 
                         Log.d(
                             "SensingFusion",
@@ -935,6 +934,8 @@ class SensingForegroundService : Service() {
     // ---------------------------------------------------------
 
     override fun onDestroy() {
+        AppRepositories.navigation.stop()
+        travel.updateOrigin(null)
 
         stopSensing()
 

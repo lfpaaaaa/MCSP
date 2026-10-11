@@ -74,7 +74,8 @@ internal fun GroupMembersSection(
             TextButton(onClick = { retry++ }) { Text("Retry") }
         }
         members.sortedBy { if (it.role == GroupRole.Owner) 0 else 1 }.forEach { member ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                au.edu.unimelb.campuscompanion.ui.profile.ProfileAvatar(member.displayName, member.avatarUrl, Modifier.size(40.dp))
                 Text(member.displayName + if (member.role == GroupRole.Owner) " · 群主" else "",
                     modifier = Modifier.weight(1f))
                 if (isOwner && member.role != GroupRole.Owner) {

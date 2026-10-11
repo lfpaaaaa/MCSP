@@ -51,10 +51,11 @@ class TravelEngine(
     private val clock: () -> Instant = Instant::now,
     private val tickInterval: Duration = TICK_INTERVAL,
     private val reminderPreference: ((CourseSession) -> CourseReminderPreference)? = null,
-    private val reminderChanges: Flow<Unit> = emptyFlow()
+    private val reminderChanges: Flow<Unit> = emptyFlow(),
+    private val maxLocationAge: Duration = Duration.ofMinutes(2)
 ) {
     private val sessions = MutableStateFlow<List<CourseSession>>(emptyList())
-    private val origin = MutableStateFlow<GeoPoint?>(null)
+    private val origin = MutableStateFlow<OriginFix?>(null)
     private val moving = MutableStateFlow(false)
     private val leadMinutes = MutableStateFlow(DEFAULT_LEAD_MINUTES)
 
@@ -72,8 +73,8 @@ class TravelEngine(
     }
 
     /** The current position, or null when it is unknown. */
-    fun updateOrigin(value: GeoPoint?) {
-        origin.value = value
+    fun updateOrigin(value: GeoPoint?, recordedAt: Instant = clock()) {
+        origin.value = value?.let { OriginFix(it, recordedAt) }
     }
 
     fun updateMoving(value: Boolean) {
@@ -127,7 +128,10 @@ class TravelEngine(
         val lead = courseReminder?.let { if (it.enabled) it.leadMinutes.coerceIn(0, 60) else 0 }
             ?: inputs.leadMinutes
         val destination = building
-        val from = inputs.origin
+        val from = inputs.origin?.takeIf {
+            val age = Duration.between(it.recordedAt, now)
+            !age.isNegative && age <= maxLocationAge
+        }?.point
         var distance: Double? = null
         var estimate: TravelEstimate? = null
         var weatherNow: WeatherSnapshot? = null
@@ -157,7 +161,8 @@ class TravelEngine(
         _snapshot.value = TravelSnapshot(
             session = tracked,
             building = destination,
-            state = stateManager.state.value,
+            state = if (from != null) stateManager.state.value else au.edu.unimelb.campuscompanion.sensing.location.TravelState.UPCOMING_CLASS,
+            evaluatedAt = now,
             estimate = estimate,
             distanceMeters = distance,
             minutesUntilClass = minutesUntilClass,
@@ -166,9 +171,11 @@ class TravelEngine(
         )
     }
 
+    private data class OriginFix(val point: GeoPoint, val recordedAt: Instant)
+
     private data class Inputs(
         val sessions: List<CourseSession>,
-        val origin: GeoPoint?,
+        val origin: OriginFix?,
         val moving: Boolean,
         val leadMinutes: Int
     )

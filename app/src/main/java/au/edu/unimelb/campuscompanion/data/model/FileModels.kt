@@ -12,10 +12,12 @@ data class SharedFile(
     val fileName: String,
     val mimeType: String,
     val sizeBytes: Long,
-    /** Private files require biometric confirmation before they are opened. */
-    val isPrivate: Boolean,
-    val createdAt: Instant
-)
+    val createdAt: Instant,
+    val allowDownloads: Boolean = true
+) {
+    fun canDownloadBy(userId: String?): Boolean =
+        userId != null && (allowDownloads || uploaderId == userId)
+}
 
 /**
  * Progress of an upload, emitted by

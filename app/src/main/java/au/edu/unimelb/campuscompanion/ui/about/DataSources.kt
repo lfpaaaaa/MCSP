@@ -70,5 +70,17 @@ object DataSources {
             "and noticing when you have arrived."
     )
 
-    val all: List<DataSource> = listOf(routing, transit, weather, buildings)
+    val googleMaps = DataSource(
+        name = "Google Maps",
+        credit = "Maps and routes provided by Google Maps.",
+        usage = "Class navigation opens Google Maps with the teaching building as the destination. " +
+            "Google Maps uses its own location permission for directions. When Google travel estimates are configured, " +
+            "our backend sends the route endpoints to Google. The app does not store a location history.",
+        links = listOf(
+            DataSourceLink("Google Maps terms", "https://maps.google.com/help/terms_maps/"),
+            DataSourceLink("Google privacy policy", "https://policies.google.com/privacy")
+        )
+    )
+
+    val all: List<DataSource> = listOf(googleMaps, routing, transit, weather, buildings)
 }

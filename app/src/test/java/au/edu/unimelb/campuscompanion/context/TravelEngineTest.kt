@@ -32,7 +32,8 @@ class TravelEngineTest {
         buildings = FakeBuildingLookup(),
         preferences = { preferences },
         weather = weather,
-        clock = { now }
+        clock = { now },
+        maxLocationAge = Duration.ofDays(1) // These tests advance the class clock without simulating the GPS stream.
     )
 
     private val lecture = session("lecture", startsIn = Duration.ofMinutes(60), room = "PAR-160")
@@ -209,6 +210,7 @@ class TravelEngineTest {
     fun eachClassUsesItsOwnLeadTimeWithoutAScreenUpdatingGlobalPreferences() = runBlocking<Unit> {
         val perCourse = TravelEngine(
             eta = eta, buildings = FakeBuildingLookup(), preferences = { preferences }, clock = { now },
+            maxLocationAge = Duration.ofDays(1),
             reminderPreference = { CourseReminderPreference(leadMinutes = if (it.id == lecture.id) 0 else 30) }
         )
         perCourse.updateSessions(listOf(lecture, tutorial))
@@ -221,6 +223,22 @@ class TravelEngineTest {
         perCourse.refresh()
         assertEquals(tutorial.id, perCourse.snapshot.value.session?.id)
         assertEquals(TravelState.SHOULD_LEAVE_SOON, perCourse.snapshot.value.state)
+    }
+
+    @Test
+    fun oldPositionStopsEstimatesAndFreshGpsRestartsThem() = runBlocking<Unit> {
+        val live = TravelEngine(eta, FakeBuildingLookup(), { preferences }, clock = { now })
+        live.updateSessions(listOf(lecture))
+        live.updateOrigin(HOME, now.minusSeconds(121))
+        live.refresh()
+        assertNull(live.snapshot.value.estimate)
+        assertEquals(TravelState.UPCOMING_CLASS, live.snapshot.value.state)
+        live.updateOrigin(HOME, now)
+        live.refresh()
+        assertEquals(15, live.snapshot.value.estimate?.durationMinutes)
+        now = now.plusSeconds(121)
+        live.refresh()
+        assertNull(live.snapshot.value.estimate)
     }
 
     private fun session(id: String, startsIn: Duration, room: String): CourseSession {

@@ -190,7 +190,8 @@ Debug builds turn on `StrictMode` in `CampusCompanionApplication`: disk and netw
 ## Main screens
 
 - Home: context-aware next-class card, travel status, upcoming classes, and group updates.
-- Schedule: timetable list with sync/manual edit entry points.
+- Schedule: switch between a date-grouped list (10 classes per page, with all imported upcoming classes accessible through paging) and a Monday–Sunday calendar selector with all classes for the selected day. Date headings appear once per day, times use a 24-hour clock, and each class retains Google Maps navigation. Sync and departure reminder settings remain available.
+- Attachments: each staged photo, video, camera capture or document has an **Allow others to download** switch (on by default). Camera confirmation stages the photo so the sender can choose before tapping Send. Consent is saved with the upload queue and in `shared_files.allow_downloads`; older attachments default to enabled. Members can preview images, videos, PDFs and text in the app; only permitted recipients and the uploader can download or open the original in another app. Unsupported formats show a preview-unavailable message. There is no private-attachment/device-unlock feature.
 - Timetable connection: imports a MyTimetable subscription and saves the URL, parsed sessions, class-group information and last successful update time per account. Home and Schedule show saved classes immediately on restart while refreshing in the background. Failed refreshes keep the cache; Refresh retries without re-entering the URL. Removing the subscription deletes its cache.
 - Groups: course groups, join by code, QR code or NFC, and the group chat: messages and shared files come from Supabase (realtime feed plus the Room cache, so saved messages stay readable offline), with optimistic sending, retry of failed messages, paging of older history, upload progress and photo previews.
 - Profile: account summary, travel preferences (walking range and the mode for longer trips), the timetable URL, the real state of each permission with a note on where location data goes, credits for the data sources, the app version, and sign-out.
@@ -211,3 +212,98 @@ Still to do, in order:
 ## Licence
 
 The code is released under the MIT Licence (see `LICENSE`). The app shows data from [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors routed by the FOSSGIS OSRM servers, from [Transitous](https://transitous.org/sources/) when public transport routing is enabled, and weather by [Open-Meteo](https://open-meteo.com) (CC BY 4.0); screens that show these must carry the credits described above.
+
+## Class navigation with Google Maps
+
+Home and Schedule expose **Navigate with Google Maps**. A tap resolves the session's teaching
+building using the bundled UoM coordinates and opens the external Google Maps app directly, with
+that coordinate as the destination. If Maps is absent/disabled, the same HTTPS link opens in a
+browser. The link uses the estimated travel mode when available, otherwise the saved longer-distance
+mode. It omits the origin so Google Maps can use its own current location. Google Maps decides whether
+to show a route preview or start supported navigation; the user can change travel mode there.
+
+Unmatched/online classes show an error rather than opening an unrelated building. Directions end at
+the teaching building; the timetable still supplies the classroom/floor. Returning from Maps leaves
+Home or Schedule available, without an intermediate in-app map page.
+
+The external Maps URL needs **no Google API key, Maps SDK or billing configuration in this app**.
+The Android map dependency and key manifest entry have been removed. Voice guidance, street/building
+labels, traffic and rerouting are provided by the external Google Maps app.
+Official URL behavior: <https://developers.google.com/maps/documentation/urls/get-started>.
+
+Google Maps does not send its selected route or stops back to Campus Companion. Opening it does not
+start the app's own get-off reminders. The existing separate route/trip tracking code is retained,
+including its notification controls, but the Home/Schedule navigation action no longer enters that
+route-selection workflow. It must not infer that the Google Maps route matches an earlier trip.
+Changing the destination cancels any earlier separately selected reminder journey.
+
+### Optional server travel estimates
+
+Home travel time and departure reminders remain separate from the external navigation link. To use
+Google travel estimates, enable **Routes API** in a Google Cloud project with billing and put a
+server key restricted to Routes API in the Supabase Edge Function secret `GOOGLE_ROUTES_API_KEY`.
+For local development, use a git-ignored `.env` with `supabase functions serve --env-file .env`.
+Never put the server key in the Android APK. The `google-routes` function authenticates users and
+uses `private.consume_route_quota`; hosted deployments need the existing route quota migration.
+Without this optional server setup, the existing router/offline ETA fallback is still used.
+
+### Live Home travel time and departure notifications
+
+Home shows **Travel time** (duration and mode), without a distance metric. Current GPS fixes feed the
+application-owned travel engine about every 10 seconds while its location foreground service runs;
+the engine also reevaluates the clock every 30 seconds. Fixes older than two minutes are not used
+for ETA or departure alerts. Google ETA requests use a minimal response and refresh at most every
+three minutes, within the existing server quotas. If Google is unconfigured/offline, the existing
+router/offline estimate remains available, with approximate values explicitly labelled. A route
+from a substantially different earlier position is not presented as the current routed time.
+
+The default reminder is **10 minutes before the latest departure time**, not 10 minutes before
+class. Latest departure = class start − travel minutes − any existing weather allowance. For example,
+a class at 11:00 with a 20-minute journey triggers at 10:30: “Leave within 10 min”, with a 10:40 deadline.
+If the deadline has passed it says “Leave now”. Lecture/tutorial/workshop switches and individual lead
+times still apply. Notifications are generated on the phone, so FCM/server push credentials are not
+required. Android notifications and location permission must be enabled; the foreground service must
+be running. Force-stop prevents background delivery until the app is opened again.
+
+The application restores the signed-in user's cached timetable for reminders and no longer clears
+it when a screen is destroyed. Successful warning/deadline deliveries are remembered per user and
+class to avoid duplicates after restarts; denied notifications do not consume the reminder. The
+notification links to Schedule. Android instrumentation `DepartureNotificationTest` verifies the
+actual notification channel/content and clears only its own temporary test notification.
+
+## Editing a profile
+
+**Profile → Edit profile** lets the signed-in user change their display name (2–80 characters),
+choose a photo using the system document picker, or remove the photo. The email is shown as the
+sign-in account. Cancel discards the draft; saving waits for the backend and retains the draft on
+failure. The request lives in the ViewModel across configuration changes. The profile card refreshes
+after success, and Auth stores the updated user metadata for subsequent sign-ins.
+
+Names and avatar references are updated together via Supabase Auth `updateUser`; the existing
+`sync_auth_user_profile` trigger copies them to `public.profiles`. Group member lists use the new
+account name where no group nickname is set. Existing group nicknames remain separate. Member
+lists also display avatars, with initials when photos cannot be loaded.
+
+Apply `20261011150000_profile_avatars.sql` before using photo upload on a hosted backend. It creates
+a private `profile-avatars` bucket (JPEG only, at most 1 MiB). Picked images are bounded to 20 MiB,
+orientation-corrected, center-cropped to 512×512 and re-encoded without EXIF metadata. The app stores
+`storage://profile-avatars/<user-id>/<uuid>.jpg` in `avatar_url`, rather than an expiring signed URL.
+Only the owner may upload/delete; the owner and current group peers may read the current photo.
+Removal stores an explicit empty avatar URL so an OAuth photo does not reappear. Old owned photos
+are deleted after confirmed saves; a failed cleanup does not undo the saved profile. An ambiguous
+save failure retains the new object because Auth may already have committed its reference.
+
+## Attachment download permissions
+
+Apply `20261011170000_attachment_download_permissions.sql` and deploy `group-file-url` before updating clients:
+
+```sh
+supabase db push
+supabase functions deploy group-file-url
+```
+
+For local development use `supabase migration up --local` and `supabase functions serve`. No extra secret is required beyond the standard Supabase function environment. The endpoint verifies the caller through Auth and calls `group_file_access` with that user's JWT. Download requests check group membership and the uploader's consent; preview requests check membership. Only the server uses the service credential to sign a short-lived preview URL. Storage RLS also blocks recipients from obtaining direct object/download URLs when consent is off. Uploaders can retrieve their own originals while still in the group. Consent is chosen at upload time; recipients cannot edit it.
+
+The UI rechecks server permission before exporting cached bytes or sharing a FileProvider URI. Preview necessarily sends content to a device; this restriction is not DRM and cannot prevent screenshots or extraction by a modified client. Unsupported document formats are not passed to external viewers when downloads are disabled.
+
+Regression coverage: `attachment_download_permissions.test.sql` verifies defaults, uploader/member/outsider access, Storage policy checks and denied recipient changes; Kotlin tests cover consent decoding/caching, upload restart/retry, and preview versus download requests.

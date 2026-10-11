@@ -10,7 +10,7 @@ class DataSourcesTest {
         val sources = DataSources.all
 
         assertEquals(
-            listOf("OpenStreetMap and OSRM", "Transitous", "Open-Meteo", "Campus building outlines"),
+            listOf("Google Maps", "OpenStreetMap and OSRM", "Transitous", "Open-Meteo", "Campus building outlines"),
             sources.map { it.name }
         )
         val urls = sources.flatMap { source -> source.links.map { it.url } }

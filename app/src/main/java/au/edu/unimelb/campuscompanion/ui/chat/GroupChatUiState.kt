@@ -41,7 +41,8 @@ data class PendingUpload(
     /** Share of the bytes stored so far, 0 to 1. */
     val fraction: Float = 0f,
     /** Why the upload stopped; null while it is running. */
-    val error: String? = null
+    val error: String? = null,
+    val allowDownloads: Boolean = true
 ) {
     val isFailed: Boolean get() = error != null
 }

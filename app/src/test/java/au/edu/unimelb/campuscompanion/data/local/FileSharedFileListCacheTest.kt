@@ -16,7 +16,7 @@ class FileSharedFileListCacheTest {
     @Test
     fun aSavedListComesBackAsItWasAndIsReplacedByTheNextSave() {
         val cache = FileSharedFileListCache(File(folder.root, "files"))
-        val rows = listOf(fileRow(2), fileRow(1))
+        val rows = listOf(fileRow(2).copy(allowDownloads = false), fileRow(1))
 
         cache.save("user-1", FILE_GROUP_ID, rows)
         assertEquals(rows, cache.load("user-1", FILE_GROUP_ID))
@@ -32,6 +32,18 @@ class FileSharedFileListCacheTest {
 
         assertNull(cache.load("user-2", FILE_GROUP_ID))
         assertNull(cache.load("user-1", "another-group"))
+    }
+
+    @Test
+    fun legacyPrivacyFlagInSavedDataDoesNotHideExistingRecords() {
+        val directory = File(folder.root, "files")
+        val cache = FileSharedFileListCache(directory)
+        val rows = listOf(fileRow(1))
+        cache.save("user-1", FILE_GROUP_ID, rows)
+        val saved = directory.listFiles { file -> file.name.endsWith(".json") }!!.single()
+        saved.writeText(saved.readText().replaceFirst("[{", "[{\"is_private\":true,"))
+
+        assertEquals(rows, cache.load("user-1", FILE_GROUP_ID))
     }
 
     @Test

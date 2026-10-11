@@ -1,7 +1,5 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
-import android.app.KeyguardManager
-import android.content.Context
 import android.content.Intent
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -48,7 +46,7 @@ internal fun SharedAttachmentBubble(file: SharedFile, isMine: Boolean, onOpen: (
                     else -> "File"
                 }
                 Text("$kind · ${"%.1f".format(file.sizeBytes / 1024.0)} KB", style = MaterialTheme.typography.bodySmall)
-                Text(if (file.isPrivate) "Unlock to view or download" else "Tap to view or download", color = MaterialTheme.colorScheme.primary)
+                Text(if (!file.allowDownloads && !isMine) "Tap to preview" else "Tap to view or download", color = MaterialTheme.colorScheme.primary)
                 Text(file.createdAt.atZone(ZoneId.systemDefault())
                     .format(DateTimeFormatter.ofPattern("MMM d, h:mm a")), style = MaterialTheme.typography.labelSmall)
             }
@@ -80,12 +78,13 @@ internal fun AttachmentUploadBubble(upload: AttachmentUpload, onRetry: () -> Uni
 }
 
 /** Retrieves protected bytes using a fresh signed URL, then previews or saves those bytes. */
-@Suppress("DEPRECATION") // Device credential fallback also supports Android 8 (API 26).
 @Composable
-internal fun ChatAttachmentViewer(file: SharedFile, onDismiss: () -> Unit) {
+internal fun ChatAttachmentViewer(file: SharedFile, currentUserId: String, onDismiss: () -> Unit) {
     val context = LocalContext.current
+    val canDownload = file.canDownloadBy(currentUserId)
+    val canPreview = file.mimeType.startsWith("image/") || file.mimeType.startsWith("video/") ||
+        file.mimeType == "application/pdf" || file.mimeType.startsWith("text/")
     val scope = rememberCoroutineScope()
-    var authorized by remember(file.id) { mutableStateOf(!file.isPrivate) }
     var localFile by remember(file.id) { mutableStateOf<File?>(null) }
     var bitmap by remember(file.id) { mutableStateOf<ImageBitmap?>(null) }
     var error by remember(file.id) { mutableStateOf<String?>(null) }
@@ -94,14 +93,12 @@ internal fun ChatAttachmentViewer(file: SharedFile, onDismiss: () -> Unit) {
     var saved by remember(file.id) { mutableStateOf(false) }
     var attempt by remember(file.id) { mutableIntStateOf(0) }
     var player by remember(file.id) { mutableStateOf<VideoView?>(null) }
-    val unlock = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        authorized = it.resultCode == android.app.Activity.RESULT_OK
-    }
     val saveDocument = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(file.mimeType)) { uri ->
         val source = localFile
         if (uri != null && source != null) scope.launch {
             saving = true
             try {
+                AppRepositories.files.createDownloadUrl(file.id).getOrThrow()
                 withContext(Dispatchers.IO) {
                     context.contentResolver.openOutputStream(uri)?.use { output ->
                         source.inputStream().use { it.copyTo(output) }
@@ -113,12 +110,12 @@ internal fun ChatAttachmentViewer(file: SharedFile, onDismiss: () -> Unit) {
             finally { saving = false }
         }
     }
-    LaunchedEffect(file.id, authorized, attempt) {
-        if (!authorized) return@LaunchedEffect
+    LaunchedEffect(file.id, attempt) {
+        if (!canPreview && !canDownload) return@LaunchedEffect
         loading = true
         error = null
         try {
-            val downloaded = downloadAttachment(context, AppRepositories.files, file)
+            val downloaded = downloadAttachment(context, AppRepositories.files, file, forDownload = !canPreview)
             localFile = downloaded
             if (file.mimeType.startsWith("image/")) {
                 bitmap = withContext(Dispatchers.IO) {
@@ -149,17 +146,13 @@ internal fun ChatAttachmentViewer(file: SharedFile, onDismiss: () -> Unit) {
         text = {
             Column(Modifier.fillMaxWidth().heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (!authorized) {
-                    Text("Confirm your device lock to access this private attachment.")
-                    TextButton(onClick = {
-                        val manager = context.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
-                        val intent = manager.createConfirmDeviceCredentialIntent("Private attachment", "Unlock to view or download")
-                        if (intent == null) error = "Set up a device lock to open private attachments." else unlock.launch(intent)
-                    }) { Text("Unlock") }
-                }
+                if (!file.allowDownloads) Text(if (canDownload) "Only you can download this attachment." else "Downloads disabled by the uploader.")
+                if (!canPreview) Text("In-app preview is not available for this file type.")
                 if (loading) CircularProgressIndicator()
                 bitmap?.let { Image(it, contentDescription = file.fileName, modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp)) }
                 localFile?.let { source ->
+                    if (file.mimeType == "application/pdf") PdfAttachmentPreview(source) { error = it }
+                    if (file.mimeType.startsWith("text/")) TextAttachmentPreview(source) { error = it }
                     if (file.mimeType.startsWith("video/")) {
                         AndroidView(modifier = Modifier.fillMaxWidth().height(240.dp), factory = { viewContext ->
                             VideoView(viewContext).apply {
@@ -171,26 +164,36 @@ internal fun ChatAttachmentViewer(file: SharedFile, onDismiss: () -> Unit) {
                             }
                         })
                     }
-                    TextButton(onClick = {
-                        try {
-                            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", source)
-                            context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, file.mimeType)
-                                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
-                        } catch (_: android.content.ActivityNotFoundException) {
-                            error = "No app can open this file type. Use Download to save it."
+                    if (canDownload) TextButton(onClick = {
+                        scope.launch {
+                            try {
+                                AppRepositories.files.createDownloadUrl(file.id).getOrThrow()
+                                val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", source)
+                                context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, file.mimeType)
+                                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+                            } catch (e: CancellationException) { throw e }
+                            catch (_: android.content.ActivityNotFoundException) {
+                                error = "No app can open this file type. Use Download to save it."
+                            } catch (e: Exception) { error = e.toUserMessage().body }
                         }
                     }) { Text("Open in another app") }
                 }
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                if (error != null && localFile == null && authorized && !loading) {
+                if (error != null && localFile == null && !loading) {
                     TextButton(onClick = { attempt++ }) { Text("Retry") }
                 }
                 if (saved) Text("Saved")
             }
         },
         confirmButton = {
-            TextButton(enabled = authorized && localFile != null && !saving, onClick = {
-                saveDocument.launch(file.fileName.substringAfterLast('/').substringAfterLast('\\'))
+            if (canDownload) TextButton(enabled = localFile != null && !saving, onClick = {
+                scope.launch {
+                    try {
+                        AppRepositories.files.createDownloadUrl(file.id).getOrThrow()
+                        saveDocument.launch(file.fileName.substringAfterLast('/').substringAfterLast('\\'))
+                    } catch (e: CancellationException) { throw e }
+                    catch (e: Exception) { error = e.toUserMessage().body }
+                }
             }) { Text(if (saving) "Saving…" else "Download") }
         },
         dismissButton = { TextButton(enabled = !saving, onClick = onDismiss) { Text("Close") } }

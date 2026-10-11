@@ -23,7 +23,12 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.util.UUID
-import kotlin.time.Duration.Companion.seconds
+import io.github.jan.supabase.functions.functions
+import io.ktor.client.statement.bodyAsText
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import au.edu.unimelb.campuscompanion.data.DataError
 
 /**
  * [FileRemoteDataSource] backed by the private `group-files` bucket and the `shared_files` table,
@@ -56,7 +61,7 @@ class SupabaseFileDataSource(private val client: SupabaseClient) : FileRemoteDat
                 put("mime_type", record.mimeType)
                 put("size_bytes", record.sizeBytes)
                 put("storage_path", record.storagePath)
-                put("is_private", record.isPrivate)
+                put("allow_downloads", record.allowDownloads)
             }
         ) {
             select()
@@ -76,8 +81,15 @@ class SupabaseFileDataSource(private val client: SupabaseClient) : FileRemoteDat
         remoteCall { bucket.delete(path) }
     }
 
-    override suspend fun createSignedUrl(path: String, expiresInSeconds: Long): String = remoteCall {
-        bucket.createSignedUrl(path, expiresInSeconds.seconds)
+    override suspend fun createAccessUrl(fileId: String, forDownload: Boolean): String = remoteCall {
+        val response = client.functions.invoke("group-file-url", buildJsonObject {
+            put("fileId", fileId)
+            put("purpose", if (forDownload) "download" else "preview")
+        })
+        val path = Json.parseToJsonElement(response.bodyAsText()).jsonObject["signedPath"]?.jsonPrimitive?.content
+            ?: throw DataError.Unexpected()
+        if (!path.startsWith("/storage/v1/object/sign/group-files/")) throw DataError.Unexpected()
+        client.supabaseHttpUrl.trimEnd('/') + path
     }
 
     override fun fileChanges(groupId: String): Flow<Unit> = channelFlow {

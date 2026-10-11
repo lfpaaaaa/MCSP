@@ -28,6 +28,18 @@ class FileGroupListCacheTest {
     }
 
     @Test
+    fun legacyPrivacyFlagInSavedDataDoesNotHideExistingRecords() {
+        val directory = File(folder.root, "groups")
+        val cache = FileGroupListCache(directory)
+        val rows = listOf(summaryRow("a"))
+        cache.save("user-1", rows)
+        val saved = directory.listFiles { file -> file.name.endsWith(".json") }!!.single()
+        saved.writeText(saved.readText().replaceFirst("[{", "[{\"private_content_enabled\":true,"))
+
+        assertEquals(rows, cache.load("user-1"))
+    }
+
+    @Test
     fun nothingSavedOrAnUnreadableFileGivesNull() {
         val directory = File(folder.root, "groups")
         val cache = FileGroupListCache(directory)

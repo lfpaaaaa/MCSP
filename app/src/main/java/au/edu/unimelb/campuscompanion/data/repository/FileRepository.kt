@@ -14,10 +14,13 @@ interface FileRepository {
         fileName: String,
         mimeType: String,
         bytes: ByteArray,
-        isPrivate: Boolean = false
+        allowDownloads: Boolean = true
     ): Flow<UploadState>
 
-    /** Creates a short-lived signed URL for downloading the file. */
+    /** Creates a member-only link for rendering an attachment within the app. */
+    suspend fun createPreviewUrl(fileId: String): Result<String>
+
+    /** Creates a download link only if the uploader permits it or the requester is the uploader. */
     suspend fun createDownloadUrl(fileId: String): Result<String>
 
     /** Deletes a file. Only the member who uploaded it can delete it. */

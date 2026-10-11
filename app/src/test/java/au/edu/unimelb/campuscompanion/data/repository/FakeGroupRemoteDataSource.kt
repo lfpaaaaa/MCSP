@@ -19,6 +19,8 @@ class FakeGroupRemoteDataSource : GroupRemoteDataSource {
     }
     var failure: DataError? = null
     var summaries: List<GroupSummaryRow> = emptyList()
+    var summaryFailure: DataError? = null
+    var summaryRequest: (suspend () -> List<GroupSummaryRow>)? = null
     var members: List<GroupMemberRow> = emptyList()
     var deletedRowCount = 1
     var inviteToken = "a".repeat(64)
@@ -51,13 +53,16 @@ class FakeGroupRemoteDataSource : GroupRemoteDataSource {
     override suspend fun fetchMyGroups(): List<GroupSummaryRow> {
         failIfRequested()
         summaryFetches++
-        return summaries
+        summaryFailure?.let { throw it }
+        return summaryRequest?.invoke() ?: summaries
     }
 
     override suspend fun createGroup(name: String, courseCode: String?): GroupRow {
         failIfRequested()
         createdGroups += name to courseCode
-        return groupRow(id = "new-group", name = name, courseCode = courseCode)
+        val group = groupRow(id = "new-group", name = name, courseCode = courseCode)
+        summaries = listOf(summaryRow(group.id, role = "owner").copy(name = name, courseCode = courseCode)) + summaries
+        return group
     }
 
     override suspend fun fetchMembers(groupId: String): List<GroupMemberRow> {

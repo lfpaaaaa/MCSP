@@ -33,7 +33,7 @@ class RoutedEtaRepository(
 ) : EtaRepository {
 
     private val cache = ConcurrentHashMap<RouteKey, CachedEstimate>()
-    private val latestByDestination = ConcurrentHashMap<DestinationKey, TravelEstimate>()
+    private val latestByDestination = ConcurrentHashMap<DestinationKey, LocatedEstimate>()
     private val lastRequestAt = ConcurrentHashMap<DestinationKey, Instant>()
     private val pausedUntil = ConcurrentHashMap<TravelMode, Instant>()
 
@@ -71,11 +71,11 @@ class RoutedEtaRepository(
                     mode = mode,
                     durationSeconds = outcome.durationSeconds.coerceAtLeast(0),
                     distanceMeters = outcome.distanceMeters.coerceAtLeast(0),
-                    source = EstimateSource.Routing,
+                    source = outcome.source,
                     computedAt = now
                 )
-                cache[routeKey] = CachedEstimate(estimate, now.plus(cacheLifetime(mode)))
-                latestByDestination[destinationKey] = estimate
+                cache[routeKey] = CachedEstimate(estimate, now.plus(if (outcome.source == EstimateSource.GoogleMaps) MIN_REQUEST_INTERVAL else cacheLifetime(mode)))
+                latestByDestination[destinationKey] = LocatedEstimate(origin, estimate)
                 Result.success(estimate)
             }
             is RouteOutcome.QuotaExceeded -> {
@@ -87,8 +87,10 @@ class RoutedEtaRepository(
 
     /** A recent routed time for the destination, or else the offline estimate from the exact origin. */
     private fun fallback(key: DestinationKey, origin: GeoPoint, destination: GeoPoint, now: Instant): TravelEstimate =
-        latestByDestination[key]?.takeIf { now.isBefore(it.computedAt.plus(RECENT_ESTIMATE_AGE)) }
-            ?: StraightLineEstimator.estimate(origin, destination, now, key.mode)
+        latestByDestination[key]?.takeIf {
+            now.isBefore(it.estimate.computedAt.plus(RECENT_ESTIMATE_AGE)) &&
+                au.edu.unimelb.campuscompanion.data.geo.GeoMath.distanceMeters(origin, it.origin) <= 100
+        }?.estimate ?: StraightLineEstimator.estimate(origin, destination, now, key.mode)
 
     private fun cacheLifetime(mode: TravelMode): Duration = when (mode) {
         TravelMode.PublicTransport -> TRANSIT_CACHE_LIFETIME
@@ -98,6 +100,8 @@ class RoutedEtaRepository(
     private data class RouteKey(val from: GeoPoint, val to: GeoPoint, val mode: TravelMode)
 
     private data class DestinationKey(val to: GeoPoint, val mode: TravelMode)
+
+    private data class LocatedEstimate(val origin: GeoPoint, val estimate: TravelEstimate)
 
     private data class CachedEstimate(val estimate: TravelEstimate, val expiresAt: Instant)
 

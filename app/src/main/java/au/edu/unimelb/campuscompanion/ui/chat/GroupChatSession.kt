@@ -115,11 +115,11 @@ class GroupChatSession(
     }
 
     /** Stores a file in the group and shows its progress above the composer. */
-    fun upload(fileName: String, mimeType: String, bytes: ByteArray) {
+    fun upload(fileName: String, mimeType: String, bytes: ByteArray, allowDownloads: Boolean = true) {
         val id = "upload-${nextUploadId.incrementAndGet()}"
         payloads[id] = bytes
         _state.update { current ->
-            current.copy(uploads = current.uploads + PendingUpload(id, fileName, mimeType, bytes.size.toLong()))
+            current.copy(uploads = current.uploads + PendingUpload(id, fileName, mimeType, bytes.size.toLong(), allowDownloads = allowDownloads))
         }
         runUpload(id)
     }
@@ -185,7 +185,7 @@ class GroupChatSession(
         val bytes = payloads[id] ?: return
         uploadScope.launch {
             try {
-                files.uploadFile(groupId, upload.fileName, upload.mimeType, bytes).collect { progress ->
+                files.uploadFile(groupId, upload.fileName, upload.mimeType, bytes, upload.allowDownloads).collect { progress ->
                     when (progress) {
                         is UploadState.InProgress -> updateUpload(id) { it.copy(fraction = progress.fraction) }
                         is UploadState.Completed -> dismissUpload(id)

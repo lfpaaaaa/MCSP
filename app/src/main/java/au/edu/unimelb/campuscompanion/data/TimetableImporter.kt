@@ -1,5 +1,6 @@
 package au.edu.unimelb.campuscompanion.data
 
+import au.edu.unimelb.campuscompanion.ui.model.trimTrailingCommas
 import au.edu.unimelb.campuscompanion.data.model.TimetableGroupSpec
 import au.edu.unimelb.campuscompanion.ui.model.CourseGroup
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
@@ -231,7 +232,6 @@ class IcsTimetableParser {
                 unreadCount = 0,
                 latestMessage = "Added from your connected timetable.",
                 latestFileName = null,
-                privateContentEnabled = false,
                 timetableKey = spec.key,
                 timetableSlot = spec.slotLabel(),
                 timetableSpec = spec
@@ -267,6 +267,7 @@ class IcsTimetableParser {
             .trim(' ', '-', ':', '|', '/')
             .replace(ACTIVITY_PREFIX, "")
             .trim(' ', '-', ':', '|', '/')
+            .trimTrailingCommas()
             .ifBlank { code }
 
         val locationParts = event.getLocation()?.value
