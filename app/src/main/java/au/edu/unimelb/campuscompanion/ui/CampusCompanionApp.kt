@@ -1000,7 +1000,8 @@ private fun AuthenticatedCampusApp(
                 CourseReminderSettingsScreen(
                     courses = reminderCourses,
                     preferences = courseReminderPreferences,
-                    onPreferenceChange = updateCourseReminder
+                    onPreferenceChange = updateCourseReminder,
+                    travelSnapshot = travelSnapshot
                 )
             }
             composable(CampusDestination.Groups.route) {

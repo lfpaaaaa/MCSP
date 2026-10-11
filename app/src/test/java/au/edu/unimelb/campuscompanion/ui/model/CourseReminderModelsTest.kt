@@ -46,7 +46,7 @@ class CourseReminderModelsTest {
     }
 
     @Test
-    fun remindersAreEnabledWithTenMinutePreparationByDefault() {
+    fun remindersAreEnabledWithTenMinuteArrivalBufferByDefault() {
         val preference = CourseReminderPreference()
 
         assertTrue(preference.enabled)
@@ -54,7 +54,7 @@ class CourseReminderModelsTest {
     }
 
     @Test
-    fun twoPmClassWithThirtyMinuteTripAndTenMinuteLeadRemindsAtOneTwenty() {
+    fun twoPmClassWithThirtyMinuteTripAndTenMinuteBufferHasOneTwentyDepartureDeadline() {
         val session = session(
             id = "comp90018-lecture@1790917200000",
             start = dateTime(2026, 10, 2, 14, 0),
