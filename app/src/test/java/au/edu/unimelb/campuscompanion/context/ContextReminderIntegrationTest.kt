@@ -91,7 +91,7 @@ class ContextReminderIntegrationTest {
             snapshots = trip.engine.snapshot,
             preferences = trip::preference,
             preferenceChanges = trip.preferenceChanges.map { Unit },
-            notify = { delivered.trySend(it); Unit }
+            notify = { delivered.trySend(it).isSuccess }
         )
         val engineJob = launch { trip.engine.run() }
         val reminderJob = launch { reminders.run() }
@@ -215,7 +215,7 @@ class ContextReminderIntegrationTest {
         assertEquals(expected, snapshot.state)
         // A fresh notifier prevents earlier deduplication from hiding a broken suppression rule.
         val fresh = DepartureReminders(
-            snapshots = trip.engine.snapshot, preferences = trip::preference, notify = { trip.sent.add(it); Unit }
+            snapshots = trip.engine.snapshot, preferences = trip::preference, notify = trip.sent::add
         )
         val sentBefore = trip.sent.size
         assertNull(fresh.consider(snapshot))
@@ -265,7 +265,7 @@ class ContextReminderIntegrationTest {
             config = config
         )
         val reminders = DepartureReminders(
-            snapshots = engine.snapshot, preferences = ::preference, notify = { sent.add(it); Unit }
+            snapshots = engine.snapshot, preferences = ::preference, notify = sent::add
         )
 
         init {

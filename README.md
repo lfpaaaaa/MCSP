@@ -272,10 +272,15 @@ required. Android notifications and location permission must be enabled; the for
 be running. Force-stop prevents background delivery until the app is opened again.
 
 The application restores the signed-in user's cached timetable for reminders and no longer clears
-it when a screen is destroyed. Reminder deduplication remains in memory for the active class;
-persistent delivery history and retry handling are a separate integration step. The notification
-links to Schedule. Android instrumentation `DepartureNotificationTest` verifies the
-actual notification channel/content and clears only its own temporary test notification.
+it when a screen is destroyed. Successful reminder deliveries are saved on the device by account,
+class ID, class start time and context state, so restarting the app does not repeat them. A delivered
+Running late alert also prevents a later Leave soon warning from replacing it. Failed delivery
+attempts remain eligible on the next travel snapshot or reminder preference update, while the
+context still calls for a reminder. Saved records expire when the class ends and are pruned on the
+next successful delivery. The notification links to Schedule. Android instrumentation
+`DepartureNotificationTest` verifies the actual notification channel/content and clears only its
+own temporary test notification; `DepartureReminderHistoryTest` checks saved history using an
+isolated preferences file.
 
 ## Editing a profile
 

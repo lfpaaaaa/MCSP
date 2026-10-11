@@ -7,6 +7,7 @@ import au.edu.unimelb.campuscompanion.ui.model.reminderSeriesKey
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.Flow
+import java.time.Instant
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
@@ -24,17 +25,21 @@ data class DepartureReminder(
 
 /**
  * Turns the travel engine's snapshots into departure notifications: one when a class reaches
- * "leave soon" and one more if the user is running late, never repeated for the same class.
+ * "leave soon" and one more if the user is running late. Only successful deliveries are remembered,
+ * so denied notifications can be retried while the context still calls for a departure reminder.
  * Each notification reads the saved preference of its own course, including in the background.
  */
 class DepartureReminders(
     private val snapshots: Flow<TravelSnapshot>,
     private val preferences: (CourseSession) -> CourseReminderPreference,
-    private val notify: (DepartureReminder) -> Unit,
+    private val notify: (DepartureReminder) -> Boolean,
     private val preferenceChanges: Flow<Unit> = flowOf(Unit),
-    private val cancelCourse: (String) -> Unit = {}
+    private val cancelCourse: (String) -> Unit = {},
+    private val currentUserId: () -> String? = { "" },
+    private val wasSent: (String, CourseSession, ContextState) -> Boolean = { _, _, _ -> false },
+    private val rememberSent: (String, CourseSession, ContextState) -> Unit = { _, _, _ -> }
 ) {
-    private var remindedSessionId: String? = null
+    private var remindedScope: ReminderScope? = null
     private val remindedStates = mutableSetOf<ContextState>()
 
     suspend fun run() {
@@ -45,13 +50,15 @@ class DepartureReminders(
     /** Sends a reminder for [snapshot] when it is due; returns it, or null when nothing was sent. */
     fun consider(snapshot: TravelSnapshot): DepartureReminder? {
         val session = snapshot.session
-        if (session == null) {
-            remindedSessionId = null
+        val userId = currentUserId()
+        if (session == null || userId == null) {
+            remindedScope = null
             remindedStates.clear()
             return null
         }
-        if (session.id != remindedSessionId) {
-            remindedSessionId = session.id
+        val scope = ReminderScope(userId, session.id, session.start.toInstant())
+        if (scope != remindedScope) {
+            remindedScope = scope
             remindedStates.clear()
         }
         if (!preferences(session).enabled) {
@@ -59,7 +66,12 @@ class DepartureReminders(
             return null
         }
         if (snapshot.state !in REMINDED_STATES) return null
-        if (!remindedStates.add(snapshot.state)) return null
+        if (snapshot.state in remindedStates || wasSent(userId, session, snapshot.state)) return null
+        // An improved ETA must not replace a delivered late reminder with a weaker departure warning.
+        if (snapshot.state == ContextState.LEAVE_SOON &&
+            (ContextState.RUNNING_LATE in remindedStates || wasSent(userId, session, ContextState.RUNNING_LATE))) {
+            return null
+        }
 
         val reminder = DepartureReminder(
             sessionId = session.id,
@@ -71,7 +83,9 @@ class DepartureReminders(
             },
             text = describe(snapshot, session)
         )
-        notify(reminder)
+        if (!notify(reminder)) return null
+        remindedStates.add(snapshot.state)
+        rememberSent(userId, session, snapshot.state)
         return reminder
     }
 
@@ -93,6 +107,8 @@ class DepartureReminders(
         TravelMode.PublicTransport -> "by public transport"
         TravelMode.Driving -> "by car"
     }
+
+    private data class ReminderScope(val userId: String, val sessionId: String, val startsAt: Instant)
 
     private companion object {
         val REMINDED_STATES = setOf(ContextState.LEAVE_SOON, ContextState.RUNNING_LATE)

@@ -12,8 +12,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -165,6 +168,293 @@ class DepartureRemindersTest {
         } finally {
             job.cancel()
             job.join()
+        }
+    }
+
+    @Test
+    fun failedDeliveryRetriesAndOnlySuccessfulDeliveryIsRemembered() {
+        val history = ReminderHistory()
+        val attempts = mutableListOf<DepartureReminder>()
+        var deliverySucceeds = false
+        val reliable = reliableReminders(history, notify = {
+            attempts.add(it)
+            if (deliverySucceeds) sent.add(it) else false
+        })
+        val warning = snapshot(lecture, ContextState.LEAVE_SOON)
+
+        assertNull(reliable.consider(warning))
+        assertEquals(1, attempts.size)
+        assertTrue(sent.isEmpty())
+        assertTrue(history.writes.isEmpty())
+
+        deliverySucceeds = true
+        assertNotNull(reliable.consider(warning))
+        assertEquals(2, attempts.size)
+        assertEquals(listOf(ContextState.LEAVE_SOON), history.writes.map { it.state })
+        assertNull(reliable.consider(warning))
+        assertEquals(2, attempts.size)
+        assertEquals(1, sent.size)
+    }
+
+    @Test
+    fun laterSnapshotRetriesAFailedDelivery() = runBlocking<Unit> {
+        val history = ReminderHistory()
+        var attempts = 0
+        val warning = snapshot(lecture, ContextState.LEAVE_SOON)
+        val snapshots = Channel<TravelSnapshot>(Channel.UNLIMITED)
+        val deliveryAttempts = Channel<Unit>(Channel.UNLIMITED)
+        val reliable = DepartureReminders(
+            snapshots = snapshots.receiveAsFlow(),
+            preferences = { preferences },
+            notify = {
+                attempts++
+                deliveryAttempts.trySend(Unit)
+                if (attempts == 1) false else sent.add(it)
+            },
+            currentUserId = { "student-a" },
+            wasSent = history::wasSent,
+            rememberSent = history::rememberSent
+        )
+
+        val job = launch { reliable.run() }
+        try {
+            snapshots.send(warning)
+            withTimeout(2_000) { deliveryAttempts.receive() }
+            snapshots.send(warning)
+            withTimeout(2_000) { deliveryAttempts.receive() }
+            snapshots.send(warning)
+            snapshots.close()
+            withTimeout(2_000) { job.join() }
+
+            assertEquals(2, attempts)
+            assertEquals(1, sent.size)
+            assertEquals(1, history.writes.size)
+        } finally {
+            job.cancel()
+            job.join()
+            snapshots.close()
+            deliveryAttempts.close()
+        }
+    }
+
+    @Test
+    fun preferenceReevaluationRetriesAFailedDelivery() = runBlocking<Unit> {
+        val history = ReminderHistory()
+        val warning = snapshot(lecture, ContextState.LEAVE_SOON)
+        val changes = MutableStateFlow(0)
+        val attempts = Channel<DepartureReminder>(Channel.UNLIMITED)
+        var deliverySucceeds = false
+        val reliable = DepartureReminders(
+            snapshots = MutableStateFlow(warning),
+            preferences = { preferences },
+            notify = {
+                attempts.trySend(it)
+                if (deliverySucceeds) sent.add(it) else false
+            },
+            preferenceChanges = changes.map { Unit },
+            currentUserId = { "student-a" },
+            wasSent = history::wasSent,
+            rememberSent = history::rememberSent
+        )
+        val job = launch { reliable.run() }
+        try {
+            withTimeout(2_000) { attempts.receive() }
+            assertTrue(sent.isEmpty())
+            assertTrue(history.writes.isEmpty())
+
+            deliverySucceeds = true
+            changes.value++
+            withTimeout(2_000) { attempts.receive() }
+            assertEquals(1, sent.size)
+            assertEquals(1, history.writes.size)
+            assertNull(reliable.consider(warning))
+            assertTrue(attempts.tryReceive().isFailure)
+        } finally {
+            job.cancel()
+            job.join()
+            attempts.close()
+        }
+    }
+
+    @Test
+    fun recreatingTheNotifierUsesHistoryAndStillAllowsLateEscalation() {
+        val history = ReminderHistory()
+        val warning = snapshot(lecture, ContextState.LEAVE_SOON)
+        val late = snapshot(lecture, ContextState.RUNNING_LATE)
+        assertNotNull(reliableReminders(history).consider(warning))
+
+        val recreated = reliableReminders(history)
+        assertNull(recreated.consider(warning))
+        assertNotNull(recreated.consider(late))
+        assertNull(recreated.consider(late))
+        assertEquals(listOf(ContextState.LEAVE_SOON, ContextState.RUNNING_LATE), sent.map { it.state })
+        assertEquals(2, history.writes.size)
+        assertEquals(sent[0].notificationId, sent[1].notificationId)
+    }
+
+    @Test
+    fun aDeliveredLateReminderBlocksAnEarlierWarningInMemory() {
+        val reliable = DepartureReminders(
+            snapshots = flowOf(), preferences = { preferences }, notify = sent::add
+        )
+
+        assertNotNull(reliable.consider(snapshot(lecture, ContextState.RUNNING_LATE)))
+        assertNull(reliable.consider(snapshot(lecture, ContextState.LEAVE_SOON)))
+        assertEquals(listOf(ContextState.RUNNING_LATE), sent.map { it.state })
+    }
+
+    @Test
+    fun aDeliveredLateReminderBlocksAnEarlierWarningAfterRecreation() {
+        val history = ReminderHistory()
+        assertNotNull(reliableReminders(history).consider(snapshot(lecture, ContextState.RUNNING_LATE)))
+
+        val recreated = reliableReminders(history)
+        assertNull(recreated.consider(snapshot(lecture, ContextState.LEAVE_SOON)))
+        assertNull(recreated.consider(snapshot(lecture, ContextState.RUNNING_LATE)))
+        assertEquals(listOf(ContextState.RUNNING_LATE), sent.map { it.state })
+        assertEquals(1, history.writes.size)
+    }
+
+    @Test
+    fun aFailedLateReminderDoesNotBlockADeliverableWarning() {
+        val history = ReminderHistory()
+        val attemptedStates = mutableListOf<ContextState>()
+        val reliable = reliableReminders(history, notify = {
+            attemptedStates.add(it.state)
+            if (it.state == ContextState.RUNNING_LATE) false else sent.add(it)
+        })
+
+        assertNull(reliable.consider(snapshot(lecture, ContextState.RUNNING_LATE)))
+        assertTrue(history.writes.isEmpty())
+        assertNotNull(reliable.consider(snapshot(lecture, ContextState.LEAVE_SOON)))
+        assertEquals(listOf(ContextState.RUNNING_LATE, ContextState.LEAVE_SOON), attemptedStates)
+        assertEquals(listOf(ContextState.LEAVE_SOON), history.writes.map { it.state })
+    }
+
+    @Test
+    fun switchingAccountsKeepsTheirDeliveryHistoriesSeparate() {
+        val history = ReminderHistory()
+        var userId = "student-a"
+        val reliable = reliableReminders(history, currentUserId = { userId })
+        val warning = snapshot(lecture, ContextState.LEAVE_SOON)
+        assertNotNull(reliable.consider(warning))
+
+        userId = "student-b"
+        assertNotNull(reliable.consider(warning))
+        userId = "student-a"
+        assertNull(reliable.consider(warning))
+        assertEquals(2, sent.size)
+        assertEquals(listOf("student-a", "student-b"), history.writes.map { it.userId })
+    }
+
+    @Test
+    fun aNewOccurrenceWithTheSameIdGetsItsOwnDeliveryHistory() {
+        val history = ReminderHistory()
+        val reliable = reliableReminders(history)
+        val nextWeek = lecture.copy(start = lecture.start.plusWeeks(1), end = lecture.end.plusWeeks(1))
+        assertNotNull(reliable.consider(snapshot(lecture, ContextState.LEAVE_SOON)))
+        assertNotNull(reliable.consider(snapshot(nextWeek, ContextState.LEAVE_SOON)))
+
+        val recreated = reliableReminders(history)
+        assertNull(recreated.consider(snapshot(lecture, ContextState.LEAVE_SOON)))
+        assertNull(recreated.consider(snapshot(nextWeek, ContextState.LEAVE_SOON)))
+        assertEquals(2, sent.size)
+        assertEquals(listOf(lecture.start.toInstant(), nextWeek.start.toInstant()), history.writes.map { it.start })
+        assertEquals(listOf(lecture.id, lecture.id), history.writes.map { it.sessionId })
+    }
+
+    @Test
+    fun signingOutDoesNotNotifyOrAccessHistory() {
+        val history = ReminderHistory()
+        var userId: String? = null
+        val reliable = reliableReminders(history, currentUserId = { userId })
+        val warning = snapshot(lecture, ContextState.LEAVE_SOON)
+        assertNull(reliable.consider(warning))
+        assertTrue(sent.isEmpty())
+        assertTrue(history.reads.isEmpty())
+        assertTrue(history.writes.isEmpty())
+
+        userId = "student-a"
+        assertNotNull(reliable.consider(warning))
+        val readsBeforeSignOut = history.reads.size
+        userId = null
+        assertNull(reliable.consider(snapshot(lecture, ContextState.RUNNING_LATE)))
+        assertEquals(readsBeforeSignOut, history.reads.size)
+        assertEquals(1, sent.size)
+        assertEquals(1, history.writes.size)
+
+        userId = "student-a"
+        assertNull(reliable.consider(warning))
+        assertEquals(1, sent.size)
+    }
+
+    @Test
+    fun suppressedStatesDisabledPreferencesAndMissingSessionsDoNotWriteHistory() {
+        val history = ReminderHistory()
+        val reliable = reliableReminders(history)
+        ContextState.entries.filter {
+            it != ContextState.LEAVE_SOON && it != ContextState.RUNNING_LATE
+        }.forEach { state -> assertNull(reliable.consider(snapshot(lecture, state))) }
+        preferences = CourseReminderPreference(enabled = false)
+        assertNull(reliable.consider(snapshot(lecture, ContextState.LEAVE_SOON)))
+        assertNull(reliable.consider(snapshot(lecture, ContextState.RUNNING_LATE)))
+        assertNull(reliable.consider(TravelSnapshot()))
+
+        assertTrue(sent.isEmpty())
+        assertTrue(history.writes.isEmpty())
+    }
+
+    @Test
+    fun endingTheTrackedSessionClearsOnlyInMemoryDeduplication() {
+        val reliable = DepartureReminders(
+            snapshots = flowOf(), preferences = { preferences }, notify = sent::add
+        )
+        val warning = snapshot(lecture, ContextState.LEAVE_SOON)
+        assertNotNull(reliable.consider(warning))
+        assertNull(reliable.consider(TravelSnapshot()))
+        assertNotNull(reliable.consider(warning))
+        assertEquals(2, sent.size)
+
+        val history = ReminderHistory()
+        val persistent = reliableReminders(history)
+        assertNotNull(persistent.consider(warning))
+        assertNull(persistent.consider(TravelSnapshot()))
+        assertNull(persistent.consider(warning))
+        assertEquals(1, history.writes.size)
+        assertEquals(3, sent.size)
+    }
+
+    private fun reliableReminders(
+        history: ReminderHistory,
+        currentUserId: () -> String? = { "student-a" },
+        notify: (DepartureReminder) -> Boolean = sent::add
+    ) = DepartureReminders(
+        snapshots = flowOf(),
+        preferences = { preferences },
+        notify = notify,
+        currentUserId = currentUserId,
+        wasSent = history::wasSent,
+        rememberSent = history::rememberSent
+    )
+
+    /** Simulates saved history across notifier instances; this fixture does not exercise disk I/O. */
+    private class ReminderHistory {
+        data class Key(val userId: String, val sessionId: String, val start: Instant, val state: ContextState)
+
+        private val delivered = mutableSetOf<Key>()
+        val reads = mutableListOf<Key>()
+        val writes = mutableListOf<Key>()
+
+        fun wasSent(userId: String, session: CourseSession, state: ContextState): Boolean {
+            val key = Key(userId, session.id, session.start.toInstant(), state)
+            reads.add(key)
+            return key in delivered
+        }
+
+        fun rememberSent(userId: String, session: CourseSession, state: ContextState) {
+            val key = Key(userId, session.id, session.start.toInstant(), state)
+            writes.add(key)
+            delivered.add(key)
         }
     }
 
