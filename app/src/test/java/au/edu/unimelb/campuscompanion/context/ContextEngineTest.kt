@@ -72,6 +72,21 @@ class ContextEngineTest {
     }
 
     @Test
+    fun leaveSoonStartsExactlyFiveMinutesBeforeTheBufferedDeparture() {
+        val trip = Trip()
+        val leaveBy = at(14, 30)
+        val windowOpens = at(14, 25)
+
+        val beforeWindow = trip.update(inputs(windowOpens.minusSeconds(1)))
+        assertEquals(leaveBy, beforeWindow.leaveBy)
+        assertEquals(ContextState.UPCOMING, beforeWindow.state)
+
+        assertEquals(ContextState.LEAVE_SOON, trip.update(inputs(windowOpens)).state)
+        // Reaching the buffered deadline still leaves time to arrive before class starts.
+        assertEquals(ContextState.LEAVE_SOON, trip.update(inputs(leaveBy)).state)
+    }
+
+    @Test
     fun settingOffEarlySkipsTheLeaveSoonReminder() {
         val trip = Trip()
 
@@ -163,12 +178,28 @@ class ContextEngineTest {
     }
 
     @Test
-    fun aClassThatStartedWhileTheStudentIsAwayIsRunningLateThenInClass() {
+    fun arrivingExactlyAtTheClassStartIsNotRunningLate() {
         val trip = Trip()
+        val lastOnTimeDeparture = at(14, 35)
 
-        assertEquals(ContextState.RUNNING_LATE, trip.update(inputs(at(15, 5), distanceMeters = 2_000.0)).state)
-        // After the grace period the student is assumed to be in class (or not going).
-        assertEquals(ContextState.IN_CLASS, trip.update(inputs(at(15, 20), distanceMeters = 2_000.0)).state)
+        // With a 25-minute trip, leaving now would arrive exactly at the 3:00 PM start.
+        assertEquals(ContextState.LEAVE_SOON, trip.update(inputs(lastOnTimeDeparture)).state)
+        assertEquals(
+            ContextState.RUNNING_LATE,
+            trip.update(inputs(lastOnTimeDeparture.plusSeconds(1))).state
+        )
+    }
+
+    @Test
+    fun aStudentKnownToBeAwayIsRunningLateUntilExactlyFifteenMinutesAfterTheStart() {
+        val trip = Trip()
+        val start = at(15, 0)
+        val graceEnds = at(15, 15)
+
+        assertEquals(ContextState.RUNNING_LATE, trip.update(inputs(start)).state)
+        assertEquals(ContextState.RUNNING_LATE, trip.update(inputs(graceEnds.minusSeconds(1))).state)
+        // At the grace boundary the student is assumed to be in class (or not going).
+        assertEquals(ContextState.IN_CLASS, trip.update(inputs(graceEnds)).state)
     }
 
     @Test
