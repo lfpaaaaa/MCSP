@@ -51,7 +51,7 @@ class RoutedEtaRepositoryTest {
 
         now = now.plus(Duration.ofMinutes(1))
         val whileWalking = repository.estimate(HALFWAY, CAMPUS, TravelMode.Walking).getOrThrow()
-        assertEquals(EstimateSource.StraightLine, whileWalking.source) // Do not use the old origin after the user moved.
+        assertEquals(EstimateSource.Routing, whileWalking.source)
         assertEquals(1, remote.requests.size)
 
         now = now.plus(Duration.ofMinutes(3))
@@ -99,19 +99,6 @@ class RoutedEtaRepositoryTest {
             listOf(TravelMode.PublicTransport, TravelMode.Walking, TravelMode.PublicTransport),
             remote.requests.map { it.mode }
         )
-    }
-
-    @Test
-    fun googleTrafficTimesRefreshAfterThreeMinutesEvenAtTheSamePosition() = runBlocking<Unit> {
-        remote.answer = { RouteOutcome.Found(600, 800, EstimateSource.GoogleMaps) }
-        assertEquals(EstimateSource.GoogleMaps, repository.estimate(HOME, CAMPUS, TravelMode.Driving).getOrThrow().source)
-        now = now.plusSeconds(179)
-        repository.estimate(HOME, CAMPUS, TravelMode.Driving)
-        assertEquals(1, remote.requests.size)
-        now = now.plusSeconds(1)
-        remote.answer = { RouteOutcome.Found(900, 800, EstimateSource.GoogleMaps) }
-        assertEquals(15, repository.estimate(HOME, CAMPUS, TravelMode.Driving).getOrThrow().durationMinutes)
-        assertEquals(2, remote.requests.size)
     }
 
     private class FakeRouteRemoteDataSource : RouteRemoteDataSource {

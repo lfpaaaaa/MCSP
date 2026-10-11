@@ -394,7 +394,8 @@ class SensingForegroundService : Service() {
                     latestIsMoving =
                         isMoving
 
-                    // Raw phone movement alone does not prove that the user has departed.
+                    // The context engine combines movement with progress toward the building.
+                    travel.updateMoving(isMoving)
 
                     Log.d(
                         "SensingService",
@@ -488,7 +489,7 @@ class SensingForegroundService : Service() {
 
                     AppRepositories.navigation.updateLocation(location)
 
-                    travel.updateOrigin(currentPoint, java.time.Instant.ofEpochMilli(location.timestampMillis))
+                    travel.updateOrigin(currentPoint)
 
                     // -------------------------------------------------
                     // Destination: the building of the next class
@@ -627,7 +628,6 @@ class SensingForegroundService : Service() {
 
                         latestStableEnRoute =
                             fusionResult.stableEnRoute
-                        travel.updateMoving(latestStableEnRoute)
 
                         Log.d(
                             "SensingFusion",
@@ -935,7 +935,6 @@ class SensingForegroundService : Service() {
 
     override fun onDestroy() {
         AppRepositories.navigation.stop()
-        travel.updateOrigin(null)
 
         stopSensing()
 

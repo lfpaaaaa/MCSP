@@ -5,6 +5,7 @@ import android.app.NotificationManager
 import android.os.SystemClock
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import au.edu.unimelb.campuscompanion.context.ContextState
 import au.edu.unimelb.campuscompanion.context.DepartureReminders
 import au.edu.unimelb.campuscompanion.context.TravelSnapshot
 import au.edu.unimelb.campuscompanion.data.TravelMode
@@ -23,12 +24,12 @@ import java.util.UUID
 /** Run with adb am instrument; do not use a runner task that uninstalls the user's app afterwards. */
 @RunWith(AndroidJUnit4::class)
 class DepartureNotificationTest {
-    @Test fun defaultTenMinuteWarningAppearsInSystemNotificationsAndDoesNotRepeat() {
+    @Test fun leaveSoonReminderAppearsInSystemNotificationsAndDoesNotRepeat() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val now = ZonedDateTime.now()
         val session = CourseSession(UUID.randomUUID().toString(), "QA-DEPARTURE", "Departure notification check",
             "Test", "Test", now.plusMinutes(30), now.plusMinutes(90), activity = "test-${UUID.randomUUID()}")
-        val snapshot = TravelSnapshot(session = session, evaluatedAt = now.toInstant(),
+        val snapshot = TravelSnapshot(session = session, state = ContextState.LEAVE_SOON,
             estimate = TravelEstimate(TravelMode.Walking, 1200, 1500, EstimateSource.StraightLine, now.toInstant()))
         val manager = context.getSystemService(NotificationManager::class.java)
         val reminders = DepartureReminders(flowOf(), { CourseReminderPreference() }, { DepartureNotifier.show(context, it) })
@@ -42,7 +43,7 @@ class DepartureNotificationTest {
                 if (notification == null) SystemClock.sleep(50)
             }
             assertNotNull(notification)
-            assertEquals("Leave within 10 min · QA-DEPARTURE", notification!!.extras.getString(Notification.EXTRA_TITLE))
+            assertEquals("Time to leave for QA-DEPARTURE", notification!!.extras.getString(Notification.EXTRA_TITLE))
             assertTrue(notification.extras.getCharSequence(Notification.EXTRA_TEXT).toString().contains("20 min on foot"))
             assertNull(reminders.consider(snapshot))
             assertEquals(1, manager.activeNotifications.count { it.tag == tag })

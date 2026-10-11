@@ -99,12 +99,9 @@ object AppRepositories {
                 notify = { reminder -> DepartureNotifier.show(appContext, reminder) },
                 preferenceChanges = CourseReminderPreferencesStore.changes.map { Unit },
                 cancelCourse = { key -> DepartureNotifier.cancelCourse(appContext, key) },
-                wasSent = { session, state -> SupabaseProvider.client?.auth?.currentUserOrNull()?.id?.let {
-                    departureHistory.wasSent(it, session, state)
-                } ?: true },
-                rememberSent = { session, state -> SupabaseProvider.client?.auth?.currentUserOrNull()?.id?.let {
-                    departureHistory.record(it, session, state)
-                }; Unit }
+                currentUserId = { SupabaseProvider.client?.auth?.currentUserOrNull()?.id },
+                wasSent = { userId, session, state -> departureHistory.wasSent(userId, session, state) },
+                rememberSent = { userId, session, state -> departureHistory.record(userId, session, state) }
             ).run()
         }
         SupabaseProvider.client?.let { client ->
@@ -231,7 +228,7 @@ object AppRepositories {
         if (client == null) {
             FakeEtaRepository()
         } else {
-            RoutedEtaRepository(au.edu.unimelb.campuscompanion.data.remote.GoogleEtaDataSource(client, SupabaseRouteDataSource(client)))
+            RoutedEtaRepository(SupabaseRouteDataSource(client))
         }
     }
 
