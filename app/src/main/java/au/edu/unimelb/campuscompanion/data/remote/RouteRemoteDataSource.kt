@@ -7,7 +7,8 @@ import kotlinx.serialization.Serializable
 
 /** The answer of the routing service for one trip. */
 sealed interface RouteOutcome {
-    data class Found(val durationSeconds: Long, val distanceMeters: Int) : RouteOutcome
+    data class Found(val durationSeconds: Long, val distanceMeters: Int,
+        val source: au.edu.unimelb.campuscompanion.data.model.EstimateSource = au.edu.unimelb.campuscompanion.data.model.EstimateSource.Routing) : RouteOutcome
 
     /** A fair-use limit is reached; routing can resume after [retryAfterSeconds]. */
     data class QuotaExceeded(val retryAfterSeconds: Long) : RouteOutcome

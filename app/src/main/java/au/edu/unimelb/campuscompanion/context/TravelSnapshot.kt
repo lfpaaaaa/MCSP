@@ -45,7 +45,8 @@ data class TravelSnapshot(
             walkingMinutes = minutes.takeIf { travel.mode == TravelMode.Walking },
             publicTransportMinutes = minutes.takeIf { travel.mode == TravelMode.PublicTransport },
             drivingMinutes = minutes.takeIf { travel.mode == TravelMode.Driving },
-            isApproximate = travel.isApproximate
+            isApproximate = travel.isApproximate,
+            source = travel.source
         )
         return sessions.map { current ->
             if (current.id == tracked.id) current.copy(etaMinutes = minutes, routeEstimate = route) else current

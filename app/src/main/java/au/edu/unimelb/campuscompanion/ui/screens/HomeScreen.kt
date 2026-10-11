@@ -1,5 +1,6 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
+import au.edu.unimelb.campuscompanion.ui.model.trimTrailingCommas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -18,7 +19,6 @@ import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.DirectionsCar
 import androidx.compose.material.icons.outlined.DirectionsTransit
 import androidx.compose.material.icons.outlined.LocationOn
-import androidx.compose.material.icons.outlined.Route
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -53,7 +53,6 @@ import au.edu.unimelb.campuscompanion.ui.model.CourseSession
 import au.edu.unimelb.campuscompanion.ui.model.TimetableState
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
-import kotlin.math.roundToInt
 
 private val homeTimeFormatter = DateTimeFormatter.ofPattern("h:mm a")
 private val nextClassDateFormatter = DateTimeFormatter.ofPattern("EEEE, d MMM")
@@ -65,6 +64,7 @@ fun HomeScreen(
     onTimetableUrlSave: suspend (String) -> Result<Unit>,
     onTimetableRefresh: () -> Unit,
     onOpenGroup: (CourseGroup) -> Unit,
+    onNavigate: (CourseSession) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var showTimetableDialog by rememberSaveable { mutableStateOf(false) }
@@ -129,7 +129,8 @@ fun HomeScreen(
                     NextClassCard(
                         session = agenda.nextClass,
                         travelPreferences = travelPreferences,
-                        now = now
+                        now = now,
+                        onNavigate = { onNavigate(agenda.nextClass) }
                     )
                 }
 
@@ -145,7 +146,7 @@ fun HomeScreen(
                 } else {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         agenda.todayClasses.forEach { session ->
-                            CourseSessionRow(session = session)
+                            CourseSessionRow(session = session, onNavigate = { onNavigate(session) })
                         }
                     }
                 }
@@ -181,6 +182,7 @@ private fun NextClassCard(
     session: CourseSession,
     travelPreferences: TravelPreferences,
     now: ZonedDateTime,
+    onNavigate: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val status = session.statusAt(now)
@@ -217,7 +219,7 @@ private fun NextClassCard(
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = session.title,
+                        text = session.title.trimTrailingCommas(),
                         style = MaterialTheme.typography.bodyMedium,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
@@ -247,24 +249,24 @@ private fun NextClassCard(
                 )
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.2f))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                TravelMetric(
-                    icon = Icons.Outlined.Route,
-                    label = "Distance",
-                    value = travel.distanceMeters?.let(::formatTravelDistance) ?: "Waiting for location",
-                    modifier = Modifier.weight(1f)
-                )
-                TravelMetric(
-                    icon = travel.mode?.icon() ?: Icons.Outlined.AccessTime,
-                    label = (travel.mode?.displayName ?: "Travel time") + if (travel.isApproximate) " (approx.)" else "",
-                    value = travel.durationMinutes?.let { if (travel.isApproximate) "~$it min" else "$it min" } ?: "Route pending",
-                    modifier = Modifier.weight(1f)
-                )
+            TravelMetric(
+                icon = travel.mode?.icon() ?: Icons.Outlined.AccessTime,
+                label = "Travel time",
+                value = travel.durationMinutes?.let { minutes ->
+                    "${if (travel.isApproximate) "~" else ""}$minutes min" +
+                        travel.mode?.let { " · ${it.displayName}" }.orEmpty()
+                } ?: "Waiting for current location or route",
+                modifier = Modifier.fillMaxWidth()
+            )
+            if (travel.isApproximate) {
+                Text("Approximate travel time · live route unavailable", style = MaterialTheme.typography.bodySmall)
             }
-            RoutingCredit()
+            Button(onClick = onNavigate, modifier = Modifier.fillMaxWidth()) { Text("Navigate with Google Maps") }
+            if (session.routeEstimate?.source == au.edu.unimelb.campuscompanion.data.model.EstimateSource.GoogleMaps) {
+                Text("Google Maps", style = MaterialTheme.typography.bodySmall)
+            } else if (!travel.isApproximate && travel.durationMinutes != null) {
+                RoutingCredit()
+            }
         }
     }
 }
@@ -359,16 +361,6 @@ internal fun selectTravelSummary(
         durationMinutes = minutes,
         isApproximate = estimate.isApproximate
     )
-}
-
-private fun formatTravelDistance(distanceMeters: Int): String {
-    if (distanceMeters < 1_000) return "$distanceMeters m"
-    val roundedTenths = (distanceMeters / 100f).roundToInt()
-    return if (roundedTenths % 10 == 0) {
-        "${roundedTenths / 10} km"
-    } else {
-        "${roundedTenths / 10}.${roundedTenths % 10} km"
-    }
 }
 
 private fun TravelMode.icon(): ImageVector = when (this) {

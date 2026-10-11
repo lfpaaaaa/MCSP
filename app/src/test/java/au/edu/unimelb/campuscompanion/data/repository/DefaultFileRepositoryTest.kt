@@ -101,6 +101,27 @@ class DefaultFileRepositoryTest {
     }
 
     @Test
+    fun restrictedFilesCanBePreviewedButOnlyTheirUploaderCanDownload() = runBlocking<Unit> {
+        remote.stored += fileRow(1).copy(allowDownloads = false)
+        remote.stored += fileRow(2, uploaderId = SELF_ID).copy(allowDownloads = false)
+        withTimeout(5_000) { repository.observeFiles(FILE_GROUP_ID).first { it.size == 2 } }
+
+        assertTrue(repository.createPreviewUrl("file-1").isSuccess)
+        assertTrue(repository.createDownloadUrl("file-1").exceptionOrNull() is DataError.Validation)
+        assertTrue(repository.createDownloadUrl("file-2").isSuccess)
+        assertEquals(listOf("file-1" to false, "file-2" to true), remote.accessRequests)
+    }
+
+    @Test
+    fun serverDenialIsRespectedEvenWhenTheCachedFileAllowsDownloads() = runBlocking<Unit> {
+        remote.stored += fileRow(1)
+        withTimeout(5_000) { repository.observeFiles(FILE_GROUP_ID).first { it.isNotEmpty() } }
+        remote.accessFailure = DataError.Forbidden()
+        assertTrue(repository.createDownloadUrl("file-1").exceptionOrNull() is DataError.Forbidden)
+        assertTrue(repository.createPreviewUrl("file-1").exceptionOrNull() is DataError.Forbidden)
+    }
+
+    @Test
     fun onlyTheUploaderCanDeleteAFile() = runBlocking<Unit> {
         remote.stored += listOf(fileRow(1, uploaderId = SELF_ID), fileRow(2))
         withTimeout(5_000) { repository.observeFiles(FILE_GROUP_ID).first { it.size == 2 } }

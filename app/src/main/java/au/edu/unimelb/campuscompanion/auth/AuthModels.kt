@@ -4,7 +4,8 @@ data class AuthenticatedUser(
     val id: String,
     val displayName: String?,
     val email: String?,
-    val provider: SignInProvider
+    val provider: SignInProvider,
+    val avatarUrl: String? = null
 ) {
     val profileName: String
         get() = displayName ?: email?.substringBefore('@') ?: "Campus Companion user"
@@ -31,3 +32,6 @@ data class AuthUiState(
     val isSignedIn: Boolean
         get() = user != null && !requiresProfileName
 }
+
+/** Background session restoration must not dispose the current signed-in screen. */
+internal fun AuthUiState.onSessionInitializing(): AuthUiState = copy(isInitializing = user == null)

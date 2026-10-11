@@ -1,5 +1,6 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
+import au.edu.unimelb.campuscompanion.ui.model.trimTrailingCommas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -134,7 +135,7 @@ fun CourseReminderSettingsScreen(
                     },
                     supportingContent = {
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(course.title)
+                            Text(course.title.trimTrailingCommas())
                             Text(
                                 text = course.summaryLine(preference),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -184,7 +185,7 @@ private fun CourseReminderDialog(
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
-                        text = course.title,
+                        text = course.title.trimTrailingCommas(),
                         style = MaterialTheme.typography.titleMedium
                     )
                     Text(

@@ -75,7 +75,6 @@ class GroupPresentationTest {
         unreadCount = 0,
         latestMessage = "",
         latestFileName = null,
-        privateContentEnabled = false
     )
 
     private fun session(

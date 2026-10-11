@@ -4,6 +4,8 @@ import au.edu.unimelb.campuscompanion.data.DataError
 import au.edu.unimelb.campuscompanion.data.model.GroupRole
 import au.edu.unimelb.campuscompanion.data.remote.GroupMemberRow
 import au.edu.unimelb.campuscompanion.data.remote.GroupSummaryRow
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.launch
@@ -95,6 +97,157 @@ class DefaultGroupRepositoryTest {
 
         assertEquals(listOf("mine"), cached.observeMyGroups().first().map { it.group.id })
         assertEquals(listOf("theirs"), cache.load("user-2")?.map { it.id })
+    }
+
+    @Test
+    fun createdGroupSurvivesFailedRefreshSignOutAndRepositoryRestart() = runBlocking<Unit> {
+        val cache = InMemoryGroupListCache()
+        cache.save("user-1", listOf(summaryRow("existing")))
+        val cached = DefaultGroupRepository(remote, cache) { signedInUser }
+        remote.summaryFailure = DataError.Offline()
+
+        assertTrue(cached.createGroup("Revision", null).isSuccess)
+        signedInUser = null
+        cached.clearSession()
+        assertTrue(cached.observeMyGroups().first().isEmpty())
+        signedInUser = "user-1"
+        val restarted = DefaultGroupRepository(remote, cache) { signedInUser }
+        val restored = restarted.observeMyGroups().first()
+        assertEquals(setOf("new-group", "existing"), restored.map { it.group.id }.toSet())
+        assertEquals(GroupRole.Owner, restored.first { it.group.id == "new-group" }.myRole)
+    }
+
+    @Test
+    fun reusedRepositoryRestoresOnlyTheSignedInAccountsCache() = runBlocking<Unit> {
+        val cache = InMemoryGroupListCache()
+        cache.save("user-1", listOf(summaryRow("alice")))
+        cache.save("user-2", listOf(summaryRow("bob")))
+        val cached = DefaultGroupRepository(remote, cache) { signedInUser }
+        assertEquals("alice", cached.observeMyGroups().first().single().group.id)
+        signedInUser = "user-2"
+        assertEquals("bob", cached.observeMyGroups().first().single().group.id)
+        signedInUser = "user-1"
+        assertEquals("alice", cached.observeMyGroups().first().single().group.id)
+    }
+
+    @Test
+    fun restoredCacheIsVisibleWhileRefreshIsWaitingForTheNetwork() = runBlocking<Unit> {
+        val cache = InMemoryGroupListCache()
+        cache.save("user-1", listOf(summaryRow("saved")))
+        val cached = DefaultGroupRepository(remote, cache) { signedInUser }
+        val started = CompletableDeferred<Unit>()
+        val response = CompletableDeferred<List<GroupSummaryRow>>()
+        remote.summaryRequest = { started.complete(Unit); response.await() }
+        val request = async { cached.refresh() }
+        try {
+            started.await()
+            val list = kotlinx.coroutines.withTimeout(5000) { cached.observeMyGroups().first() }
+            assertEquals("saved", list.single().group.id)
+        } finally {
+            response.complete(listOf(summaryRow("fresh")))
+            request.await()
+        }
+    }
+
+    @Test
+    fun responseFromBeforeLogoutCannotReplaceTheNextLoginsGroups() = runBlocking<Unit> {
+        val cache = InMemoryGroupListCache()
+        cache.save("user-1", listOf(summaryRow("saved")))
+        val cached = DefaultGroupRepository(remote, cache) { signedInUser }
+        val started = CompletableDeferred<Unit>()
+        val response = CompletableDeferred<List<GroupSummaryRow>>()
+        remote.summaryRequest = { started.complete(Unit); response.await() }
+        val request = async { cached.refresh() }
+        started.await()
+        signedInUser = null
+        cached.clearSession()
+        signedInUser = "user-1"
+        response.complete(listOf(summaryRow("stale")))
+        assertTrue(request.await().exceptionOrNull() is DataError.Unauthenticated)
+        assertEquals("saved", cached.observeMyGroups().first().single().group.id)
+        assertEquals("saved", cache.load("user-1")!!.single().id)
+    }
+
+    @Test
+    fun accountSwitchDuringRefreshCannotWriteIntoAnotherAccountsCache() = runBlocking<Unit> {
+        val cache = InMemoryGroupListCache()
+        cache.save("user-2", listOf(summaryRow("bob")))
+        val cached = DefaultGroupRepository(remote, cache) { signedInUser }
+        val started = CompletableDeferred<Unit>()
+        val response = CompletableDeferred<List<GroupSummaryRow>>()
+        remote.summaryRequest = { started.complete(Unit); response.await() }
+        val request = async { cached.refresh() }
+        started.await()
+        signedInUser = "user-2"
+        response.complete(listOf(summaryRow("alice")))
+        assertTrue(request.await().isFailure)
+        assertEquals("bob", cached.observeMyGroups().first().single().group.id)
+        assertEquals("bob", cache.load("user-2")!!.single().id)
+    }
+
+    @Test
+    fun overlappingRefreshCannotEraseASuccessfullyCreatedGroup() = runBlocking<Unit> {
+        val cache = InMemoryGroupListCache()
+        val cached = DefaultGroupRepository(remote, cache) { signedInUser }
+        val started = CompletableDeferred<Unit>()
+        val response = CompletableDeferred<List<GroupSummaryRow>>()
+        remote.summaryRequest = { started.complete(Unit); response.await() }
+        val refresh = async { cached.refresh() }
+        started.await()
+        val create = async(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            cached.createGroup("Revision", null)
+        }
+        // The create waits for the older refresh, then its follow-up list request fails.
+        remote.summaryFailure = DataError.Offline()
+        response.complete(emptyList())
+        assertTrue(refresh.await().isSuccess)
+        assertTrue(create.await().isSuccess)
+        assertEquals("new-group", cached.observeMyGroups().first().single().group.id)
+        assertEquals("new-group", cache.load("user-1")!!.single().id)
+    }
+
+    @Test
+    fun timetableSyncFailureDoesNotHideCachedManualGroups() = runBlocking<Unit> {
+        val cache = InMemoryGroupListCache()
+        cache.save("user-1", listOf(summaryRow("manual", role = "owner")))
+        val cached = DefaultGroupRepository(remote, cache) { signedInUser }
+        remote.timetableRows = listOf(groupRow("course").copy(timetableKey = "COMP90018|course"))
+        remote.summaryFailure = DataError.Offline()
+        assertTrue(cached.syncTimetableGroups(emptyList()).isFailure)
+        assertEquals(setOf("manual", "course"), cached.observeMyGroups().first().map { it.group.id }.toSet())
+        assertEquals(setOf("manual", "course"), cache.load("user-1")!!.map { it.id }.toSet())
+    }
+
+    @Test
+    fun leaveDissolveAndTransferAlsoUpdateTheListRestoredAfterLogin() = runBlocking<Unit> {
+        val cache = InMemoryGroupListCache()
+        cache.save("user-1", listOf("leave", "dissolve", "transfer", "keep").map { summaryRow(it) })
+        val cached = DefaultGroupRepository(remote, cache) { signedInUser }
+        assertTrue(cached.leaveGroup("leave").isSuccess)
+        assertTrue(cached.dissolveGroup("dissolve").isSuccess)
+        assertTrue(cached.transferAndLeave("transfer", "user-2").isSuccess)
+        cached.clearSession()
+        assertEquals("keep", cached.observeMyGroups().first().single().group.id)
+    }
+
+    @Test
+    fun failingToWriteCacheDoesNotReportAnAlreadyCreatedGroupAsFailed() = runBlocking<Unit> {
+        val cache = object : GroupListCache {
+            override fun load(userId: String): List<GroupSummaryRow>? = null
+            override fun save(userId: String, rows: List<GroupSummaryRow>) { throw java.io.IOException("Disk full") }
+        }
+        val cached = DefaultGroupRepository(remote, cache) { signedInUser }
+        assertTrue(cached.createGroup("Revision", null).isSuccess)
+        assertEquals("new-group", cached.observeMyGroups().first().single().group.id)
+    }
+
+    @Test
+    fun signedOutRefreshAndCreationDoNotReachTheServer() = runBlocking<Unit> {
+        signedInUser = null
+        assertTrue(repository.refresh().exceptionOrNull() is DataError.Unauthenticated)
+        assertTrue(repository.createGroup("Revision", null).exceptionOrNull() is DataError.Unauthenticated)
+        assertEquals(0, remote.summaryFetches)
+        assertTrue(remote.createdGroups.isEmpty())
     }
 
     @Test

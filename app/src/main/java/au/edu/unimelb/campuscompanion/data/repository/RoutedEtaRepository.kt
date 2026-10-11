@@ -2,7 +2,6 @@ package au.edu.unimelb.campuscompanion.data.repository
 
 import au.edu.unimelb.campuscompanion.data.TravelMode
 import au.edu.unimelb.campuscompanion.data.geo.StraightLineEstimator
-import au.edu.unimelb.campuscompanion.data.model.EstimateSource
 import au.edu.unimelb.campuscompanion.data.model.GeoPoint
 import au.edu.unimelb.campuscompanion.data.model.TravelEstimate
 import au.edu.unimelb.campuscompanion.data.remote.RouteOutcome
@@ -71,7 +70,7 @@ class RoutedEtaRepository(
                     mode = mode,
                     durationSeconds = outcome.durationSeconds.coerceAtLeast(0),
                     distanceMeters = outcome.distanceMeters.coerceAtLeast(0),
-                    source = EstimateSource.Routing,
+                    source = outcome.source,
                     computedAt = now
                 )
                 cache[routeKey] = CachedEstimate(estimate, now.plus(cacheLifetime(mode)))

@@ -8,6 +8,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.*
 import org.junit.Test
+import kotlinx.serialization.encodeToString
 import java.io.ByteArrayInputStream
 
 class AttachmentUploadQueueTest {
@@ -49,6 +50,27 @@ class AttachmentUploadQueueTest {
         queue.retry("id")
         withTimeout(5000) { queue.uploads.first { it.single().phase == AttachmentPhase.Completed } }
         assertEquals(AttachmentPhase.Completed, saved.single().phase)
+    }
+
+    @Test fun downloadConsentSurvivesFailurePersistenceAndRestart() = runBlocking<Unit> {
+        remote.uploadFailure = DataError.Offline()
+        var saved: List<AttachmentUpload> = emptyList()
+        val queue = AttachmentUploadQueue(files, this, { "student" }, { ByteArray(4) }, persist = { saved = it })
+        queue.enqueue(FILE_GROUP_ID, "uri", "photo.png", "image/png", allowDownloads = false)
+        withTimeout(5000) { queue.uploads.first { it.single().phase == AttachmentPhase.Failed } }
+        assertFalse(saved.single().allowDownloads)
+        val json = kotlinx.serialization.json.Json
+        val restored = json.decodeFromString<List<AttachmentUpload>>(json.encodeToString(saved))
+        remote.uploadFailure = null
+        val restarted = AttachmentUploadQueue(files, this, { "student" }, { ByteArray(4) }, restored)
+        restarted.retry(restored.single().id)
+        withTimeout(5000) { restarted.uploads.first { it.single().phase == AttachmentPhase.Completed } }
+        assertFalse(remote.stored.single().allowDownloads)
+    }
+
+    @Test fun uploadsFromOlderVersionsDefaultToAllowingDownloads() {
+        val old = """{"id":"old","userId":"u","groupId":"g","uri":"uri","fileName":"x.txt","mimeType":"text/plain","createdAt":"2026-10-10T00:00:00Z"}"""
+        assertTrue(kotlinx.serialization.json.Json.decodeFromString<AttachmentUpload>(old).allowDownloads)
     }
 
     @Test fun switchingAccountDoesNotUploadAnotherUsersPendingAttachment() = runBlocking<Unit> {

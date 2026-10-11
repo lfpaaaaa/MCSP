@@ -1,5 +1,9 @@
 package au.edu.unimelb.campuscompanion.auth
 
+import android.content.Context
+import android.net.Uri
+import au.edu.unimelb.campuscompanion.profile.*
+import kotlinx.coroutines.Job
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import au.edu.unimelb.campuscompanion.data.AppRepositories
@@ -27,6 +31,39 @@ class AuthViewModel : ViewModel() {
         AuthUiState(isInitializing = client != null)
     )
     val uiState: StateFlow<AuthUiState> = _uiState.asStateFlow()
+
+    private val _profileState = MutableStateFlow(ProfileSaveState())
+    val profileState = _profileState.asStateFlow()
+    private var profileJob: Job? = null
+
+    fun clearProfileMessage() {
+        if (!_profileState.value.saving) _profileState.value = ProfileSaveState()
+    }
+
+    fun saveProfile(context: Context, name: String, photo: Uri?, removePhoto: Boolean) {
+        if (_profileState.value.saving) return
+        val user = _uiState.value.user ?: return
+        profileNameError(name)?.let { _profileState.value = ProfileSaveState(error = it); return }
+        val appContext = context.applicationContext
+        _profileState.value = ProfileSaveState(saving = true)
+        profileJob = viewModelScope.launch {
+            try {
+                val avatar = when {
+                    photo != null -> AvatarChange.Replace(AvatarImages.readForUpload(appContext, photo))
+                    removePhoto -> AvatarChange.Remove
+                    else -> AvatarChange.Keep
+                }
+                val updated = ProfileUpdater(SupabaseProfileRemote(clientOrThrow())).save(user, name, avatar)
+                if (_uiState.value.user?.id == user.id) {
+                    _uiState.value = _uiState.value.copy(user = updated)
+                    _profileState.value = ProfileSaveState(saved = true)
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) {
+                if (_uiState.value.user?.id == user.id) _profileState.value = ProfileSaveState(error = authErrorMessage(error))
+            }
+        }
+    }
 
     init {
         if (client == null) {
@@ -98,11 +135,8 @@ class AuthViewModel : ViewModel() {
     }
 
     fun saveDisplayName(name: String) {
-        val normalizedName = name.trim().replace(Regex("\\s+"), " ")
-        if (normalizedName.length < 2) {
-            setError("Enter the name you want shown in your profile.")
-            return
-        }
+        val normalizedName = normalizedProfileName(name)
+        profileNameError(normalizedName)?.let { setError(it); return }
 
         runAuthRequest {
             val updatedUser = clientOrThrow().auth.updateUser {
@@ -120,6 +154,8 @@ class AuthViewModel : ViewModel() {
     }
 
     fun signOut() {
+        profileJob?.cancel()
+        _profileState.value = ProfileSaveState()
         runAuthRequest {
             // While the session is still valid: this device stops receiving this user's messages.
             AppRepositories.push.beforeSignOut()
@@ -160,8 +196,16 @@ class AuthViewModel : ViewModel() {
     }
 
     private fun handleSessionStatus(status: SessionStatus) {
+        val nextUserId = (status as? SessionStatus.Authenticated)?.session?.user?.id
+        if (status is SessionStatus.NotAuthenticated || (nextUserId != null && nextUserId != _uiState.value.user?.id)) {
+            profileJob?.cancel()
+            _profileState.value = ProfileSaveState()
+        }
         _uiState.value = when (status) {
-            SessionStatus.Initializing -> _uiState.value.copy(isInitializing = true)
+            // Supabase 3.0 resets to Initializing when the app goes into the background.
+            // Keep the signed-in composition (including picker callbacks and drafts) until it
+            // actually reports NotAuthenticated; only the first session load needs a blank screen.
+            SessionStatus.Initializing -> _uiState.value.onSessionInitializing()
             is SessionStatus.Authenticated -> {
                 val user = status.session.user?.toAuthenticatedUser()
                 _uiState.value.copy(
@@ -192,7 +236,7 @@ class AuthViewModel : ViewModel() {
     }
 }
 
-private fun UserInfo.toAuthenticatedUser(): AuthenticatedUser {
+internal fun UserInfo.toAuthenticatedUser(): AuthenticatedUser {
     val metadataName = userMetadata.stringValue("display_name")
         ?: userMetadata.stringValue("full_name")
         ?: userMetadata.stringValue("name")
@@ -207,7 +251,10 @@ private fun UserInfo.toAuthenticatedUser(): AuthenticatedUser {
         id = id,
         displayName = metadataName?.takeIf(String::isNotBlank),
         email = email,
-        provider = provider
+        provider = provider,
+        // An explicit empty avatar_url means the user removed even an OAuth-provided photo.
+        avatarUrl = (if (userMetadata?.containsKey("avatar_url") == true) userMetadata.stringValue("avatar_url")
+            else userMetadata.stringValue("picture"))?.takeIf(String::isNotBlank)
     )
 }
 

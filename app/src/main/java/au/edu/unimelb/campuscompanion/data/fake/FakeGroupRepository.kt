@@ -40,7 +40,7 @@ class FakeGroupRepository(
         specs.forEach { spec ->
             val id = UUID.nameUUIDFromBytes(spec.key.toByteArray()).toString()
             if (summaries.value.none { it.group.id == id }) {
-                val group = Group(id, spec.name, spec.courseCode, false, null, now,
+                val group = Group(id, spec.name, spec.courseCode, null, now,
                     timetableKey = spec.key, timetableSlot = spec.slotLabel())
                 members.update { it + (id to listOf(currentMember(GroupRole.Member, now))) }
                 summaries.update { it + GroupSummary(group, GroupRole.Member, 1, 0, null, now, null) }
@@ -62,7 +62,6 @@ class FakeGroupRepository(
             id = UUID.randomUUID().toString(),
             name = input.name,
             courseCode = input.courseCode,
-            privateContentEnabled = false,
             createdBy = currentUserId,
             createdAt = now,
             joinCode = FakeData.randomJoinCode()

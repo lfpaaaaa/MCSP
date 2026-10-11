@@ -17,9 +17,11 @@ object DepartureNotifier {
     const val CHANNEL_ID = "departure"
 
     @SuppressLint("MissingPermission")
-    fun show(context: Context, reminder: DepartureReminder) {
-        if (!Notifications.canNotify(context)) return
+    fun show(context: Context, reminder: DepartureReminder): Boolean {
+        if (!Notifications.canNotify(context)) return false
         createChannel(context)
+        if (context.getSystemService(NotificationManager::class.java).getNotificationChannel(CHANNEL_ID)?.importance ==
+            NotificationManager.IMPORTANCE_NONE) return false
 
         val open = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -38,12 +40,14 @@ object DepartureNotifier {
             .setStyle(NotificationCompat.BigTextStyle().bigText(reminder.text))
             .setContentIntent(tap)
             .setAutoCancel(true)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .build()
-        NotificationManagerCompat.from(context).notify(
-            courseTag(reminder.courseKey), reminder.notificationId, notification
-        )
+        return try {
+            NotificationManagerCompat.from(context).notify(courseTag(reminder.courseKey), reminder.notificationId, notification)
+            true
+        } catch (_: SecurityException) { false }
     }
 
     /** Clears this course's visible reminders without affecting chats or other courses. */
@@ -63,6 +67,7 @@ object DepartureNotifier {
             NotificationManager.IMPORTANCE_HIGH
         ).apply {
             description = "When it is time to leave for your next class"
+            enableVibration(true)
         }
         context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }

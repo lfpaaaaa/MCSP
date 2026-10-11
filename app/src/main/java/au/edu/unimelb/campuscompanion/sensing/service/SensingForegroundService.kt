@@ -394,9 +394,8 @@ class SensingForegroundService : Service() {
                     latestIsMoving =
                         isMoving
 
-                    travel.updateMoving(
-                        isMoving
-                    )
+                    // The context engine combines movement with progress toward the building.
+                    travel.updateMoving(isMoving)
 
                     Log.d(
                         "SensingService",
@@ -488,9 +487,9 @@ class SensingForegroundService : Service() {
                                 location.longitude
                         )
 
-                    travel.updateOrigin(
-                        currentPoint
-                    )
+                    AppRepositories.navigation.updateLocation(location)
+
+                    travel.updateOrigin(currentPoint)
 
                     // -------------------------------------------------
                     // Destination: the building of the next class
@@ -935,6 +934,7 @@ class SensingForegroundService : Service() {
     // ---------------------------------------------------------
 
     override fun onDestroy() {
+        AppRepositories.navigation.stop()
 
         stopSensing()
 

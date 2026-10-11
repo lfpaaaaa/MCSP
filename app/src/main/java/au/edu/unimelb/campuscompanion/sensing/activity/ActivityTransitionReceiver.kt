@@ -25,9 +25,16 @@ class ActivityTransitionReceiver : BroadcastReceiver() {
                 ?: return
 
         result.transitionEvents.forEach { event ->
+            if (event.activityType == DetectedActivity.IN_VEHICLE &&
+                android.os.SystemClock.elapsedRealtimeNanos() - event.elapsedRealTimeNanos in 0..60_000_000_000L) {
+                au.edu.unimelb.campuscompanion.data.AppRepositories.navigation.updateActivity(
+                    event.transitionType == ActivityTransition.ACTIVITY_TRANSITION_ENTER
+                )
+            }
 
             val activityName =
                 when (event.activityType) {
+                    DetectedActivity.IN_VEHICLE -> "IN_VEHICLE"
                     DetectedActivity.WALKING -> "WALKING"
                     DetectedActivity.RUNNING -> "RUNNING"
                     DetectedActivity.STILL -> "STILL"

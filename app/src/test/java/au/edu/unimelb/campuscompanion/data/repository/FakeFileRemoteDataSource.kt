@@ -48,7 +48,7 @@ class FakeFileRemoteDataSource : FileRemoteDataSource {
             mimeType = record.mimeType,
             sizeBytes = record.sizeBytes,
             storagePath = record.storagePath,
-            isPrivate = record.isPrivate,
+            allowDownloads = record.allowDownloads,
             createdAt = "2026-09-25T06:00:00Z"
         )
         stored += row
@@ -64,8 +64,14 @@ class FakeFileRemoteDataSource : FileRemoteDataSource {
         deletedPaths += path
     }
 
-    override suspend fun createSignedUrl(path: String, expiresInSeconds: Long): String =
-        "https://signed.example/$path?expires=$expiresInSeconds"
+    val accessRequests = mutableListOf<Pair<String, Boolean>>()
+    var accessFailure: DataError? = null
+    override suspend fun createAccessUrl(fileId: String, forDownload: Boolean): String {
+        accessRequests += fileId to forDownload
+        accessFailure?.let { throw it }
+        val row = stored.firstOrNull { it.id == fileId } ?: throw DataError.NotFound()
+        return "https://signed.example/${row.storagePath}?expires=300"
+    }
 
     override fun fileChanges(groupId: String): Flow<Unit> = events
 }

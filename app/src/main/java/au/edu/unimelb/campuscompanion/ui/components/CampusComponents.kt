@@ -1,5 +1,6 @@
 package au.edu.unimelb.campuscompanion.ui.components
 
+import au.edu.unimelb.campuscompanion.ui.model.trimTrailingCommas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -16,7 +17,6 @@ import androidx.compose.material.icons.outlined.AttachFile
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.LocationOn
-import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.NearMe
 import androidx.compose.material.icons.outlined.NotificationsOff
 import androidx.compose.material.icons.outlined.People
@@ -152,6 +152,7 @@ fun MetricItem(
 @Composable
 fun CourseSessionRow(
     session: CourseSession,
+    onNavigate: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val status = session.statusAt()
@@ -213,7 +214,7 @@ fun CourseSessionRow(
                 }
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    text = session.title,
+                    text = session.title.trimTrailingCommas(),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,
@@ -236,6 +237,11 @@ fun CourseSessionRow(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
+            }
+        }
+        onNavigate?.let { action ->
+            androidx.compose.material3.TextButton(onClick = action, modifier = Modifier.padding(horizontal = 16.dp)) {
+                Text("Navigate with Google Maps")
             }
         }
     }
@@ -318,13 +324,6 @@ fun GroupUpdateRow(
                 IconTextLine(
                     icon = Icons.Outlined.AttachFile,
                     text = group.latestFileName
-                )
-            }
-            if (group.privateContentEnabled) {
-                Spacer(Modifier.height(8.dp))
-                IconTextLine(
-                    icon = Icons.Outlined.Lock,
-                    text = "Private files protected"
                 )
             }
         }

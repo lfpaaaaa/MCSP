@@ -1,3 +1,7 @@
 # Copy these values into local.properties. Do not commit real keys.
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_PUBLISHABLE_KEY=your-publishable-key
+
+
+# Opening the external Google Maps app/browser does not require a Maps API key.
+# The optional Routes API server key belongs in Supabase secrets, never in this file/APK.
