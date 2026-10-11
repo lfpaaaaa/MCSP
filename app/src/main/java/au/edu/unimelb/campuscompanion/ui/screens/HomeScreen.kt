@@ -30,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -38,6 +39,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
+import au.edu.unimelb.campuscompanion.context.TravelSnapshot
 import au.edu.unimelb.campuscompanion.data.TravelMode
 import au.edu.unimelb.campuscompanion.data.TravelPreferences
 import au.edu.unimelb.campuscompanion.ui.about.RoutingCredit
@@ -45,12 +50,14 @@ import au.edu.unimelb.campuscompanion.ui.components.CourseSessionRow
 import au.edu.unimelb.campuscompanion.ui.components.GroupUpdateRow
 import au.edu.unimelb.campuscompanion.ui.components.SectionHeader
 import au.edu.unimelb.campuscompanion.ui.components.StatusPill
-import au.edu.unimelb.campuscompanion.ui.components.displayName
 import au.edu.unimelb.campuscompanion.ui.components.TimetableSyncStatus
 import au.edu.unimelb.campuscompanion.ui.components.TimetableUrlDialog
 import au.edu.unimelb.campuscompanion.ui.model.CourseGroup
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
+import au.edu.unimelb.campuscompanion.ui.model.HomeCardUiState
 import au.edu.unimelb.campuscompanion.ui.model.TimetableState
+import au.edu.unimelb.campuscompanion.ui.model.buildHomeCardState
+import kotlinx.coroutines.delay
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 
@@ -60,7 +67,7 @@ private val nextClassDateFormatter = DateTimeFormatter.ofPattern("EEEE, d MMM")
 @Composable
 fun HomeScreen(
     timetableState: TimetableState,
-    travelPreferences: TravelPreferences,
+    travelSnapshot: TravelSnapshot,
     onTimetableUrlSave: suspend (String) -> Result<Unit>,
     onTimetableRefresh: () -> Unit,
     onOpenGroup: (CourseGroup) -> Unit,
@@ -68,6 +75,16 @@ fun HomeScreen(
     modifier: Modifier = Modifier
 ) {
     var showTimetableDialog by rememberSaveable { mutableStateOf(false) }
+    var now by remember { mutableStateOf(ZonedDateTime.now()) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                now = ZonedDateTime.now()
+                delay(30_000)
+            }
+        }
+    }
     LaunchedEffect(timetableState.isConnected, timetableState.isLoading) {
         if (!timetableState.isConnected && !timetableState.isLoading) showTimetableDialog = true
     }
@@ -115,7 +132,7 @@ fun HomeScreen(
                 onConnect = { showTimetableDialog = true }
             )
             else -> {
-                val now = ZonedDateTime.now()
+                val homeCard = buildHomeCardState(timetableState.sessions, travelSnapshot, now)
                 val agenda = buildHomeAgenda(
                     sessions = timetableState.sessions,
                     now = now
@@ -125,12 +142,12 @@ fun HomeScreen(
                     nextClass.startDate == localNow.toLocalDate()
                 } == true
 
-                if (agenda.nextClass != null) {
+                val cardSession = homeCard.session
+                if (cardSession != null) {
                     NextClassCard(
-                        session = agenda.nextClass,
-                        travelPreferences = travelPreferences,
-                        now = now,
-                        onNavigate = { onNavigate(agenda.nextClass) }
+                        session = cardSession,
+                        card = homeCard,
+                        onNavigate = { onNavigate(cardSession) }
                     )
                 }
 
@@ -180,13 +197,11 @@ fun HomeScreen(
 @Composable
 private fun NextClassCard(
     session: CourseSession,
-    travelPreferences: TravelPreferences,
-    now: ZonedDateTime,
+    card: HomeCardUiState,
     onNavigate: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val status = session.statusAt(now)
-    val travel = selectTravelSummary(session, travelPreferences)
+    val travel = card.estimate
     val locationText = listOf(session.location, session.room)
         .filter(String::isNotBlank)
         .joinToString(" - ")
@@ -230,8 +245,8 @@ private fun NextClassCard(
                     )
                 }
                 StatusPill(
-                    label = status.displayName(),
-                    status = status
+                    label = card.statusLabel,
+                    status = card.statusTone
                 )
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -250,21 +265,21 @@ private fun NextClassCard(
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.2f))
             TravelMetric(
-                icon = travel.mode?.icon() ?: Icons.Outlined.AccessTime,
+                icon = travel?.mode?.icon() ?: Icons.Outlined.AccessTime,
                 label = "Travel time",
-                value = travel.durationMinutes?.let { minutes ->
-                    "${if (travel.isApproximate) "~" else ""}$minutes min" +
-                        travel.mode?.let { " · ${it.displayName}" }.orEmpty()
-                } ?: "Waiting for current location or route",
+                value = travel?.let { estimate ->
+                    val minutes = estimate.durationMinutes
+                    "${if (estimate.isApproximate) "~" else ""}$minutes min · ${estimate.mode.displayName}"
+                } ?: if (card.isUpdating) "Updating travel information" else "Waiting for current location or route",
                 modifier = Modifier.fillMaxWidth()
             )
-            if (travel.isApproximate) {
+            if (travel?.isApproximate == true) {
                 Text("Approximate travel time · live route unavailable", style = MaterialTheme.typography.bodySmall)
             }
             Button(onClick = onNavigate, modifier = Modifier.fillMaxWidth()) { Text("Navigate with Google Maps") }
-            if (session.routeEstimate?.source == au.edu.unimelb.campuscompanion.data.model.EstimateSource.GoogleMaps) {
+            if (travel?.source == au.edu.unimelb.campuscompanion.data.model.EstimateSource.GoogleMaps) {
                 Text("Google Maps", style = MaterialTheme.typography.bodySmall)
-            } else if (!travel.isApproximate && travel.durationMinutes != null) {
+            } else if (travel != null && !travel.isApproximate) {
                 RoutingCredit()
             }
         }

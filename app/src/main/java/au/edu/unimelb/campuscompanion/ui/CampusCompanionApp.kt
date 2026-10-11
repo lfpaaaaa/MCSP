@@ -969,7 +969,7 @@ private fun AuthenticatedCampusApp(
                             .filter { group -> group.origin == GroupOrigin.Timetable || group.courseCode.isNotBlank() }
                             .sortedBy { group -> group.origin == GroupOrigin.Timetable }
                     ),
-                    travelPreferences = travelPreferences,
+                    travelSnapshot = travelSnapshot,
                     onNavigate = ::navigateToClass,
                     onTimetableUrlSave = connectTimetable,
                     onTimetableRefresh = refreshTimetable,
