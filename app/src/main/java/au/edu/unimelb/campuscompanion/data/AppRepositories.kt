@@ -98,7 +98,7 @@ object AppRepositories {
                 preferences = ::courseReminderPreference,
                 notify = { reminder -> DepartureNotifier.show(appContext, reminder) },
                 preferenceChanges = CourseReminderPreferencesStore.changes.map { Unit },
-                cancelCourse = { key -> DepartureNotifier.cancelCourse(appContext, key) },
+                shade = DepartureNotifier.shade(appContext),
                 currentUserId = { SupabaseProvider.client?.auth?.currentUserOrNull()?.id },
                 wasSent = { userId, session, state -> departureHistory.wasSent(userId, session, state) },
                 rememberSent = { userId, session, state -> departureHistory.record(userId, session, state) }
@@ -111,6 +111,10 @@ object AppRepositories {
                         is SessionStatus.Authenticated -> {
                             val userId = client.auth.currentUserOrNull()?.id
                             if (userId != timetableUserId) {
+                                if (timetableUserId != null) {
+                                    // Another account signed in without signing out first.
+                                    DepartureNotifier.cancelAll(appContext)
+                                }
                                 timetableUserId = userId
                                 travel.updateSessions(
                                     userId?.let { TimetableSubscriptionStore(appContext).load(it).timetable?.sessions }.orEmpty(),
@@ -124,6 +128,8 @@ object AppRepositories {
                             groups.clearSession()
                             database.messageDao().deleteAll()
                             navigation.clear()
+                            // Reminders name the previous account's classes and buildings.
+                            DepartureNotifier.cancelAll(appContext)
                             timetableUserId = null
                             travel.updateSessions(emptyList(), reset = true)
                         }

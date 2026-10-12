@@ -34,7 +34,13 @@ data class TravelSnapshot(
     /** When to leave: start - travel - buffers - entry allowance. Null when the travel time is unknown. */
     val leaveBy: ZonedDateTime? = null,
     /** The class that finished in the last few minutes, if any; shown while the state is POST_CLASS. */
-    val finishedSession: CourseSession? = null
+    val finishedSession: CourseSession? = null,
+    /**
+     * True while the engine works out a new result: before its first one, and after a timetable or
+     * account change made the previous result obsolete. A pending snapshot describes no class.
+     * Departure reminders keep what the student can see until the next result decides.
+     */
+    val pending: Boolean = false
 ) {
     /** The sessions with the tracked one carrying its travel time and route, for the screens. */
     fun applyTo(sessions: List<CourseSession>): List<CourseSession> {
@@ -56,5 +62,10 @@ data class TravelSnapshot(
                 current
             }
         }
+    }
+
+    companion object {
+        /** What the engine publishes while it works out a new result; see [pending]. */
+        val PENDING = TravelSnapshot(pending = true)
     }
 }

@@ -11,6 +11,7 @@ import au.edu.unimelb.campuscompanion.data.repository.EtaRepository
 import au.edu.unimelb.campuscompanion.data.repository.WeatherRepository
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
 import au.edu.unimelb.campuscompanion.ui.model.CourseReminderPreference
+import au.edu.unimelb.campuscompanion.ui.model.MAX_COURSE_REMINDER_LEAD_MINUTES
 import au.edu.unimelb.campuscompanion.ui.model.matchesTimetableSession
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
@@ -56,7 +57,9 @@ class TravelEngine(
 ) {
     private val inputs = MutableStateFlow(Inputs())
 
-    private val _snapshot = MutableStateFlow(TravelSnapshot())
+    private val _snapshot = MutableStateFlow(TravelSnapshot.PENDING)
+
+    /** The latest result, or [TravelSnapshot.PENDING] while the engine works out a new one. */
     val snapshot: StateFlow<TravelSnapshot> = _snapshot.asStateFlow()
 
     // Never hold this monitor across a network suspension. Timetable changes and result publication
@@ -70,8 +73,8 @@ class TravelEngine(
     fun updateSessions(value: List<CourseSession>, reset: Boolean = false) = synchronized(inputLock) {
         val before = inputs.value
         val sessions = value.toList()
-        if (!reset && before.sessions == sessions) return@synchronized
-        val changed = reset || before.sessions.size != sessions.size ||
+        if (!reset && before.sessionsInitialized && before.sessions == sessions) return@synchronized
+        val changed = reset || !before.sessionsInitialized || before.sessions.size != sessions.size ||
             before.sessions.zip(sessions).any { (old, current) -> !old.matchesTimetableSession(current) }
         val now = clock()
         val oldTracked = ContextEngine.trackedSession(before.sessions, now)
@@ -90,10 +93,11 @@ class TravelEngine(
         } == true
         if (reset || !sameSession(snapshot.session, tracked) || finishedChanged) {
             // Home binds the current class independently and shows Updating until a fresh result.
-            _snapshot.value = TravelSnapshot()
+            _snapshot.value = TravelSnapshot.PENDING
         }
         inputs.value = before.copy(
             sessions = sessions,
+            sessionsInitialized = true,
             timetableGeneration = before.timetableGeneration + if (changed) 1 else 0,
             signals = if (trackingChanged) before.signals.copy(enRoute = null, geofenceCode = null) else before.signals
         )
@@ -148,6 +152,9 @@ class TravelEngine(
 
     private suspend fun refresh(request: Inputs) = refreshLock.withLock {
         val inputs = synchronized(inputLock) {
+            // Authentication restores the saved timetable after run() starts. Until then an
+            // empty input is unknown, rather than a result that should withdraw surviving prompts.
+            if (!this.inputs.value.sessionsInitialized) return@withLock
             if (request.timetableGeneration != this.inputs.value.timetableGeneration) return@withLock
             // A queued refresh must not replay motion evidence cleared by an earlier refresh.
             this.inputs.value
@@ -167,7 +174,7 @@ class TravelEngine(
             val targetChanged = motionTarget?.let { it != target } == true
             if (targetChanged) {
                 decision = null
-                _snapshot.value = TravelSnapshot()
+                _snapshot.value = TravelSnapshot.PENDING
                 this.inputs.value = this.inputs.value.copy(
                     signals = this.inputs.value.signals.copy(enRoute = null, geofenceCode = null)
                 )
@@ -181,8 +188,10 @@ class TravelEngine(
         }
 
         val courseReminder = tracked?.let { reminderPreference?.invoke(it) }
-        val lead = courseReminder?.let { if (it.enabled) it.leadMinutes.coerceIn(0, 60) else 0 }
-            ?: inputs.leadMinutes
+        // DepartureReminders applies the same limit when it checks which buffer a result used.
+        val lead = courseReminder?.let {
+            if (it.enabled) it.leadMinutes.coerceIn(0, MAX_COURSE_REMINDER_LEAD_MINUTES) else 0
+        } ?: inputs.leadMinutes
         val from = inputs.origin
         var distance: Double? = null
         var estimate: TravelEstimate? = null
@@ -209,7 +218,7 @@ class TravelEngine(
             val publishedAt = clock()
             if (!sameSession(tracked, ContextEngine.trackedSession(this.inputs.value.sessions, publishedAt))) {
                 // A class boundary crossed while routing: the next tick will compute the new target.
-                _snapshot.value = TravelSnapshot()
+                _snapshot.value = TravelSnapshot.PENDING
                 return@synchronized
             }
             val next = ContextEngine.decide(
@@ -273,6 +282,7 @@ class TravelEngine(
 
     private data class Inputs(
         val sessions: List<CourseSession> = emptyList(),
+        val sessionsInitialized: Boolean = false,
         val origin: GeoPoint? = null,
         val signals: MotionSignals = MotionSignals(),
         val leadMinutes: Int = DEFAULT_LEAD_MINUTES,

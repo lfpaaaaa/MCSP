@@ -46,11 +46,11 @@ class TravelEngineStaleResultTest {
         val edited = lecture.copy(room = "PAR-104")
 
         engine.updateSessions(listOf(edited))
-        assertEquals(TravelSnapshot(), engine.snapshot.value)
+        assertEquals(TravelSnapshot.PENDING, engine.snapshot.value)
         oldRequest.complete()
         withTimeout(TIMEOUT_MS) { oldRefresh.await() }
 
-        assertEquals(TravelSnapshot(), engine.snapshot.value)
+        assertEquals(TravelSnapshot.PENDING, engine.snapshot.value)
         assertTrue(weather.requests.isEmpty())
         refreshAndComplete(engine)
         assertEquals(edited, engine.snapshot.value.session)
@@ -74,7 +74,7 @@ class TravelEngineStaleResultTest {
         engine.updateSessions(listOf(edited))
         oldWeather.complete(precipitation = 0.8)
         withTimeout(TIMEOUT_MS) { oldRefresh.await() }
-        assertEquals(TravelSnapshot(), engine.snapshot.value)
+        assertEquals(TravelSnapshot.PENDING, engine.snapshot.value)
 
         val freshRefresh = async(start = CoroutineStart.UNDISPATCHED) { engine.refresh() }
         val freshEta = eta.next()
@@ -109,7 +109,7 @@ class TravelEngineStaleResultTest {
         engine.updateSessions(listOf(corrected))
         oldRequest.complete()
         withTimeout(TIMEOUT_MS) { oldRefresh.await() }
-        assertEquals(TravelSnapshot(), engine.snapshot.value)
+        assertEquals(TravelSnapshot.PENDING, engine.snapshot.value)
 
         refreshAndComplete(engine)
         assertEquals(corrected, engine.snapshot.value.session)
@@ -128,7 +128,7 @@ class TravelEngineStaleResultTest {
         oldRequest.complete()
         withTimeout(TIMEOUT_MS) { oldRefresh.await() }
 
-        assertEquals(TravelSnapshot(), engine.snapshot.value)
+        assertEquals(TravelSnapshot.PENDING, engine.snapshot.value)
         assertTrue(weather.requests.isEmpty())
         engine.refresh()
         assertEquals(TravelSnapshot(), engine.snapshot.value)
@@ -147,7 +147,7 @@ class TravelEngineStaleResultTest {
         oldRequest.complete()
         withTimeout(TIMEOUT_MS) { oldRefresh.await() }
 
-        assertEquals(TravelSnapshot(), engine.snapshot.value)
+        assertEquals(TravelSnapshot.PENDING, engine.snapshot.value)
         assertTrue(weather.requests.isEmpty())
         refreshAndComplete(engine)
         // Outside the arrival radius: the abandoned request's geofence/memory cannot mark arrival.
@@ -166,7 +166,7 @@ class TravelEngineStaleResultTest {
         oldRequest.complete()
         withTimeout(TIMEOUT_MS) { oldRefresh.await() }
 
-        assertEquals(TravelSnapshot(), engine.snapshot.value)
+        assertEquals(TravelSnapshot.PENDING, engine.snapshot.value)
         assertTrue(weather.requests.isEmpty())
         refreshAndComplete(engine)
         assertEquals(ContextState.LEAVE_SOON, engine.snapshot.value.state)
@@ -199,7 +199,7 @@ class TravelEngineStaleResultTest {
 
             val freshRequest = eta.next()
             assertEquals(FakeBuildingLookup.ALAN_GILBERT.location, freshRequest.destination)
-            assertEquals(TravelSnapshot(), engine.snapshot.value)
+            assertEquals(TravelSnapshot.PENDING, engine.snapshot.value)
             assertTrue(sent.isEmpty())
             freshRequest.complete()
             val reminder = withTimeout(TIMEOUT_MS) { delivered.receive() }
@@ -230,7 +230,7 @@ class TravelEngineStaleResultTest {
         val nextRefresh = async(start = CoroutineStart.UNDISPATCHED) { engine.refresh() }
         val nextRequest = eta.next()
         assertEquals(FakeBuildingLookup.ALAN_GILBERT.location, nextRequest.destination)
-        assertEquals(TravelSnapshot(), engine.snapshot.value)
+        assertEquals(TravelSnapshot.PENDING, engine.snapshot.value)
         engine.reportGeofenceEntered(FakeBuildingLookup.ALAN_GILBERT.locCode)
         nextRequest.complete()
         withTimeout(TIMEOUT_MS) { nextRefresh.await() }
@@ -283,7 +283,7 @@ class TravelEngineStaleResultTest {
         firstRequest.complete()
         withTimeout(TIMEOUT_MS) { firstRefresh.await() }
 
-        assertEquals(TravelSnapshot(), engine.snapshot.value)
+        assertEquals(TravelSnapshot.PENDING, engine.snapshot.value)
         refreshAndComplete(engine)
         assertEquals(second, engine.snapshot.value.session)
         assertEquals(FakeBuildingLookup.ALAN_GILBERT, engine.snapshot.value.building)

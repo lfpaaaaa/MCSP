@@ -35,7 +35,7 @@ class TravelEngineUpdateTest {
 
         val edited = fixture.lecture.copy(location = "Alan Gilbert", room = "PAR-104-G01")
         engine.updateSessions(listOf(edited))
-        assertEquals(TravelSnapshot(), engine.snapshot.value)
+        assertEquals(TravelSnapshot.PENDING, engine.snapshot.value)
         engine.refresh()
         val after = engine.snapshot.value
 
@@ -63,7 +63,7 @@ class TravelEngineUpdateTest {
 
             val edited = fixture.lecture.copy(location = venue, room = venue)
             engine.updateSessions(listOf(edited))
-            assertEquals(TravelSnapshot(), engine.snapshot.value)
+            assertEquals(TravelSnapshot.PENDING, engine.snapshot.value)
             engine.refresh()
             val after = engine.snapshot.value
 
@@ -93,7 +93,7 @@ class TravelEngineUpdateTest {
         assertTrue(fixture.eta.requests.isEmpty())
 
         engine.updateSessions(listOf(fixture.lecture))
-        assertEquals(TravelSnapshot(), engine.snapshot.value)
+        assertEquals(TravelSnapshot.PENDING, engine.snapshot.value)
         engine.refresh()
 
         val after = engine.snapshot.value
@@ -116,7 +116,7 @@ class TravelEngineUpdateTest {
         engine.updateOrigin(null)
         engine.updateSessions(listOf(edited))
         // The published snapshot names the old room, so Home shows Updating until the refresh.
-        assertEquals(TravelSnapshot(), engine.snapshot.value)
+        assertEquals(TravelSnapshot.PENDING, engine.snapshot.value)
         engine.refresh()
 
         val after = engine.snapshot.value
@@ -140,7 +140,7 @@ class TravelEngineUpdateTest {
         val edited = fixture.lecture.copy(start = fixture.lecture.start.plusMinutes(10))
         engine.updateOrigin(HOME)
         engine.updateSessions(listOf(edited))
-        assertEquals(TravelSnapshot(), engine.snapshot.value)
+        assertEquals(TravelSnapshot.PENDING, engine.snapshot.value)
         engine.refresh()
 
         assertEquals(edited, engine.snapshot.value.session)
@@ -167,7 +167,7 @@ class TravelEngineUpdateTest {
 
         val finished = fixture.lecture.copy(end = fixture.lecture.end.minusMinutes(10))
         engine.updateSessions(listOf(finished, tutorial))
-        assertEquals(TravelSnapshot(), engine.snapshot.value)
+        assertEquals(TravelSnapshot.PENDING, engine.snapshot.value)
         engine.refresh()
 
         val after = engine.snapshot.value
@@ -216,7 +216,7 @@ class TravelEngineUpdateTest {
         assertEquals(ContextState.UPCOMING, engine.snapshot.value.state)
 
         engine.updateSessions(listOf(fixture.lecture))
-        assertEquals(TravelSnapshot(), engine.snapshot.value)
+        assertEquals(TravelSnapshot.PENDING, engine.snapshot.value)
         engine.refresh()
 
         assertEquals(ContextState.UPCOMING, engine.snapshot.value.state)
@@ -281,7 +281,7 @@ class TravelEngineUpdateTest {
         assertEquals(ContextState.ARRIVED, engine.snapshot.value.state)
 
         engine.updateSessions(listOf(fixture.lecture), reset = true)
-        assertEquals(TravelSnapshot(), engine.snapshot.value)
+        assertEquals(TravelSnapshot.PENDING, engine.snapshot.value)
         engine.refresh()
         assertEquals(ContextState.UPCOMING, engine.snapshot.value.state)
 
