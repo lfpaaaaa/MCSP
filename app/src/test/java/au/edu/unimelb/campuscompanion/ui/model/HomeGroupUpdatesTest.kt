@@ -3,6 +3,7 @@ package au.edu.unimelb.campuscompanion.ui.model
 import au.edu.unimelb.campuscompanion.data.timetableGroupSpec
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -42,6 +43,32 @@ class HomeGroupUpdatesTest {
         assertNull(updates.featuredGroup)
         assertNull(updates.contextLabel)
         assertEquals(listOf(otherSlot), updates.rows)
+    }
+
+    @Test
+    fun matchingAutomaticallyFoldedMembershipCanAppearOnlyOnHome() {
+        val folded = group("course", key = "COMP90018|course")
+        val active = group("active").copy(courseCode = "SWEN90014")
+        val candidates = homePostClassCandidates(listOf(folded, active), emptyMap())
+        val updates = buildHomeGroupUpdates(finished, listOf(active), candidates)
+
+        assertTrue(folded.isFolded(GroupChatPreferences(), listOf(finished), finished.end))
+        assertEquals(folded, updates.featuredGroup)
+        assertEquals(listOf(folded, active), updates.rows)
+        assertEquals(listOf(active), buildHomeGroupUpdates(null, listOf(active), candidates).rows)
+    }
+
+    @Test
+    fun explicitlyFoldedMembershipIsExcludedEvenWhenItMatches() {
+        val folded = group("course", key = "COMP90018|course")
+        val candidates = homePostClassCandidates(
+            listOf(folded), mapOf(folded.id to GroupChatPreferences(foldedOverride = true))
+        )
+        val updates = buildHomeGroupUpdates(finished, emptyList(), candidates)
+
+        assertTrue(candidates.isEmpty())
+        assertNull(updates.featuredGroup)
+        assertTrue(updates.rows.isEmpty())
     }
 
     private fun exactSlot() = group("exact", key = finished.timetableGroupSpec()!!.key)

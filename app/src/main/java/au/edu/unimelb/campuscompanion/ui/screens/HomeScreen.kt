@@ -81,6 +81,7 @@ fun HomeScreen(
     onTimetableRefresh: () -> Unit,
     onOpenGroup: (CourseGroup) -> Unit,
     onNavigate: (CourseSession) -> Unit,
+    postClassGroupCandidates: List<CourseGroup> = timetableState.groups,
     modifier: Modifier = Modifier
 ) {
     var showTimetableDialog by rememberSaveable { mutableStateOf(false) }

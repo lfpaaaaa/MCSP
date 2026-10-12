@@ -15,13 +15,15 @@ data class HomeGroupUpdates(
  */
 fun buildHomeGroupUpdates(
     finishedSession: CourseSession?,
-    groups: List<CourseGroup>
+    groups: List<CourseGroup>,
+    /** Joined groups in Home order, including automatic folds but excluding explicit folds. */
+    postClassCandidates: List<CourseGroup> = groups
 ): HomeGroupUpdates {
     val uniqueGroups = groups.distinctBy(CourseGroup::id)
     val featured = finishedSession?.let { finished ->
         val canonicalKey = "${finished.code}|course"
         val slotKey = finished.timetableGroupSpec()?.key
-        uniqueGroups.mapNotNull { group ->
+        (postClassCandidates + uniqueGroups).distinctBy(CourseGroup::id).mapNotNull { group ->
             val rank = when {
                 group.timetableKey == canonicalKey -> 0
                 slotKey != null && group.timetableKey == slotKey -> 1
@@ -38,3 +40,12 @@ fun buildHomeGroupUpdates(
         contextLabel = finishedSession?.takeIf { featured != null }?.let { "After ${it.code}" }
     )
 }
+
+/**
+ * The caller supplies repository memberships, not unjoined timetable placeholders.
+ * Automatic folding still applies on Groups; only a matching candidate can surface on Home.
+ */
+fun homePostClassCandidates(
+    joinedGroups: List<CourseGroup>,
+    preferences: Map<String, GroupChatPreferences>
+): List<CourseGroup> = joinedGroups.filter { preferences[it.id]?.foldedOverride != true }
