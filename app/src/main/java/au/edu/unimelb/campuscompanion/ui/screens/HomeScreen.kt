@@ -63,9 +63,11 @@ import au.edu.unimelb.campuscompanion.ui.model.CourseGroup
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
 import au.edu.unimelb.campuscompanion.ui.model.HomeCardUiState
 import au.edu.unimelb.campuscompanion.ui.model.HomeCardGuidance
+import au.edu.unimelb.campuscompanion.ui.model.HomeGroupUpdates
 import au.edu.unimelb.campuscompanion.ui.model.TimetableState
 import au.edu.unimelb.campuscompanion.ui.model.buildHomeCardState
 import au.edu.unimelb.campuscompanion.ui.model.buildHomeCardGuidance
+import au.edu.unimelb.campuscompanion.ui.model.buildHomeGroupUpdates
 import kotlinx.coroutines.delay
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
@@ -144,6 +146,11 @@ fun HomeScreen(
             else -> {
                 val homeCard = buildHomeCardState(timetableState.sessions, travelSnapshot, now)
                 val guidance = buildHomeCardGuidance(homeCard, now)
+                val groupUpdates = buildHomeGroupUpdates(
+                    finishedSession = homeCard.finishedSession,
+                    groups = timetableState.groups,
+                    postClassCandidates = postClassGroupCandidates
+                )
                 val agenda = buildHomeAgenda(
                     sessions = timetableState.sessions,
                     now = now
@@ -163,6 +170,10 @@ fun HomeScreen(
                     )
                 } else {
                     HomeDayCard(guidance = guidance)
+                }
+
+                if (groupUpdates.featuredGroup != null) {
+                    HomeCourseGroupUpdates(groupUpdates, onOpenGroup)
                 }
 
                 SectionHeader(title = "Today's classes")
@@ -188,21 +199,35 @@ fun HomeScreen(
                     notice = timetableState.offlineNotice()
                 )
 
-                SectionHeader(title = "Course groups")
-                if (timetableState.groups.isEmpty()) {
-                    EmptyImportedSection(
-                        text = "No groups are available to add."
-                    )
-                } else {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        timetableState.groups.take(2).forEach { group ->
-                            GroupUpdateRow(
-                                group = group,
-                                onClick = { onOpenGroup(group) }
-                            )
-                        }
-                    }
+                if (groupUpdates.featuredGroup == null) {
+                    HomeCourseGroupUpdates(groupUpdates, onOpenGroup)
                 }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun HomeCourseGroupUpdates(
+    updates: HomeGroupUpdates,
+    onOpenGroup: (CourseGroup) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        SectionHeader(title = "Course groups")
+        updates.contextLabel?.let { label ->
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+        if (updates.rows.isEmpty()) {
+            EmptyImportedSection(text = "No groups are available to add.")
+        } else {
+            updates.rows.forEach { group ->
+                GroupUpdateRow(group = group, onClick = { onOpenGroup(group) })
             }
         }
     }
