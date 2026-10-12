@@ -45,6 +45,20 @@ class HomeCardTest {
     )
 
     @Test
+    fun aRoomEmbeddedInCalendarLocationIsPreservedAlongsideTheResolvedBuilding() {
+        val imported = nextClass.copy(
+            location = "PAR-379-B1-B116-Digital Learning Space (PC) (32)",
+            room = ""
+        )
+        val destination = building.copy(name = "207-221 Bouverie St, Carlton South ")
+
+        val card = buildHomeCardState(listOf(imported), snapshot().copy(session = imported, building = destination), now)
+
+        assertTrue(card.destinationText.contains(imported.location))
+        assertTrue(card.destinationText.contains(destination.name.trim()))
+    }
+
+    @Test
     fun matchingSnapshotPreservesEngineStateInsteadOfDerivingTimetableStatus() {
         for (state in listOf(ContextState.EN_ROUTE, ContextState.ARRIVED, ContextState.LONG_BREAK)) {
             val card = buildHomeCardState(listOf(nextClass), snapshot(state), now)

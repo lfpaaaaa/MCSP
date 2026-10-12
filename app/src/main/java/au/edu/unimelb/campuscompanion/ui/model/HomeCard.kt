@@ -27,6 +27,15 @@ data class HomeCardUiState(
 ) {
     val isUpdating: Boolean get() = state == null
 
+    /** Calendar feeds can embed the room in location rather than the separate room field. */
+    val destinationText: String
+        get() = listOfNotNull(building?.name, session?.location, session?.room)
+            .map(String::trim)
+            .filter { it.isNotBlank() && it != "Location not provided" }
+            .distinct()
+            .joinToString(" · ")
+            .ifBlank { "Location not provided" }
+
     val statusLabel: String
         get() = when (state) {
             null -> "Updating"
