@@ -1,9 +1,11 @@
 package au.edu.unimelb.campuscompanion.context
 
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
+import au.edu.unimelb.campuscompanion.ui.model.RouteEstimate
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Instant
 import java.time.LocalDate
@@ -317,6 +319,142 @@ class ContextEngineTest {
         assertEquals("swen90014", afterwards.memory.sessionId)
         assertFalse(afterwards.memory.arrived)
         assertEquals(ContextState.POST_CLASS, afterwards.state)
+    }
+
+    @Test
+    fun aSameIdVenueChangeDoesNotKeepArrivalWithoutAPosition() {
+        val arrived = ContextEngine.decide(inputs(at(14, 50), travelMinutes = 1, distanceMeters = 30.0))
+        val moved = comp.copy(location = "The Spot", room = "PAR-110-101")
+
+        val decision = ContextEngine.decide(
+            inputs(at(14, 51), sessions = listOf(moved), travelMinutes = null, distanceMeters = null),
+            previous = arrived
+        )
+
+        assertEquals(ContextState.UPCOMING, decision.state)
+        assertEquals(ContextMemory(comp.id), decision.memory)
+        assertNull(decision.leaveBy)
+    }
+
+    @Test
+    fun aSameIdVenueChangeDoesNotKeepAnEnRouteTripWithoutAPosition() {
+        val trip = Trip()
+        trip.update(inputs(at(14, 20), distanceMeters = 2_000.0))
+        val enRoute = trip.update(inputs(at(14, 21), distanceMeters = 1_940.0, isMoving = true))
+        assertTrue(enRoute.memory.enRoute)
+        val moved = comp.copy(location = "The Spot", room = "PAR-110-101")
+
+        val decision = trip.update(
+            inputs(at(14, 22), sessions = listOf(moved), travelMinutes = null, distanceMeters = null)
+        )
+
+        assertEquals(ContextState.UPCOMING, decision.state)
+        assertEquals(ContextMemory(comp.id), decision.memory)
+    }
+
+    @Test
+    fun aSameIdVenueChangeStartsAFreshDistanceTrend() {
+        val trip = Trip()
+        trip.update(inputs(at(14, 20), distanceMeters = 2_000.0))
+        val moved = comp.copy(location = "The Spot", room = "PAR-110-101")
+
+        // The new building is closer, but this is the first measurement for that destination.
+        val first = trip.update(
+            inputs(at(14, 21), sessions = listOf(moved), distanceMeters = 1_000.0, isMoving = true)
+        )
+        assertEquals(ContextState.UPCOMING, first.state)
+        assertFalse(first.memory.enRoute)
+        assertEquals(1_000.0, first.memory.farthestMeters)
+
+        val approaching = trip.update(
+            inputs(at(14, 22), sessions = listOf(moved), distanceMeters = 940.0, isMoving = true)
+        )
+        assertEquals(ContextState.EN_ROUTE, approaching.state)
+    }
+
+    @Test
+    fun aRoomOnlyChangeConservativelyResetsArrivalMemory() {
+        val arrived = ContextEngine.decide(inputs(at(14, 50), travelMinutes = 1, distanceMeters = 30.0))
+        val newRoom = comp.copy(room = "PAR-160-201")
+
+        val decision = ContextEngine.decide(
+            inputs(at(14, 51), sessions = listOf(newRoom), travelMinutes = null, distanceMeters = null),
+            previous = arrived
+        )
+
+        assertFalse(decision.memory.arrived)
+        assertEquals(ContextMemory(comp.id), decision.memory)
+    }
+
+    @Test
+    fun changingEitherOccurrenceTimeResetsSameIdTripMemory() {
+        val arrived = ContextEngine.decide(inputs(at(14, 50), travelMinutes = 1, distanceMeters = 30.0))
+        val retimed = listOf(
+            comp.copy(start = comp.start.plusMinutes(30)),
+            comp.copy(end = comp.end.plusMinutes(30))
+        )
+
+        retimed.forEach { changed ->
+            val decision = ContextEngine.decide(
+                inputs(at(14, 51), sessions = listOf(changed), travelMinutes = null, distanceMeters = null),
+                previous = arrived
+            )
+            assertEquals(ContextMemory(comp.id), decision.memory)
+            assertEquals(ContextState.UPCOMING, decision.state)
+        }
+    }
+
+    @Test
+    fun unchangedOccurrenceKeepsArrivalThroughEnrichmentAndEquivalentTimeZones() {
+        val arrived = ContextEngine.decide(inputs(at(14, 50), travelMinutes = 1, distanceMeters = 30.0))
+        val enriched = comp.copy(
+            title = "Updated display title",
+            etaMinutes = 1,
+            routeEstimate = RouteEstimate(distanceMeters = 30, walkingMinutes = 1),
+            start = comp.start.withZoneSameInstant(ZoneId.of("UTC")),
+            end = comp.end.withZoneSameInstant(ZoneId.of("UTC"))
+        )
+
+        val decision = ContextEngine.decide(
+            inputs(at(14, 51), sessions = listOf(enriched), travelMinutes = 1, distanceMeters = null),
+            previous = arrived
+        )
+
+        assertEquals(ContextState.ARRIVED, decision.state)
+        assertEquals(arrived.memory, decision.memory)
+    }
+
+    @Test
+    fun unchangedOccurrenceKeepsEnRouteMemoryThroughEnrichment() {
+        val enRoute = ContextEngine.decide(
+            inputs(at(14, 20), distanceMeters = 2_000.0, enRouteSignal = true)
+        )
+        val enriched = comp.copy(
+            etaMinutes = 20,
+            routeEstimate = RouteEstimate(distanceMeters = 2_000, walkingMinutes = 20)
+        )
+
+        val decision = ContextEngine.decide(
+            inputs(at(14, 21), sessions = listOf(enriched), travelMinutes = 20, distanceMeters = null),
+            previous = enRoute
+        )
+
+        assertEquals(ContextState.EN_ROUTE, decision.state)
+        assertEquals(enRoute.memory, decision.memory)
+    }
+
+    @Test
+    fun memoryWithADifferentSessionIdIsNotReusedEvenForAMatchingDecision() {
+        val arrived = ContextEngine.decide(inputs(at(14, 50), travelMinutes = 1, distanceMeters = 30.0))
+        val mismatchedMemory = arrived.copy(memory = arrived.memory.copy(sessionId = "another-class"))
+
+        val decision = ContextEngine.decide(
+            inputs(at(14, 51), travelMinutes = null, distanceMeters = null),
+            previous = mismatchedMemory
+        )
+
+        assertEquals(ContextMemory(comp.id), decision.memory)
+        assertEquals(ContextState.UPCOMING, decision.state)
     }
 
     /** Feeds updates through the engine the way TravelEngine does, keeping the previous decision. */

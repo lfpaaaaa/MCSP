@@ -1,6 +1,7 @@
 package au.edu.unimelb.campuscompanion.context
 
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
+import au.edu.unimelb.campuscompanion.ui.model.matchesTimetableSession
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
@@ -138,9 +139,13 @@ object ContextEngine {
         val departureWindowOpens = (leaveBy ?: start).minus(minutes(config.earlyDepartureWindowMinutes))
         val inDepartureWindow = !now.isBefore(departureWindowOpens)
 
-        // Memory belongs to one class: a new class starts with a clean slate.
+        // Arrival and distance trends belong to the current occurrence and venue, not just its ID.
+        // Timetable edits can retain the ID, while ETA enrichment leaves its definition unchanged.
+        val previousMemory = previous?.takeIf {
+            it.session?.matchesTimetableSession(session) == true && it.memory.sessionId == session.id
+        }?.memory
         val memory = updateMemory(
-            previous = previous?.memory?.takeIf { it.sessionId == session.id } ?: ContextMemory(session.id),
+            previous = previousMemory ?: ContextMemory(session.id),
             inputs = inputs,
             inDepartureWindow = inDepartureWindow,
             config = config

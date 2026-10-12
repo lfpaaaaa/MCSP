@@ -6,6 +6,7 @@ import au.edu.unimelb.campuscompanion.data.model.TravelEstimate
 import au.edu.unimelb.campuscompanion.data.model.WeatherSnapshot
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
 import au.edu.unimelb.campuscompanion.ui.model.RouteEstimate
+import au.edu.unimelb.campuscompanion.ui.model.matchesTimetableSession
 import java.time.ZonedDateTime
 
 /** What the app currently knows about the trip to the next class. */
@@ -49,7 +50,11 @@ data class TravelSnapshot(
             source = travel.source
         )
         return sessions.map { current ->
-            if (current.id == tracked.id) current.copy(etaMinutes = minutes, routeEstimate = route) else current
+            if (current.matchesTimetableSession(tracked)) {
+                current.copy(etaMinutes = minutes, routeEstimate = route)
+            } else {
+                current
+            }
         }
     }
 }

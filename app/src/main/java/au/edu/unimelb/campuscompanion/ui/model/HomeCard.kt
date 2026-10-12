@@ -104,12 +104,6 @@ fun buildHomeCardState(
     )
 }
 
-/** ETA and route fields are deliberately excluded: applyTo() enriches those for other screens. */
-private fun CourseSession.matchesTimetableSession(other: CourseSession): Boolean =
-    id == other.id && code == other.code && activity == other.activity &&
-        start.toInstant() == other.start.toInstant() && end.toInstant() == other.end.toInstant() &&
-        location == other.location && room == other.room
-
 private fun countdownMinutes(now: ZonedDateTime, deadline: ZonedDateTime): Long {
     val remaining = Duration.between(now, deadline)
     if (remaining.isNegative || remaining.isZero) return 0

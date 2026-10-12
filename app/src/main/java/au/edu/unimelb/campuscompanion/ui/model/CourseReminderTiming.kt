@@ -22,7 +22,7 @@ fun CourseSession.reminderTiming(
     arrivalBufferMinutes: Int
 ): CourseReminderTiming {
     val tracked = snapshot.session
-    if (tracked == null || tracked.id != id || tracked.start.toInstant() != start.toInstant()) {
+    if (tracked == null || !tracked.matchesTimetableSession(this)) {
         return CourseReminderTiming.NotTracked
     }
     if (snapshot.leadMinutes != arrivalBufferMinutes) return CourseReminderTiming.Updating

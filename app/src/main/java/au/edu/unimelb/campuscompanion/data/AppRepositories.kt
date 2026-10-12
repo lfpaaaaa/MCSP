@@ -112,7 +112,10 @@ object AppRepositories {
                             val userId = client.auth.currentUserOrNull()?.id
                             if (userId != timetableUserId) {
                                 timetableUserId = userId
-                                travel.updateSessions(userId?.let { TimetableSubscriptionStore(appContext).load(it).timetable?.sessions }.orEmpty())
+                                travel.updateSessions(
+                                    userId?.let { TimetableSubscriptionStore(appContext).load(it).timetable?.sessions }.orEmpty(),
+                                    reset = true
+                                )
                             }
                             push.onSignedIn()
                         }
@@ -122,7 +125,7 @@ object AppRepositories {
                             database.messageDao().deleteAll()
                             navigation.clear()
                             timetableUserId = null
-                            travel.updateSessions(emptyList())
+                            travel.updateSessions(emptyList(), reset = true)
                         }
                         else -> Unit
                     }
