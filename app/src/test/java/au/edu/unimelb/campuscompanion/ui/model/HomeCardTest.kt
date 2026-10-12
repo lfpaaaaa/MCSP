@@ -242,6 +242,35 @@ class HomeCardTest {
     }
 
     @Test
+    fun urgentNextClassDoesNotHideTheValidatedFinishedOccurrence() {
+        val finished = finishedClass()
+        for (state in listOf(ContextState.LEAVE_SOON, ContextState.RUNNING_LATE, ContextState.EN_ROUTE)) {
+            val snapshot = snapshot(state).copy(finishedSession = finished)
+
+            val card = buildHomeCardState(listOf(finished, nextClass), snapshot, now)
+
+            assertEquals(state, card.state)
+            assertEquals(nextClass, card.session)
+            assertEquals(finished, card.finishedSession)
+            assertEquals(snapshot.leaveBy, card.leaveBy)
+        }
+    }
+
+    @Test
+    fun anUpdatingCardCannotExposeTheRawSnapshotsFinishedOccurrence() {
+        val finished = finishedClass()
+        val stale = snapshot().copy(
+            session = nextClass.copy(room = "PAR-200"),
+            finishedSession = finished
+        )
+
+        val card = buildHomeCardState(listOf(finished, nextClass), stale, now)
+
+        assertUpdatingWithoutSnapshotData(card, nextClass)
+        assertNull(card.finishedSession)
+    }
+
+    @Test
     fun anAbsentFinishedOccurrenceDoesNotInvalidateAMatchedUpcomingSnapshot() {
         val snapshot = snapshot(ContextState.POST_CLASS).copy(finishedSession = finishedClass())
 

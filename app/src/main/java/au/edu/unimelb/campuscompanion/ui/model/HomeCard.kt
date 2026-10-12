@@ -23,6 +23,7 @@ data class HomeCardUiState(
     val leadMinutes: Int,
     val weatherBufferMinutes: Int,
     val entryAllowanceMinutes: Int,
+    /** Validated post-class occurrence; can coexist with urgent guidance for the next class. */
     val finishedSession: CourseSession?
 ) {
     val isUpdating: Boolean get() = state == null
