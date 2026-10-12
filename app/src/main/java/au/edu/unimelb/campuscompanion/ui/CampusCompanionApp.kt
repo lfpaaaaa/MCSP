@@ -89,6 +89,7 @@ import au.edu.unimelb.campuscompanion.ui.model.TimetableState
 import au.edu.unimelb.campuscompanion.ui.model.buildCourseReminderSeries
 import au.edu.unimelb.campuscompanion.ui.model.foldedOverrideAfterEdit
 import au.edu.unimelb.campuscompanion.ui.model.isFolded
+import au.edu.unimelb.campuscompanion.ui.model.homePostClassCandidates
 import au.edu.unimelb.campuscompanion.ui.model.isValidGroupJoinCode
 import au.edu.unimelb.campuscompanion.ui.model.mergePendingDocuments
 import au.edu.unimelb.campuscompanion.push.DepartureNotifier
@@ -969,7 +970,14 @@ private fun AuthenticatedCampusApp(
                             .filter { group -> group.origin == GroupOrigin.Timetable || group.courseCode.isNotBlank() }
                             .sortedBy { group -> group.origin == GroupOrigin.Timetable }
                     ),
-                    travelPreferences = travelPreferences,
+                    travelSnapshot = travelSnapshot,
+                    postClassGroupCandidates = homePostClassCandidates(
+                        // Only repository memberships may temporarily reappear after an automatic fold.
+                        joinedGroups = syncedGroups
+                            .filter { group -> group.origin == GroupOrigin.Timetable || group.courseCode.isNotBlank() }
+                            .sortedBy { group -> group.origin == GroupOrigin.Timetable },
+                        preferences = groupPreferences
+                    ),
                     onNavigate = ::navigateToClass,
                     onTimetableUrlSave = connectTimetable,
                     onTimetableRefresh = refreshTimetable,
