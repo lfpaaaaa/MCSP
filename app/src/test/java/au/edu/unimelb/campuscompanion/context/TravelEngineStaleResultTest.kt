@@ -94,6 +94,30 @@ class TravelEngineStaleResultTest {
     }
 
     @Test
+    fun aSameBuildingRoomCorrectionDuringEtaDiscardsTheOldResultButKeepsArrival() = runBlocking<Unit> {
+        engine.updateSessions(listOf(lecture))
+        engine.updateOrigin(FakeBuildingLookup.PETER_HALL.location)
+        refreshAndComplete(engine)
+        // Indoor GPS drifts beyond the arrival radius but within the leaving radius.
+        engine.updateOrigin(NEAR_PETER_HALL)
+        refreshAndComplete(engine)
+        assertEquals(ContextState.ARRIVED, engine.snapshot.value.state)
+
+        val oldRefresh = async(start = CoroutineStart.UNDISPATCHED) { engine.refresh() }
+        val oldRequest = eta.next()
+        val corrected = lecture.copy(room = "PAR-160-201")
+        engine.updateSessions(listOf(corrected))
+        oldRequest.complete()
+        withTimeout(TIMEOUT_MS) { oldRefresh.await() }
+        assertEquals(TravelSnapshot(), engine.snapshot.value)
+
+        refreshAndComplete(engine)
+        assertEquals(corrected, engine.snapshot.value.session)
+        assertEquals(FakeBuildingLookup.PETER_HALL, engine.snapshot.value.building)
+        assertEquals(ContextState.ARRIVED, engine.snapshot.value.state)
+    }
+
+    @Test
     fun deletingTheTrackedClassWhileEtaIsPendingCannotRestoreIt() = runBlocking<Unit> {
         engine.updateSessions(listOf(lecture))
         engine.updateOrigin(HOME)

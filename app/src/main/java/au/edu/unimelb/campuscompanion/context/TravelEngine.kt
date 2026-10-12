@@ -76,7 +76,10 @@ class TravelEngine(
         val now = clock()
         val oldTracked = ContextEngine.trackedSession(before.sessions, now)
         val tracked = ContextEngine.trackedSession(sessions, now)
-        val trackingChanged = reset || !sameSession(oldTracked, tracked)
+        // A different class (or account) starts a new trip here. A same-ID venue edit is checked
+        // against its resolved building on the next refresh, before any evidence is used, so
+        // room, title and time corrections in the same building keep the student's arrival.
+        val trackingChanged = reset || oldTracked?.id != tracked?.id
         if (trackingChanged) {
             decision = null
             motionTarget = null
@@ -155,9 +158,13 @@ class TravelEngine(
         val destination = tracked?.let { BuildingResolver.resolve(it, buildings) }
         val motion = synchronized(inputLock) {
             if (inputs.timetableGeneration != this.inputs.value.timetableGeneration) return@withLock
-            val targetChanged = motionTarget?.let {
-                !sameSession(it.session, tracked) || it.destination != destination
-            } == true
+            val target = MotionTarget(tracked?.id, destination)
+            // A new class, or the same class at another (or an unknown) building, is a new trip.
+            // Room, title and time edits in the same building are not: arrival stays valid. The
+            // check runs here rather than in updateSessions because evidence for a new building
+            // cannot arrive earlier: the arrival geofence and en-route fusion follow the published
+            // building. If evidence ever comes from elsewhere, keep a geofenceCode that matches it.
+            val targetChanged = motionTarget?.let { it != target } == true
             if (targetChanged) {
                 decision = null
                 _snapshot.value = TravelSnapshot()
@@ -167,7 +174,7 @@ class TravelEngine(
             }
             // Track evidence scope before routing, including the first request that may never
             // publish because a class ends while its ETA/weather is pending.
-            motionTarget = MotionTarget(tracked, destination)
+            motionTarget = target
             // Clear old target evidence before suspending; new events during routing stay available
             // to the next refresh instead of being erased when this request publishes.
             this.inputs.value.signals
@@ -214,7 +221,8 @@ class TravelEngine(
                     distanceMeters = distance,
                     isMoving = motion.moving,
                     enRouteSignal = motion.enRoute,
-                    insideGeofence = destination != null && motion.geofenceCode == destination.locCode
+                    insideGeofence = destination != null && motion.geofenceCode == destination.locCode,
+                    buildingCode = destination?.locCode
                 ),
                 previous = decision,
                 config = config
@@ -260,7 +268,8 @@ class TravelEngine(
         val geofenceCode: String? = null
     )
 
-    private data class MotionTarget(val session: CourseSession?, val destination: BuildingLocation?)
+    /** What arrival and movement evidence is measured against: one class at one building. */
+    private data class MotionTarget(val sessionId: String?, val destination: BuildingLocation?)
 
     private data class Inputs(
         val sessions: List<CourseSession> = emptyList(),

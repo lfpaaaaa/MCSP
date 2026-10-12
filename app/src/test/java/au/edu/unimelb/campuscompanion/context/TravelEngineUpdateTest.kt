@@ -104,7 +104,7 @@ class TravelEngineUpdateTest {
     }
 
     @Test
-    fun aRoomOnlyEditRefreshesClassDetailsAndResetsArrivalEvenWithinTheSameBuilding() = runBlocking<Unit> {
+    fun aRoomOnlyEditInTheSameBuildingRefreshesClassDetailsAndKeepsArrival() = runBlocking<Unit> {
         val fixture = Fixture()
         val engine = fixture.engine
         engine.updateSessions(listOf(fixture.lecture))
@@ -115,13 +115,15 @@ class TravelEngineUpdateTest {
         val edited = fixture.lecture.copy(room = "PAR-160-201")
         engine.updateOrigin(null)
         engine.updateSessions(listOf(edited))
+        // The published snapshot names the old room, so Home shows Updating until the refresh.
         assertEquals(TravelSnapshot(), engine.snapshot.value)
         engine.refresh()
 
         val after = engine.snapshot.value
         assertEquals(edited, after.session)
         assertEquals(FakeBuildingLookup.PETER_HALL, after.building)
-        assertEquals(ContextState.UPCOMING, after.state)
+        // Neither the student nor the building moved, so the arrival still holds.
+        assertEquals(ContextState.ARRIVED, after.state)
         assertNull(after.estimate)
         assertNull(after.leaveBy)
     }
@@ -207,7 +209,12 @@ class TravelEngineUpdateTest {
         engine.refresh()
         assertEquals(ContextState.ARRIVED, engine.snapshot.value.state)
 
+        // The engine tracks the class at Alan Gilbert, which clears the Peter Hall evidence.
         engine.updateSessions(listOf(fixture.lecture.copy(room = "PAR-104-G01")))
+        engine.refresh()
+        assertEquals(FakeBuildingLookup.ALAN_GILBERT, engine.snapshot.value.building)
+        assertEquals(ContextState.UPCOMING, engine.snapshot.value.state)
+
         engine.updateSessions(listOf(fixture.lecture))
         assertEquals(TravelSnapshot(), engine.snapshot.value)
         engine.refresh()

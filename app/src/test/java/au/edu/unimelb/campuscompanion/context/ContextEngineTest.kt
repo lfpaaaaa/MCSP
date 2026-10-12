@@ -322,7 +322,184 @@ class ContextEngineTest {
     }
 
     @Test
-    fun aSameIdVenueChangeDoesNotKeepArrivalWithoutAPosition() {
+    fun aSameIdMoveToAnotherOrUnknownBuildingDoesNotKeepArrivalWithoutAPosition() {
+        listOf(OTHER_BUILDING, null).forEach { newBuilding ->
+            val arrived = ContextEngine.decide(
+                inputs(at(14, 50), travelMinutes = 1, distanceMeters = 30.0, buildingCode = PAR_160)
+            )
+            val moved = comp.copy(location = "The Spot", room = "PAR-110-101")
+
+            val decision = ContextEngine.decide(
+                inputs(
+                    at(14, 51), sessions = listOf(moved), travelMinutes = null, distanceMeters = null,
+                    buildingCode = newBuilding
+                ),
+                previous = arrived
+            )
+
+            assertEquals(ContextState.UPCOMING, decision.state)
+            assertEquals(ContextMemory(comp.id, buildingCode = newBuilding), decision.memory)
+            assertNull(decision.leaveBy)
+        }
+    }
+
+    @Test
+    fun aSameIdMoveToAnotherBuildingDoesNotKeepAnEnRouteTripWithoutAPosition() {
+        val trip = Trip()
+        trip.update(inputs(at(14, 20), distanceMeters = 2_000.0, buildingCode = PAR_160))
+        val enRoute = trip.update(
+            inputs(at(14, 21), distanceMeters = 1_940.0, isMoving = true, buildingCode = PAR_160)
+        )
+        assertTrue(enRoute.memory.enRoute)
+        val moved = comp.copy(location = "The Spot", room = "PAR-110-101")
+
+        val decision = trip.update(
+            inputs(
+                at(14, 22), sessions = listOf(moved), travelMinutes = null, distanceMeters = null,
+                buildingCode = OTHER_BUILDING
+            )
+        )
+
+        assertEquals(ContextState.UPCOMING, decision.state)
+        assertEquals(ContextMemory(comp.id, buildingCode = OTHER_BUILDING), decision.memory)
+    }
+
+    @Test
+    fun aSameIdMoveToAnotherBuildingStartsAFreshDistanceTrend() {
+        val trip = Trip()
+        trip.update(inputs(at(14, 20), distanceMeters = 2_000.0, buildingCode = PAR_160))
+        val moved = comp.copy(location = "The Spot", room = "PAR-110-101")
+
+        // The new building is closer, but this is the first measurement for that destination.
+        val first = trip.update(
+            inputs(
+                at(14, 21), sessions = listOf(moved), distanceMeters = 1_000.0, isMoving = true,
+                buildingCode = OTHER_BUILDING
+            )
+        )
+        assertEquals(ContextState.UPCOMING, first.state)
+        assertFalse(first.memory.enRoute)
+        assertEquals(1_000.0, first.memory.farthestMeters)
+
+        val approaching = trip.update(
+            inputs(
+                at(14, 22), sessions = listOf(moved), distanceMeters = 940.0, isMoving = true,
+                buildingCode = OTHER_BUILDING
+            )
+        )
+        assertEquals(ContextState.EN_ROUTE, approaching.state)
+    }
+
+    @Test
+    fun aRoomOnlyChangeInTheSameBuildingKeepsArrivalMemory() {
+        val arrived = ContextEngine.decide(
+            inputs(at(14, 50), travelMinutes = 1, distanceMeters = 30.0, buildingCode = PAR_160)
+        )
+        val newRoom = comp.copy(room = "PAR-160-201")
+
+        val decision = ContextEngine.decide(
+            inputs(
+                at(14, 51), sessions = listOf(newRoom), travelMinutes = null, distanceMeters = null,
+                buildingCode = PAR_160
+            ),
+            previous = arrived
+        )
+
+        assertEquals(ContextState.ARRIVED, decision.state)
+        assertEquals(arrived.memory, decision.memory)
+    }
+
+    @Test
+    fun changingEitherOccurrenceTimeInTheSameBuildingKeepsTripMemory() {
+        val arrived = ContextEngine.decide(
+            inputs(at(14, 50), travelMinutes = 1, distanceMeters = 30.0, buildingCode = PAR_160)
+        )
+        val retimed = listOf(
+            comp.copy(start = comp.start.plusMinutes(30)),
+            comp.copy(end = comp.end.plusMinutes(30))
+        )
+
+        retimed.forEach { changed ->
+            val decision = ContextEngine.decide(
+                inputs(
+                    at(14, 51), sessions = listOf(changed), travelMinutes = null, distanceMeters = null,
+                    buildingCode = PAR_160
+                ),
+                previous = arrived
+            )
+            assertEquals(arrived.memory, decision.memory)
+            assertEquals(ContextState.ARRIVED, decision.state)
+        }
+    }
+
+    @Test
+    fun movingTheClassOutOfItsDepartureWindowEndsATripInProgress() {
+        val trip = Trip()
+        trip.update(inputs(at(14, 20), distanceMeters = 2_000.0, buildingCode = PAR_160))
+        val enRoute = trip.update(
+            inputs(at(14, 21), distanceMeters = 1_940.0, isMoving = true, buildingCode = PAR_160)
+        )
+        assertEquals(ContextState.EN_ROUTE, enRoute.state)
+        val tomorrow = comp.copy(start = comp.start.plusDays(1), end = comp.end.plusDays(1))
+
+        val decision = trip.update(
+            inputs(
+                at(14, 22), sessions = listOf(tomorrow), distanceMeters = 1_900.0, isMoving = true,
+                buildingCode = PAR_160
+            )
+        )
+
+        assertEquals(ContextState.NO_UPCOMING_CLASS, decision.state)
+        assertFalse(decision.memory.enRoute)
+    }
+
+    @Test
+    fun aSmallRetimeKeepsATripInProgress() {
+        val trip = Trip()
+        trip.update(inputs(at(14, 20), distanceMeters = 2_000.0, buildingCode = PAR_160))
+        trip.update(inputs(at(14, 21), distanceMeters = 1_940.0, isMoving = true, buildingCode = PAR_160))
+        val later = comp.copy(start = comp.start.plusMinutes(10), end = comp.end.plusMinutes(10))
+
+        val decision = trip.update(
+            inputs(
+                at(14, 22), sessions = listOf(later), distanceMeters = 1_900.0, isMoving = true,
+                buildingCode = PAR_160
+            )
+        )
+
+        assertEquals(ContextState.EN_ROUTE, decision.state)
+        assertTrue(decision.memory.enRoute)
+    }
+
+    @Test
+    fun aClassMovedLaterKeepsArrivalForItsNewDepartureWindow() {
+        val arrived = ContextEngine.decide(
+            inputs(at(14, 50), travelMinutes = 1, distanceMeters = 30.0, buildingCode = PAR_160)
+        )
+        val evening = comp.copy(start = comp.start.plusHours(2), end = comp.end.plusHours(2))
+
+        val waiting = ContextEngine.decide(
+            inputs(
+                at(14, 51), sessions = listOf(evening), travelMinutes = null, distanceMeters = null,
+                buildingCode = PAR_160
+            ),
+            previous = arrived
+        )
+        assertTrue(waiting.memory.arrived)
+        assertEquals(ContextState.UPCOMING, waiting.state)
+
+        val windowOpen = ContextEngine.decide(
+            inputs(
+                at(16, 20), sessions = listOf(evening), travelMinutes = null, distanceMeters = null,
+                buildingCode = PAR_160
+            ),
+            previous = waiting
+        )
+        assertEquals(ContextState.ARRIVED, windowOpen.state)
+    }
+
+    @Test
+    fun withoutABuildingCodeAChangedVenueStillStartsAFreshTrip() {
         val arrived = ContextEngine.decide(inputs(at(14, 50), travelMinutes = 1, distanceMeters = 30.0))
         val moved = comp.copy(location = "The Spot", room = "PAR-110-101")
 
@@ -333,75 +510,25 @@ class ContextEngineTest {
 
         assertEquals(ContextState.UPCOMING, decision.state)
         assertEquals(ContextMemory(comp.id), decision.memory)
-        assertNull(decision.leaveBy)
     }
 
     @Test
-    fun aSameIdVenueChangeDoesNotKeepAnEnRouteTripWithoutAPosition() {
-        val trip = Trip()
-        trip.update(inputs(at(14, 20), distanceMeters = 2_000.0))
-        val enRoute = trip.update(inputs(at(14, 21), distanceMeters = 1_940.0, isMoving = true))
-        assertTrue(enRoute.memory.enRoute)
-        val moved = comp.copy(location = "The Spot", room = "PAR-110-101")
-
-        val decision = trip.update(
-            inputs(at(14, 22), sessions = listOf(moved), travelMinutes = null, distanceMeters = null)
+    fun keptArrivalStillEndsWhenTheStudentLeavesTheBuilding() {
+        val arrived = ContextEngine.decide(
+            inputs(at(14, 50), travelMinutes = 1, distanceMeters = 30.0, buildingCode = PAR_160)
         )
-
-        assertEquals(ContextState.UPCOMING, decision.state)
-        assertEquals(ContextMemory(comp.id), decision.memory)
-    }
-
-    @Test
-    fun aSameIdVenueChangeStartsAFreshDistanceTrend() {
-        val trip = Trip()
-        trip.update(inputs(at(14, 20), distanceMeters = 2_000.0))
-        val moved = comp.copy(location = "The Spot", room = "PAR-110-101")
-
-        // The new building is closer, but this is the first measurement for that destination.
-        val first = trip.update(
-            inputs(at(14, 21), sessions = listOf(moved), distanceMeters = 1_000.0, isMoving = true)
-        )
-        assertEquals(ContextState.UPCOMING, first.state)
-        assertFalse(first.memory.enRoute)
-        assertEquals(1_000.0, first.memory.farthestMeters)
-
-        val approaching = trip.update(
-            inputs(at(14, 22), sessions = listOf(moved), distanceMeters = 940.0, isMoving = true)
-        )
-        assertEquals(ContextState.EN_ROUTE, approaching.state)
-    }
-
-    @Test
-    fun aRoomOnlyChangeConservativelyResetsArrivalMemory() {
-        val arrived = ContextEngine.decide(inputs(at(14, 50), travelMinutes = 1, distanceMeters = 30.0))
         val newRoom = comp.copy(room = "PAR-160-201")
 
         val decision = ContextEngine.decide(
-            inputs(at(14, 51), sessions = listOf(newRoom), travelMinutes = null, distanceMeters = null),
+            inputs(
+                at(14, 51), sessions = listOf(newRoom), travelMinutes = 4, distanceMeters = 260.0,
+                buildingCode = PAR_160
+            ),
             previous = arrived
         )
 
         assertFalse(decision.memory.arrived)
-        assertEquals(ContextMemory(comp.id), decision.memory)
-    }
-
-    @Test
-    fun changingEitherOccurrenceTimeResetsSameIdTripMemory() {
-        val arrived = ContextEngine.decide(inputs(at(14, 50), travelMinutes = 1, distanceMeters = 30.0))
-        val retimed = listOf(
-            comp.copy(start = comp.start.plusMinutes(30)),
-            comp.copy(end = comp.end.plusMinutes(30))
-        )
-
-        retimed.forEach { changed ->
-            val decision = ContextEngine.decide(
-                inputs(at(14, 51), sessions = listOf(changed), travelMinutes = null, distanceMeters = null),
-                previous = arrived
-            )
-            assertEquals(ContextMemory(comp.id), decision.memory)
-            assertEquals(ContextState.UPCOMING, decision.state)
-        }
+        assertEquals(ContextState.LEAVE_SOON, decision.state)
     }
 
     @Test
@@ -473,7 +600,8 @@ class ContextEngineTest {
         distanceMeters: Double? = 2_000.0,
         isMoving: Boolean = false,
         enRouteSignal: Boolean? = null,
-        insideGeofence: Boolean = false
+        insideGeofence: Boolean = false,
+        buildingCode: String? = null
     ) = ContextInputs(
         now = now,
         sessions = sessions,
@@ -482,7 +610,8 @@ class ContextEngineTest {
         distanceMeters = distanceMeters,
         isMoving = isMoving,
         enRouteSignal = enRouteSignal,
-        insideGeofence = insideGeofence
+        insideGeofence = insideGeofence,
+        buildingCode = buildingCode
     )
 
     private fun at(hour: Int, minute: Int): Instant = day.atTime(hour, minute).atZone(zone).toInstant()
@@ -506,5 +635,11 @@ class ContextEngineTest {
             start = date.atTime(startHour, startMinute).atZone(zone),
             end = date.atTime(endHour, endMinute).atZone(zone)
         )
+    }
+
+    private companion object {
+        /** Building location codes in the format TravelEngine passes (the building's `locCode`). */
+        const val PAR_160 = "PAR;160"
+        const val OTHER_BUILDING = "PAR;110"
     }
 }

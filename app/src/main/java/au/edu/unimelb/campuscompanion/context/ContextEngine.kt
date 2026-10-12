@@ -51,10 +51,21 @@ data class ContextInputs(
      */
     val enRouteSignal: Boolean? = null,
     /** The arrival geofence of the tracked class's building has been entered. */
-    val insideGeofence: Boolean = false
+    val insideGeofence: Boolean = false,
+    /**
+     * Location code of the tracked class's building (its `locCode`, as used by the arrival
+     * geofence), or null when the building is unknown. The distances above are measured against
+     * it, so trip memory is kept only while the class and this building stay the same.
+     */
+    val buildingCode: String? = null
 )
 
-/** What the engine remembers about the trip to one class between updates. */
+/**
+ * What the engine remembers about the trip to one class between updates. Arrival and distance
+ * trends describe the student's position relative to one building, so they belong to the class
+ * ([sessionId]) at that building ([buildingCode]). Editing the room, title or times of the same
+ * class in the same building keeps them: neither the student nor the building has moved.
+ */
 data class ContextMemory(
     val sessionId: String? = null,
     val arrived: Boolean = false,
@@ -62,7 +73,9 @@ data class ContextMemory(
     /** Farthest distance from the building since the departure window opened, while not en route. */
     val farthestMeters: Double? = null,
     /** Closest distance to the building since setting off. */
-    val closestMeters: Double? = null
+    val closestMeters: Double? = null,
+    /** The building the distances were measured against; see [ContextInputs.buildingCode]. */
+    val buildingCode: String? = null
 )
 
 /** One decision of the engine. Pass it back as `previous` with the next inputs. */
@@ -139,13 +152,26 @@ object ContextEngine {
         val departureWindowOpens = (leaveBy ?: start).minus(minutes(config.earlyDepartureWindowMinutes))
         val inDepartureWindow = !now.isBefore(departureWindowOpens)
 
-        // Arrival and distance trends belong to the current occurrence and venue, not just its ID.
-        // Timetable edits can retain the ID, while ETA enrichment leaves its definition unchanged.
-        val previousMemory = previous?.takeIf {
-            it.session?.matchesTimetableSession(session) == true && it.memory.sessionId == session.id
-        }?.memory
+        // A different class, or the same class moved to another (or an unknown) building, starts a
+        // clean slate. Room, title and time edits keep arrival: resetting it would let indoor GPS
+        // error (inside leftBuildingMeters but outside arrivalRadiusMeters) report a student who
+        // is already there as running late, and send a departure reminder for it. A caller that
+        // gives no building cannot show the venue is unchanged, so only an unchanged class keeps it.
+        val sameTrip = previous?.memory?.takeIf {
+            it.sessionId == session.id && it.buildingCode == inputs.buildingCode &&
+                (inputs.buildingCode != null || previous?.session?.matchesTimetableSession(session) == true)
+        }
+        // A new start time keeps the arrival (the student has not moved), but a trip that set off
+        // for the old time no longer applies once the new departure window is closed, for example
+        // after moving the class to another day.
+        val retimed = previous?.session?.start?.toInstant() != start
+        val previousMemory = if (sameTrip != null && retimed && !inDepartureWindow) {
+            sameTrip.copy(enRoute = false, farthestMeters = null, closestMeters = null)
+        } else {
+            sameTrip
+        }
         val memory = updateMemory(
-            previous = previousMemory ?: ContextMemory(session.id),
+            previous = previousMemory ?: ContextMemory(session.id, buildingCode = inputs.buildingCode),
             inputs = inputs,
             inDepartureWindow = inDepartureWindow,
             config = config
