@@ -103,6 +103,7 @@ import au.edu.unimelb.campuscompanion.ui.model.StartedGroupAccess
 import au.edu.unimelb.campuscompanion.ui.model.buildCourseReminderSeries
 import au.edu.unimelb.campuscompanion.ui.model.foldedOverrideAfterEdit
 import au.edu.unimelb.campuscompanion.ui.model.isFolded
+import au.edu.unimelb.campuscompanion.ui.model.homePostClassCandidates
 import au.edu.unimelb.campuscompanion.ui.model.isValidGroupJoinCode
 import au.edu.unimelb.campuscompanion.ui.model.mergePendingDocuments
 import au.edu.unimelb.campuscompanion.push.DepartureNotifier

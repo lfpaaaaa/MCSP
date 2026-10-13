@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import au.edu.unimelb.campuscompanion.context.DepartureReminderStage
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
+import java.time.Instant
 
 /** Prevents a service/activity restart from delivering the same class warning again. No GPS is stored. */
 class DepartureReminderHistory(context: Context) {

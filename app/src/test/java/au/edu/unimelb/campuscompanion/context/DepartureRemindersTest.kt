@@ -3,12 +3,13 @@ package au.edu.unimelb.campuscompanion.context
 import au.edu.unimelb.campuscompanion.english
 
 import au.edu.unimelb.campuscompanion.data.TravelMode
+import au.edu.unimelb.campuscompanion.ui.model.CourseReminderPreference
 import au.edu.unimelb.campuscompanion.data.model.EstimateSource
 import au.edu.unimelb.campuscompanion.data.model.TravelEstimate
 import au.edu.unimelb.campuscompanion.sensing.location.DistanceTrend
 import au.edu.unimelb.campuscompanion.sensing.location.TravelState
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
-import au.edu.unimelb.campuscompanion.ui.model.CourseReminderPreference
+import au.edu.unimelb.campuscompanion.ui.model.DEFAULT_COURSE_REMINDER_LEAD_MINUTES
 import au.edu.unimelb.campuscompanion.ui.model.reminderSeriesKey
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
@@ -16,8 +17,13 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.runBlocking
-import org.junit.Assert.*
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Instant
 import java.time.ZoneId
@@ -26,7 +32,12 @@ import java.time.ZonedDateTime
 class DepartureRemindersTest {
     private var preferences = CourseReminderPreference()
     private val sent = mutableListOf<DepartureReminder>()
-    private val reminders = DepartureReminders(flowOf(), { preferences }, sent::add)
+    private val reminders = DepartureReminders(
+        snapshots = flowOf(),
+        preferences = { preferences },
+        notify = sent::add
+    )
+
     private val lecture = session("lecture", "COMP90018", "Mobile Computing Systems Programming")
     private val tutorial = session("tutorial", "SWEN90006", "Software Testing")
 
@@ -59,17 +70,31 @@ class DepartureRemindersTest {
         reminders.consider(snapshot(lecture, 25))
         reminders.consider(snapshot(tutorial, 25))
         assertEquals(2, sent.size)
-        assertNull(reminders.consider(snapshot(lecture, 25)))
+        assertEquals(sent[0].notificationId, sent[1].notificationId)
     }
-    @Test fun disabledCourseDoesNotNotifyAndCanBeReenabled() {
+
+    @Test
+    fun theNextClassGetsItsOwnReminder() {
+        reminders.consider(snapshot(lecture, ContextState.LEAVE_SOON))
+        reminders.consider(snapshot(lecture, ContextState.ARRIVED))
+
+        val next = reminders.consider(snapshot(tutorial, ContextState.LEAVE_SOON))
+
+        assertEquals("Time to leave for SWEN90006", next?.title)
+        assertEquals(2, sent.size)
+    }
+
+    @Test
+    fun nothingIsSentWhileRemindersAreOff() {
         preferences = CourseReminderPreference(enabled = false)
-        assertNull(reminders.consider(snapshot(lecture, 25)))
-        preferences = CourseReminderPreference()
-        assertNotNull(reminders.consider(snapshot(lecture, 25)))
-    }
-    @Test fun noEtaMeansNoGuessedDepartureNotification() {
-        assertNull(reminders.consider(snapshot(lecture, 25).copy(estimate = null)))
+
+        assertNull(reminders.consider(snapshot(lecture, ContextState.LEAVE_SOON)))
         assertTrue(sent.isEmpty())
+
+        // Switching reminders back on for the same class still gives the reminder.
+        preferences = CourseReminderPreference(enabled = true)
+        val reminder = reminders.consider(snapshot(lecture, ContextState.LEAVE_SOON))
+        assertEquals("Time to leave for COMP90018", reminder?.title)
     }
     @Test fun motionUiStateDoesNotCausePrematureOrStaleReminders() {
         assertNull(reminders.consider(snapshot(lecture, 40).copy(state = TravelState.SHOULD_LEAVE_SOON)))
@@ -115,28 +140,63 @@ class DepartureRemindersTest {
         assertNull(notifier().consider(snapshot(lecture, 24)))
         assertEquals(1, sent.size)
     }
-    @Test fun mutingTutorialKeepsLectureAndWorkshopEnabled() {
-        val tut = lecture.copy(id = "tut", activity = "tutorial")
-        val notifier = DepartureReminders(flowOf(), { CourseReminderPreference(enabled = it.reminderSeriesKey() != tut.reminderSeriesKey()) }, sent::add)
-        assertNull(notifier.consider(snapshot(tut, 25)))
-        notifier.consider(snapshot(lecture.copy(activity = "lecture"), 25))
-        notifier.consider(snapshot(lecture.copy(id = "work", activity = "workshop"), 25))
-        assertEquals(2, sent.size)
+
+    @Test
+    fun mutingTutorialsKeepsLecturesAndOtherCoursesEnabled() {
+        val sameCourseLecture = lecture.copy(activity = "lecture")
+        val sameCourseTutorial = lecture.copy(id = "comp-tutorial", activity = "tutorial")
+        val mutedKey = sameCourseTutorial.reminderSeriesKey()
+        val perActivity = DepartureReminders(
+            snapshots = flowOf(),
+            preferences = { CourseReminderPreference(enabled = it.reminderSeriesKey() != mutedKey) },
+            notify = sent::add
+        )
+
+        assertNull(perActivity.consider(snapshot(sameCourseTutorial, ContextState.LEAVE_SOON)))
+        assertNull(perActivity.consider(snapshot(sameCourseTutorial, ContextState.RUNNING_LATE)))
+        perActivity.consider(snapshot(sameCourseLecture, ContextState.LEAVE_SOON))
+        perActivity.consider(snapshot(tutorial, ContextState.LEAVE_SOON))
+
+        assertEquals(listOf(sameCourseLecture.id, tutorial.id), sent.map { it.sessionId })
     }
-    @Test fun preferenceChangesCancelAndReevaluateInBackground() = runBlocking<Unit> {
+
+    @Test
+    fun preferenceChangesWithdrawRemindersAndRecheckTheCurrentClass() = runBlocking<Unit> {
+        val current = lecture.copy(activity = "lecture")
+        val snapshots = MutableStateFlow(snapshot(current, ContextState.LEAVE_SOON))
         val changes = MutableStateFlow(0)
-        val cancelled = mutableListOf<String>()
+        val shade = FakeDepartureShade()
+        shade.showOther("earlier-class")
         preferences = CourseReminderPreference(enabled = false)
-        val notifier = DepartureReminders(MutableStateFlow(snapshot(lecture, 25)), { preferences }, sent::add,
-            preferenceChanges = changes.map { Unit }, cancelCourse = cancelled::add)
-        val job = launch { notifier.run() }
+        val reactive = DepartureReminders(
+            snapshots = snapshots,
+            preferences = { preferences },
+            notify = shade::post,
+            preferenceChanges = changes.map { Unit },
+            shade = shade
+        )
+        val job = launch { reactive.run() }
         try {
-            withTimeout(2000) { while (cancelled.isEmpty()) delay(1) }
-            preferences = CourseReminderPreference()
+            // Turned off: no reminder for this course, and nothing else is left in the shade.
+            withTimeout(2_000) { while (shade.withdrawn.isEmpty()) delay(1) }
+            assertTrue(shade.alerts.isEmpty())
+            preferences = CourseReminderPreference(enabled = true)
             changes.value++
-            withTimeout(2000) { while (sent.isEmpty()) delay(1) }
-            assertEquals(lecture.reminderSeriesKey(), sent.single().courseKey)
-        } finally { job.cancel(); job.join() }
+            withTimeout(2_000) { while (shade.alerts.isEmpty()) delay(1) }
+            assertEquals(current.reminderSeriesKey(), shade.alerts.single().courseKey)
+
+            shade.withdrawn.clear()
+            preferences = CourseReminderPreference(enabled = false)
+            changes.value++
+            withTimeout(2_000) { while (shade.withdrawn.isEmpty()) delay(1) }
+            assertEquals(listOf(current.departurePromptKey()), shade.withdrawn)
+            assertTrue(shade.shown.isEmpty())
+            assertNull(reactive.consider(snapshot(current, ContextState.RUNNING_LATE)))
+            assertEquals(1, shade.alerts.size)
+        } finally {
+            job.cancel()
+            job.join()
+        }
     }
     @Test fun stationaryUserGetsUrgentReminderFiveMinutesBeforeDeparture() {
         reminders.consider(snapshot(lecture, 25))
@@ -218,6 +278,14 @@ class DepartureRemindersTest {
         building = FakeBuildingLookup.PETER_HALL, estimate = estimate(), distanceMeters = 1200.0, minutesUntilClass = minutesUntil)
     private fun session(id: String, code: String, title: String): CourseSession {
         val start = ZonedDateTime.of(2026, 10, 12, 11, 0, 0, 0, ZoneId.of("Australia/Melbourne"))
-        return CourseSession(id, code, title, "Parkville Campus", "PAR-160", start, start.plusHours(1))
+        return CourseSession(
+            id = id,
+            code = code,
+            title = title,
+            location = "Parkville Campus",
+            room = "PAR-160",
+            start = start,
+            end = start.plusHours(1)
+        )
     }
 }

@@ -20,7 +20,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.NotificationsActive
@@ -44,22 +46,27 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import au.edu.unimelb.campuscompanion.context.ContextConfig
+import au.edu.unimelb.campuscompanion.context.TravelSnapshot
 import au.edu.unimelb.campuscompanion.ui.model.CourseReminderPreference
 import au.edu.unimelb.campuscompanion.ui.model.CourseReminderSeries
+import au.edu.unimelb.campuscompanion.ui.model.CourseReminderTiming
 import au.edu.unimelb.campuscompanion.ui.model.MAX_COURSE_REMINDER_LEAD_MINUTES
-import au.edu.unimelb.campuscompanion.ui.model.departureReminderTime
+import au.edu.unimelb.campuscompanion.ui.model.reminderTiming
 import java.time.format.DateTimeFormatter
 import kotlin.math.roundToInt
 
 private val courseTimeFormatter = DateTimeFormatter.ofPattern("EEE, d MMM - h:mm a")
-private val notificationTimeFormatter = DateTimeFormatter.ofPattern("EEE d MMM, h:mm a")
+private val departureTimeFormatter = DateTimeFormatter.ofPattern("EEE d MMM, h:mm a")
+private val warningMinutes = ContextConfig().leaveSoonWindowMinutes
 
 @Composable
 fun CourseReminderSettingsScreen(
     courses: List<CourseReminderSeries>,
     preferences: Map<String, CourseReminderPreference>,
     onPreferenceChange: (String, CourseReminderPreference) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    travelSnapshot: TravelSnapshot = TravelSnapshot()
 ) {
     val textResources = textResources()
     var selectedCourseKey by rememberSaveable { mutableStateOf<String?>(null) }
@@ -69,6 +76,7 @@ fun CourseReminderSettingsScreen(
         CourseReminderDialog(
             course = course,
             preference = preferences[course.key] ?: CourseReminderPreference(),
+            travelSnapshot = travelSnapshot,
             onPreferenceChange = { updated ->
                 onPreferenceChange(course.key, updated)
             },
@@ -174,6 +182,7 @@ fun CourseReminderSettingsScreen(
 private fun CourseReminderDialog(
     course: CourseReminderSeries,
     preference: CourseReminderPreference,
+    travelSnapshot: TravelSnapshot,
     onPreferenceChange: (CourseReminderPreference) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -229,6 +238,11 @@ private fun CourseReminderDialog(
                             style = MaterialTheme.typography.bodyLarge,
                             fontWeight = FontWeight.Medium
                         )
+                        Text(
+                            text = "Extra time to aim to arrive before class. Weather and time to reach the classroom may add more.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                         Slider(
                             modifier = Modifier.semantics {
                                 contentDescription = textResources.getString(R.string.a11y_preparation_time)
@@ -251,6 +265,12 @@ private fun CourseReminderDialog(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+
+                    Text(
+                        text = "Leave-soon reminders warn you $warningMinutes minutes before the calculated departure time, unless you’re already heading to class or have arrived.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
 
                     Surface(
                         shape = RoundedCornerShape(8.dp),

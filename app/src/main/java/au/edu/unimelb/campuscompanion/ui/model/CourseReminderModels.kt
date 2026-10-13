@@ -8,6 +8,7 @@ const val MAX_COURSE_REMINDER_LEAD_MINUTES = 60
 
 data class CourseReminderPreference(
     val enabled: Boolean = true,
+    /** Extra time to arrive before class, separate from weather and classroom-entry allowances. */
     val leadMinutes: Int = DEFAULT_COURSE_REMINDER_LEAD_MINUTES
 )
 

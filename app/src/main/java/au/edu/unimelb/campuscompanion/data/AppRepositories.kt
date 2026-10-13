@@ -114,8 +114,15 @@ object AppRepositories {
                         is SessionStatus.Authenticated -> {
                             val userId = client.auth.currentUserOrNull()?.id
                             if (userId != timetableUserId) {
+                                if (timetableUserId != null) {
+                                    // Another account signed in without signing out first.
+                                    DepartureNotifier.cancelAll(appContext)
+                                }
                                 timetableUserId = userId
-                                travel.updateSessions(userId?.let { TimetableSubscriptionStore(appContext).load(it).timetable?.sessions }.orEmpty())
+                                travel.updateSessions(
+                                    userId?.let { TimetableSubscriptionStore(appContext).load(it).timetable?.sessions }.orEmpty(),
+                                    reset = true
+                                )
                             }
                             push.onSignedIn()
                         }
@@ -124,8 +131,10 @@ object AppRepositories {
                             groups.clearSession()
                             database.messageDao().deleteAll()
                             navigation.clear()
+                            // Reminders name the previous account's classes and buildings.
+                            DepartureNotifier.cancelAll(appContext)
                             timetableUserId = null
-                            travel.updateSessions(emptyList())
+                            travel.updateSessions(emptyList(), reset = true)
                         }
                         else -> Unit
                     }
@@ -233,7 +242,7 @@ object AppRepositories {
         if (client == null) {
             FakeEtaRepository()
         } else {
-            RoutedEtaRepository(au.edu.unimelb.campuscompanion.data.remote.GoogleEtaDataSource(client, SupabaseRouteDataSource(client)))
+            RoutedEtaRepository(SupabaseRouteDataSource(client))
         }
     }
 

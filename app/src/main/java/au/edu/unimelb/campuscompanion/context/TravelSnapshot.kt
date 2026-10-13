@@ -8,6 +8,8 @@ import au.edu.unimelb.campuscompanion.sensing.location.DistanceTrend
 import au.edu.unimelb.campuscompanion.sensing.location.TravelState
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
 import au.edu.unimelb.campuscompanion.ui.model.RouteEstimate
+import au.edu.unimelb.campuscompanion.ui.model.matchesTimetableSession
+import java.time.ZonedDateTime
 
 /** What the app currently knows about the trip to the next class. */
 data class TravelSnapshot(
@@ -15,7 +17,8 @@ data class TravelSnapshot(
     val session: CourseSession? = null,
     /** Where the class is, when its location code is known. */
     val building: BuildingLocation? = null,
-    val state: TravelState = TravelState.UPCOMING_CLASS,
+    /** The context state from [ContextEngine]. */
+    val state: ContextState = ContextState.NO_UPCOMING_CLASS,
     /** Travel time from the current position, or null when the position or the building is unknown. */
     val estimate: TravelEstimate? = null,
     /** Straight-line distance to the building in metres, when both positions are known. */
@@ -45,7 +48,16 @@ data class TravelSnapshot(
             source = travel.source
         )
         return sessions.map { current ->
-            if (current.id == tracked.id) current.copy(etaMinutes = minutes, routeEstimate = route) else current
+            if (current.matchesTimetableSession(tracked)) {
+                current.copy(etaMinutes = minutes, routeEstimate = route)
+            } else {
+                current
+            }
         }
+    }
+
+    companion object {
+        /** What the engine publishes while it works out a new result; see [pending]. */
+        val PENDING = TravelSnapshot(pending = true)
     }
 }

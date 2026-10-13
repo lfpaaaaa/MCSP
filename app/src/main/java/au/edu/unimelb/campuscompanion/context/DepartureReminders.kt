@@ -7,12 +7,12 @@ import au.edu.unimelb.campuscompanion.sensing.location.DistanceTrend
 import au.edu.unimelb.campuscompanion.sensing.location.TravelState
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
 import au.edu.unimelb.campuscompanion.ui.model.CourseReminderPreference
+import au.edu.unimelb.campuscompanion.ui.model.MAX_COURSE_REMINDER_LEAD_MINUTES
 import au.edu.unimelb.campuscompanion.ui.model.reminderSeriesKey
-import au.edu.unimelb.campuscompanion.ui.model.trimTrailingCommas
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.Flow
-import java.time.Duration
+import java.time.Instant
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
@@ -27,10 +27,57 @@ data class DepartureReminder(
     val title: UiText,
     val text: UiText
 ) {
-    val notificationId: Int get() = sessionId.hashCode()
+    val notificationId: Int get() = key.hashCode()
 }
 
-/** Computes the reminder from this location's ETA, not from a sticky motion/UI state. */
+/** The departure prompt of this class occurrence: one per class id and start. */
+fun CourseSession.departurePromptKey(): String = "$id@${start.toInstant()}"
+
+/**
+ * The departure prompts in the notification shade, beyond posting one with sound (the `notify` of
+ * [DepartureReminders]). On Android this is `push.DepartureNotifier`.
+ */
+interface DepartureShade {
+    /** Keys of the departure prompts the student can see now; older app versions used other keys. */
+    fun shownKeys(): Set<String>
+
+    /** Replaces the content of a prompt that is still shown, without sound or vibration. */
+    fun update(reminder: DepartureReminder)
+
+    /** Removes the prompt with this key. */
+    fun withdraw(key: String)
+
+    companion object {
+        /** No access to the shade: prompts are only posted, never updated or withdrawn. */
+        val None: DepartureShade = object : DepartureShade {
+            override fun shownKeys(): Set<String> = emptySet()
+            override fun update(reminder: DepartureReminder) = Unit
+            override fun withdraw(key: String) = Unit
+        }
+    }
+}
+
+/**
+ * Turns the travel engine's snapshots into departure prompts and keeps the shade in line with them.
+ * At most one prompt is wanted at a time: the tracked class's, from the moment it is time to leave
+ * until the student sets off or arrives, or the class stops being the next one.
+ *
+ * - The warning ("leave soon") and the late reminder are each delivered once per class occurrence
+ *   and account, with sound. Only successful deliveries are remembered, so a denied notification
+ *   is retried while it is still due.
+ * - A delivered prompt that is still shown is updated silently when its details change (another
+ *   building, travel time or title). One the student dismissed is not brought back.
+ * - A prompt is withdrawn once the student is on the way, has arrived or is in class; when its class
+ *   was removed, moved to another start or day, lost its venue or is no longer the next one; and
+ *   when reminders are turned off for its course.
+ * - Nothing changes while the engine works out a new result ([TravelSnapshot.pending]), and a result
+ *   worked out with an earlier arrival buffer than the course's current one is skipped: the engine
+ *   is already recomputing it.
+ *
+ * Each notification reads the saved preference of its own course, including in the background.
+ * Signing out clears the shade separately, since "no current user" can also mean that the session
+ * is still being restored.
+ */
 class DepartureReminders(
     private val snapshots: Flow<TravelSnapshot>,
     private val preferences: (CourseSession) -> CourseReminderPreference,
@@ -43,14 +90,30 @@ class DepartureReminders(
     private val sent = mutableSetOf<Pair<String, DepartureReminderStage>>()
 
     suspend fun run() {
-        combine(snapshots, preferenceChanges) { snapshot, _ -> snapshot }.collect(::consider)
+        combine(snapshots, preferenceChanges) { snapshot, _ -> snapshot }
+            .collect { snapshot -> consider(snapshot) }
     }
 
+    /** Brings the shade in line with [snapshot]; returns the reminder delivered with sound, or null. */
     fun consider(snapshot: TravelSnapshot): DepartureReminder? {
-        val session = snapshot.session ?: run { sent.clear(); return null }
+        if (snapshot.pending) return null
+        val session = snapshot.session
+        val userId = currentUserId()
+        if (session == null || userId == null) {
+            remindedScope = null
+            remindedStates.clear()
+            // No class to leave for: whatever is still shown belongs to an earlier or removed class.
+            if (userId != null) withdrawAllExcept(null)
+            return null
+        }
+        val scope = ReminderScope(userId, session.id, session.start.toInstant())
+        if (scope != remindedScope) {
+            remindedScope = scope
+            remindedStates.clear()
+        }
         val preference = preferences(session)
         if (!preference.enabled) {
-            cancelCourse(session.reminderSeriesKey())
+            withdrawAllExcept(null)
             return null
         }
         val estimate = snapshot.estimate ?: return null
@@ -107,6 +170,8 @@ class DepartureReminders(
         TravelMode.PublicTransport -> UiText(R.string.departure_by_public_transport)
         TravelMode.Driving -> UiText(R.string.departure_by_car)
     }
+
+    private data class ReminderScope(val userId: String, val sessionId: String, val startsAt: Instant)
 
     private companion object {
         const val URGENT_LEAD_MINUTES = 5
