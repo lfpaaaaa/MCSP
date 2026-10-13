@@ -1,6 +1,8 @@
 package au.edu.unimelb.campuscompanion.sensing.location
 
-/** Walking fusion. Unavailable observations are distinct from evidence against starting travel. */
+import au.edu.unimelb.campuscompanion.sensing.activity.UserActivityState
+
+/** Activity/movement fusion. Unavailable observations are distinct from evidence against starting travel. */
 class EnRouteFusionDetector {
     companion object {
         private const val MAX_HEADING_DIFFERENCE_DEGREES = 60.0
@@ -21,14 +23,15 @@ class EnRouteFusionDetector {
         distanceTrend: DistanceTrend,
         headingDifferenceDegrees: Double?,
         closingMeters: Double,
-        observedAtNanos: Long
+        observedAtNanos: Long,
+        activity: UserActivityState? = null
     ): EnRouteFusionResult {
         val previousObservation = lastObservedAtNanos
         if (observedAtNanos < 0L ||
             (previousObservation != null && observedAtNanos <= previousObservation)
         ) {
             // A replay is not another confirmation and carries no new fusion authority.
-            return result(null, null, isMoving, isRotating, distanceTrend, headingDifferenceDegrees, closingMeters)
+            return result(null, null, isMoving, isRotating, distanceTrend, headingDifferenceDegrees, closingMeters, activity)
         }
         if (previousObservation != null && observedAtNanos - previousObservation > MAX_SAMPLE_GAP_NANOS) {
             reset()
@@ -40,13 +43,16 @@ class EnRouteFusionDetector {
             headingDifferenceDegrees in 0.0..MAX_HEADING_DIFFERENCE_DEGREES &&
             isRotating == false
 
+        val movement = activity?.isMoving ?: isMoving
+
         val rawVerdict = when {
             distanceTrend == DistanceTrend.UNKNOWN -> null
             distanceTrend == DistanceTrend.MOVING_AWAY -> false
-            distanceTrend == DistanceTrend.STABLE && isMoving != null -> false
-            distanceTrend == DistanceTrend.APPROACHING && isMoving == true &&
+            distanceTrend == DistanceTrend.STABLE && movement != null -> false
+            distanceTrend == DistanceTrend.APPROACHING && movement == true &&
                 closingMeters.isFinite() && closingMeters >= 0.0 &&
-                (headingMatches || closingMeters >= CONSERVATIVE_CLOSING_METERS) -> true
+                (activity == UserActivityState.IN_VEHICLE || headingMatches ||
+                    closingMeters >= CONSERVATIVE_CLOSING_METERS) -> true
             // Missing sensors, phone rotation/orientation, or conflicting stationary/progress
             // evidence do not veto the distance-and-movement fallback.
             else -> null
@@ -69,7 +75,7 @@ class EnRouteFusionDetector {
                 null
             }
         }
-        return result(currentVerdict, rawVerdict, isMoving, isRotating, distanceTrend, headingDifferenceDegrees, closingMeters)
+        return result(currentVerdict, rawVerdict, isMoving, isRotating, distanceTrend, headingDifferenceDegrees, closingMeters, activity)
     }
 
     fun isEnRoute(): Boolean = currentVerdict == true
@@ -88,7 +94,8 @@ class EnRouteFusionDetector {
         isRotating: Boolean?,
         distanceTrend: DistanceTrend,
         headingDifferenceDegrees: Double?,
-        closingMeters: Double
+        closingMeters: Double,
+        activity: UserActivityState?
     ) = EnRouteFusionResult(
         verdict = verdict,
         rawVerdict = rawVerdict,
@@ -96,6 +103,7 @@ class EnRouteFusionDetector {
         isRotating = isRotating,
         distanceTrend = distanceTrend,
         headingDifferenceDegrees = headingDifferenceDegrees,
-        closingMeters = closingMeters
+        closingMeters = closingMeters,
+        activity = activity
     )
 }

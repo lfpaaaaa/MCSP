@@ -1,6 +1,7 @@
 package au.edu.unimelb.campuscompanion.sensing.location
 
 import au.edu.unimelb.campuscompanion.data.building.BuildingLocation
+import au.edu.unimelb.campuscompanion.sensing.activity.ActivityObservation
 
 /** An in-memory sensing period. Generation changes even for A → B → A. */
 data class SensingTarget(
@@ -19,7 +20,9 @@ data class SensingEvidence(
     val location: LocationSample?,
     val movement: MovementObservation? = null,
     val enRoute: Boolean? = null,
-    val progressConfirmed: Boolean = false
+    val progressConfirmed: Boolean = false,
+    /** Accepted activity state from the uninterrupted subscription in this sensing period. */
+    val activity: ActivityObservation? = null
 )
 
 /** Shared Android adapter / engine checks, measured against elapsed realtime, not receipt time. */

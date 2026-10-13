@@ -310,13 +310,24 @@ class TravelEngine(
     ) {
         val current = inputs.value
         val target = _sensingTarget.value
+        val observedNow = elapsedNanos()
         val evidence = current.evidence?.takeIf { target.active && it.generation == target.generation }
         val measured = evidence?.location?.takeIf {
-            EvidenceFreshness.accepts(it, target, elapsedNanos())
+            EvidenceFreshness.accepts(it, target, observedNow)
         }
         val movement = evidence?.movement?.takeIf {
             it.observedAtNanos >= target.activatedAtNanos &&
-                EvidenceFreshness.isFresh(it.observedAtNanos, elapsedNanos(), EvidenceFreshness.SENSOR_MAX_AGE_NANOS)
+                EvidenceFreshness.isFresh(it.observedAtNanos, observedNow, EvidenceFreshness.SENSOR_MAX_AGE_NANOS)
+        }
+        // Transitions describe a state until EXIT/STILL or interruption, rather than a sample
+        // that expires every few seconds. The adapter validates age at admission and clears it
+        // on interruption; a fresh location is still required for every new physical decision.
+        val activity = evidence?.activity?.takeIf {
+            it.observedAtNanos > target.activatedAtNanos && it.observedAtNanos <= observedNow
+        }
+        val isMoving = activity?.state?.isMoving ?: movement?.isMoving
+        val enRoute = evidence?.enRoute?.takeIf {
+            measured != null && (it == false || isMoving == true)
         }
         val position = if (current.sensingManaged) measured?.let { GeoPoint(it.latitude, it.longitude) } else current.origin
         val distance = if (position != null && destination != null) GeoMath.distanceMeters(position, destination.location) else null
@@ -324,8 +335,8 @@ class TravelEngine(
             inputs = ContextInputs(
                 now = now, sessions = current.sessions, travelMinutes = estimate?.durationMinutes,
                 bufferMinutes = lead + weatherBuffer, distanceMeters = distance,
-                isMoving = if (current.sensingManaged) measured != null && movement?.isMoving == true else current.signals.moving,
-                enRouteSignal = if (current.sensingManaged) evidence?.enRoute.takeIf { measured != null && movement != null } else current.signals.enRoute,
+                isMoving = if (current.sensingManaged) measured != null && isMoving == true else current.signals.moving,
+                enRouteSignal = if (current.sensingManaged) enRoute else current.signals.enRoute,
                 insideGeofence = !current.sensingManaged && destination != null && current.signals.geofenceCode == destination.locCode,
                 buildingCode = destination?.locCode,
                 progressConfirmed = !current.sensingManaged || evidence?.progressConfirmed == true,

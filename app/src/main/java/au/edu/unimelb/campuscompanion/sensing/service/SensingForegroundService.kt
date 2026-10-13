@@ -69,7 +69,6 @@ class SensingForegroundService : Service() {
     private var geofenceBuilding: BuildingLocation? = null
     private var geofenceRequested = false
     private var sensingRunning = false
-    private var activityRecognitionRequested = false
     private var currentMode = LocationTrackingMode.NORMAL
     private var sensorActivatedAtNanos = 0L
     private var lastLocationNanos = 0L
@@ -88,18 +87,16 @@ class SensingForegroundService : Service() {
             travel.sensingTarget.collect { synchronizeTarget(it) }
         }
         observeLocation()
+        observeActivity()
         // Revocation may stop location callbacks altogether, so check while the service is active.
         serviceScope.launch {
             while (true) {
                 delay(5_000L)
                 if (sensingRunning && !hasPreciseLocationPermission()) {
                     stopForPermissionLoss()
-                } else if (sensingRunning && activityRecognitionRequested && !hasActivityPermission()) {
-                    // Activity remains an optional adapter in Step 1; its loss keeps walking GPS active.
+                } else if (sensingRunning && !hasActivityPermission()) {
                     runCatching { activityRecognitionManager.stop() }
                         .onFailure { Log.w("SensingService", "Activity cleanup failed after revocation", it) }
-                    activityRecognitionRequested = false
-                    Log.w("SensingService", "Activity permission revoked; walking GPS remains active")
                 }
             }
         }
@@ -185,6 +182,7 @@ class SensingForegroundService : Service() {
         target = next
         lastLocationNanos = 0L
         resetSensorHistories()
+        activityRecognitionManager.stop()
         removeArrivalGeofence()
         geofenceBuilding = next.building.takeIf { next.active }
         if (!next.active) {
@@ -192,7 +190,22 @@ class SensingForegroundService : Service() {
             return
         }
         startHighRateSensorsIfNeeded()
+        startActivityRecognitionIfAllowed()
         registerArrivalGeofenceIfAllowed()
+    }
+
+    private fun observeActivity() {
+        serviceScope.launch {
+            activityRecognitionManager.observations.collect {
+                if (!sensingRunning) return@collect
+                synchronizeTarget(travel.sensingTarget.value)
+                val currentTarget = target?.takeIf { it.active } ?: return@collect
+                // EXIT, STILL and registration interruption must invalidate the old bundle even
+                // between GPS callbacks. Confirmed trips and last-known guidance survive this.
+                enRouteFusionDetector.reset()
+                travel.updateEvidence(SensingEvidence(generation = currentTarget.generation, location = null))
+            }
+        }
     }
 
     private fun observeLocation() {
@@ -234,6 +247,10 @@ class SensingForegroundService : Service() {
                     highRate && isFreshSensor(it.timestampNanos, currentTarget, now) &&
                         it.headingDegrees.isFinite()
                 }?.headingDegrees
+                val activity = activityRecognitionManager.observation?.takeIf {
+                    highRate && hasActivityPermission() && activityRecognitionManager.isAvailable &&
+                        it.observedAtNanos > currentTarget.activatedAtNanos && it.observedAtNanos <= now
+                }
 
                 var verdict: Boolean? = null
                 var progressConfirmed = false
@@ -258,7 +275,8 @@ class SensingForegroundService : Service() {
                         distanceTrend = trend,
                         headingDifferenceDegrees = headingDifference,
                         closingMeters = closing,
-                        observedAtNanos = location.elapsedRealtimeNanos
+                        observedAtNanos = location.elapsedRealtimeNanos,
+                        activity = activity?.state
                     ).verdict
                     progressConfirmed = distanceTrendDetector.sustainedApproach() && closing >= 50.0
                 }
@@ -270,14 +288,19 @@ class SensingForegroundService : Service() {
                         location = location,
                         movement = movement?.let { MovementObservation(it.isMoving, it.timestampNanos) },
                         enRoute = verdict,
-                        progressConfirmed = progressConfirmed
+                        progressConfirmed = progressConfirmed,
+                        activity = activity
                     )
                 )
                 if (accepted) {
                     lastLocationNanos = location.elapsedRealtimeNanos
                     AppRepositories.navigation.updateLocation(location)
                     if (BuildConfig.DEBUG) {
-                        val source = if (movement != null) "gps+accelerometer" else "gps"
+                        val source = when {
+                            activity?.state?.isMoving != null -> "gps+activity"
+                            movement != null -> "gps+accelerometer"
+                            else -> "gps"
+                        }
                         val ageMillis = (now - location.elapsedRealtimeNanos) / 1_000_000L
                         val stateAfter = travel.snapshot.value.state
                         // One compact line per accepted GPS observation, with no raw coordinates.
@@ -286,6 +309,7 @@ class SensingForegroundService : Service() {
                             "accepted source=$source, ageMs=$ageMillis, generation=${currentTarget.generation}, " +
                                 "target=${currentTarget.sessionId}/${currentTarget.building?.locCode}, " +
                                 "distanceM=$distanceMeters, trend=$trendName, moving=${movement?.isMoving}, " +
+                                "activity=${activity?.state}, activityAvailable=${activityRecognitionManager.isAvailable}, " +
                                 "verdict=$verdict, progressConfirmed=$progressConfirmed, " +
                                 "state=$stateBefore->$stateAfter"
                         )
@@ -312,10 +336,10 @@ class SensingForegroundService : Service() {
             PackageManager.PERMISSION_GRANTED
 
     private fun startActivityRecognitionIfAllowed() {
-        if (hasActivityPermission() && !activityRecognitionRequested) {
+        val currentTarget = target?.takeIf { it.active && sensingRunning } ?: return
+        if (hasActivityPermission()) {
             try {
-                activityRecognitionManager.start()
-                activityRecognitionRequested = true
+                activityRecognitionManager.start(currentTarget.activatedAtNanos)
             } catch (exception: SecurityException) {
                 Log.w("SensingService", "Activity recognition unavailable; retaining walking sensors", exception)
             }
@@ -360,7 +384,6 @@ class SensingForegroundService : Service() {
         // Remove the PendingIntent subscription even when this instance did not create it.
         runCatching { activityRecognitionManager.stop() }
             .onFailure { Log.w("SensingService", "Activity cleanup failed", it) }
-        activityRecognitionRequested = false
         removeArrivalGeofence()
     }
 

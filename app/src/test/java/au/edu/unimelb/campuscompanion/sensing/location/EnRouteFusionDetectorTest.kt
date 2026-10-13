@@ -1,5 +1,6 @@
 package au.edu.unimelb.campuscompanion.sensing.location
 
+import au.edu.unimelb.campuscompanion.sensing.activity.UserActivityState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -145,6 +146,162 @@ class EnRouteFusionDetectorTest {
         }
     }
 
+    @Test
+    fun pedestrianActivitySuppliesMovementWithoutWalkingClassifier() {
+        pedestrianActivities.forEach { activity ->
+            listOf(false, null).forEach { movement ->
+                val detector = EnRouteFusionDetector()
+                assertNull(update(detector, 1, moving = movement, activity = activity).verdict)
+                assertNull(update(detector, 2, moving = movement, activity = activity).verdict)
+                val result = update(detector, 3, moving = movement, activity = activity)
+                assertEquals(true, result.verdict)
+                assertEquals(activity, result.activity)
+                assertEquals(movement, result.isMoving)
+            }
+        }
+    }
+
+    @Test
+    fun pedestrianActivityKeepsConservativePocketAndRotationPath() {
+        pedestrianActivities.forEach { activity ->
+            listOf(null to null, 120.0 to false, 0.0 to true).forEach { (heading, rotation) ->
+                val detector = EnRouteFusionDetector()
+                repeat(3) { index ->
+                    assertNull(update(
+                        detector, index.toLong() + 1, moving = false, heading = heading,
+                        rotating = rotation, closing = 49.9, activity = activity
+                    ).verdict)
+                }
+                assertNull(update(detector, 4, moving = false, heading = heading, rotating = rotation, closing = 50.0, activity = activity).verdict)
+                assertNull(update(detector, 5, moving = false, heading = heading, rotating = rotation, closing = 55.0, activity = activity).verdict)
+                assertEquals(true, update(detector, 6, moving = false, heading = heading, rotating = rotation, closing = 60.0, activity = activity).verdict)
+            }
+        }
+    }
+
+    @Test
+    fun vehicleConfirmsSustainedApproachWithoutPhoneHeadingOrSteps() {
+        listOf(null to null, 180.0 to false, 0.0 to true).forEach { (heading, rotation) ->
+            val trend = DistanceTrendDetector()
+            val fusion = EnRouteFusionDetector()
+            repeat(6) { index ->
+                val seconds = index.toLong() + 1
+                val result = update(
+                    fusion, seconds, moving = false, heading = heading, rotating = rotation,
+                    trend = trend.update(500.0 - index * 5, seconds * 1_000_000_000L),
+                    closing = trend.closingMeters(), activity = UserActivityState.IN_VEHICLE
+                )
+                assertEquals(if (index == 5) true else null, result.verdict)
+            }
+            assertTrue(trend.closingMeters() < 50.0)
+        }
+    }
+
+    @Test
+    fun activityAloneDuringGpsWarmupCannotConfirmTravel() {
+        (pedestrianActivities + UserActivityState.IN_VEHICLE).forEach { activity ->
+            val detector = EnRouteFusionDetector()
+            repeat(5) { index ->
+                assertNull(update(
+                    detector, index.toLong() + 1, moving = false,
+                    trend = DistanceTrend.UNKNOWN, activity = activity
+                ).verdict)
+            }
+        }
+    }
+
+    @Test
+    fun activityWithStationaryOrAwayGpsCannotConfirmTravel() {
+        (pedestrianActivities + UserActivityState.IN_VEHICLE).forEach { activity ->
+            listOf(0.0, 5.0).forEach { distanceChange ->
+                val trend = DistanceTrendDetector()
+                val fusion = EnRouteFusionDetector()
+                var result: EnRouteFusionResult? = null
+                repeat(6) { index ->
+                    val seconds = index.toLong() + 1
+                    result = update(
+                        fusion, seconds, moving = null,
+                        trend = trend.update(500.0 + index * distanceChange, seconds * 1_000_000_000L),
+                        closing = trend.closingMeters(), activity = activity
+                    )
+                    assertFalse(result?.verdict == true)
+                }
+                assertEquals(false, result?.verdict)
+            }
+        }
+    }
+
+    @Test
+    fun stillRequiresEstablishedNoProgressForNegativeAuthority() {
+        val detector = EnRouteFusionDetector()
+        repeat(3) { index ->
+            assertNull(update(detector, index.toLong() + 1, activity = UserActivityState.STILL).verdict)
+        }
+        assertNull(update(detector, 4, moving = null, trend = DistanceTrend.STABLE, activity = UserActivityState.STILL).verdict)
+        assertNull(update(detector, 5, moving = null, trend = DistanceTrend.STABLE, activity = UserActivityState.STILL).verdict)
+        assertEquals(false, update(detector, 6, moving = null, trend = DistanceTrend.STABLE, activity = UserActivityState.STILL).verdict)
+    }
+
+    @Test
+    fun unavailableOrUnknownActivityUsesFreshAccelerometerFallback() {
+        listOf(null, UserActivityState.UNKNOWN).forEach { activity ->
+            val detector = EnRouteFusionDetector()
+            update(detector, 1, activity = activity)
+            update(detector, 2, activity = activity)
+            assertEquals(true, update(detector, 3, activity = activity).verdict)
+            assertNull(update(detector, 4, moving = null, activity = activity).verdict)
+            assertNull(update(detector, 5, moving = false, activity = activity).verdict)
+        }
+    }
+
+    @Test
+    fun vehicleConfirmationDoesNotCountReplayedLocationsOrBridgeSamplingGaps() {
+        val detector = EnRouteFusionDetector()
+        update(detector, 1, moving = null, heading = null, activity = UserActivityState.IN_VEHICLE)
+        repeat(5) {
+            assertNull(update(detector, 1, moving = null, heading = null, activity = UserActivityState.IN_VEHICLE).verdict)
+        }
+        assertNull(update(detector, 2, moving = null, heading = null, activity = UserActivityState.IN_VEHICLE).verdict)
+        assertNull(update(detector, 33, moving = null, heading = null, activity = UserActivityState.IN_VEHICLE).verdict)
+        assertNull(update(detector, 34, moving = null, heading = null, activity = UserActivityState.IN_VEHICLE).verdict)
+        assertEquals(true, update(detector, 35, moving = null, heading = null, activity = UserActivityState.IN_VEHICLE).verdict)
+    }
+
+    @Test
+    fun shortVehicleStopDoesNotImmediatelyEmitAuthoritativeNegative() {
+        val detector = EnRouteFusionDetector()
+        repeat(3) { index ->
+            update(detector, index.toLong() + 1, activity = UserActivityState.IN_VEHICLE)
+        }
+        assertTrue(detector.isEnRoute())
+        assertNull(update(detector, 4, moving = null, trend = DistanceTrend.STABLE, activity = UserActivityState.STILL).verdict)
+        assertNull(update(detector, 5, moving = null, trend = DistanceTrend.STABLE, activity = UserActivityState.STILL).verdict)
+        // The engine owns the established-trip latch; these observations only gate new entry.
+        assertNull(update(detector, 6, activity = UserActivityState.IN_VEHICLE).verdict)
+        assertNull(update(detector, 7, activity = UserActivityState.IN_VEHICLE).verdict)
+        assertEquals(true, update(detector, 8, activity = UserActivityState.IN_VEHICLE).verdict)
+    }
+
+    @Test
+    fun singleGpsJumpCannotConfirmVehicleOrPedestrianActivity() {
+        (pedestrianActivities + UserActivityState.IN_VEHICLE).forEach { activity ->
+            val trend = DistanceTrendDetector()
+            val fusion = EnRouteFusionDetector()
+            listOf(500.0, 500.0, 500.0, 400.0, 400.0, 400.0, 400.0).forEachIndexed { index, distance ->
+                val seconds = index.toLong() + 1
+                assertFalse(update(
+                    fusion, seconds, moving = false, heading = null,
+                    trend = trend.update(distance, seconds * 1_000_000_000L),
+                    closing = trend.closingMeters(), activity = activity
+                ).verdict == true)
+            }
+        }
+    }
+
+    private val pedestrianActivities = listOf(
+        UserActivityState.WALKING, UserActivityState.RUNNING, UserActivityState.ON_FOOT
+    )
+
     private fun update(
         detector: EnRouteFusionDetector,
         seconds: Long,
@@ -152,6 +309,7 @@ class EnRouteFusionDetectorTest {
         rotating: Boolean? = false,
         trend: DistanceTrend = DistanceTrend.APPROACHING,
         heading: Double? = 0.0,
-        closing: Double = 10.0
-    ) = detector.update(moving, rotating, trend, heading, closing, seconds * 1_000_000_000L)
+        closing: Double = 10.0,
+        activity: UserActivityState? = null
+    ) = detector.update(moving, rotating, trend, heading, closing, seconds * 1_000_000_000L, activity)
 }
