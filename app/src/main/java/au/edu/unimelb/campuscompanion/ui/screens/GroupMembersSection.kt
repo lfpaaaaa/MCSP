@@ -1,8 +1,14 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import au.edu.unimelb.campuscompanion.ui.text.textResources
 import au.edu.unimelb.campuscompanion.R
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -21,15 +27,14 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun GroupSettingsPage(
     onDismissRequest: () -> Unit,
-    title: @Composable () -> Unit,
+    title: String,
     text: @Composable () -> Unit,
     confirmButton: @Composable () -> Unit,
     dismissButton: @Composable () -> Unit,
     bottomAction: @Composable () -> Unit
 ) {
     val textResources = textResources()
-    BackHandler(onBack = onDismissRequest)
-    Scaffold(topBar = { TopAppBar(title = title, navigationIcon = {
+    Scaffold(modifier = Modifier.semantics { paneTitle = title }, topBar = { TopAppBar(title = { Text(title, modifier = Modifier.semantics { heading() }) }, navigationIcon = {
         TextButton(onClick = onDismissRequest) { Text(textResources.getString(R.string.action_back)) }
     }) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(20.dp)) {
@@ -71,19 +76,19 @@ internal fun GroupMembersSection(
         }
     }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(textResources.getString(R.string.group_members_section_members, members.size), style = MaterialTheme.typography.titleMedium)
-        if (loading) CircularProgressIndicator()
+        Text(textResources.getString(R.string.group_members_section_members, members.size), style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
+        if (loading) CircularProgressIndicator(Modifier.semantics { contentDescription = textResources.getString(R.string.a11y_loading_members) })
         error?.let {
-            Text(it)
+            Text(it, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
             TextButton(onClick = { retry++ }) { Text(textResources.getString(R.string.action_retry)) }
         }
         members.sortedBy { if (it.role == GroupRole.Owner) 0 else 1 }.forEach { member ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                au.edu.unimelb.campuscompanion.ui.profile.ProfileAvatar(member.displayName, member.avatarUrl, Modifier.size(40.dp))
+                au.edu.unimelb.campuscompanion.ui.profile.ProfileAvatar(member.displayName, member.avatarUrl, Modifier.size(40.dp).clearAndSetSemantics {})
                 Text(if (member.role == GroupRole.Owner) textResources.getString(R.string.group_owner_name, member.displayName) else member.displayName,
                     modifier = Modifier.weight(1f))
                 if (isOwner && member.role != GroupRole.Owner) {
-                    TextButton(onClick = { selected = member; transferError = null }) { Text(textResources.getString(R.string.group_members_section_transfer_leave)) }
+                    TextButton(onClick = { selected = member; transferError = null }, modifier = Modifier.semantics { contentDescription = textResources.getString(R.string.a11y_transfer_owner, member.displayName) }) { Text(textResources.getString(R.string.group_members_section_transfer_leave)) }
                 }
             }
         }

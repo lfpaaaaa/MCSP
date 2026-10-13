@@ -1,5 +1,10 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import au.edu.unimelb.campuscompanion.ui.text.textResources
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -36,17 +41,19 @@ internal fun TranscriptPanel(file: SharedFile, currentUserId: String) {
     }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         HorizontalDivider()
-        Text(stringResource(R.string.transcript_title), style = MaterialTheme.typography.titleMedium)
-        if (loading || submitting) LinearProgressIndicator(Modifier.fillMaxWidth())
+        Text(stringResource(R.string.transcript_title), style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
+        if (loading || submitting) LinearProgressIndicator(Modifier.fillMaxWidth().semantics { contentDescription = textResources.getString(R.string.a11y_loading_transcript) })
+        if (transcript?.status == "ready") Text(stringResource(R.string.a11y_transcript_ready),
+            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
         when (transcript?.status) {
             "ready" -> {
                 val text = transcript?.transcript.orEmpty().ifBlank { stringResource(R.string.transcript_empty) }
                 if (file.canDownloadBy(currentUserId)) SelectionContainer { Text(text) } else Text(text)
                 Text(stringResource(R.string.transcript_accuracy), style = MaterialTheme.typography.bodySmall)
             }
-            "queued" -> Text(stringResource(R.string.transcript_queued))
-            "processing" -> Text(stringResource(R.string.transcript_processing))
-            "failed" -> Text(stringResource(R.string.transcript_failed), color = MaterialTheme.colorScheme.error)
+            "queued" -> Text(stringResource(R.string.transcript_queued), modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+            "processing" -> Text(stringResource(R.string.transcript_processing), modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+            "failed" -> Text(stringResource(R.string.transcript_failed), modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }, color = MaterialTheme.colorScheme.error)
             else -> if (!loading) Text(stringResource(R.string.transcript_not_requested))
         }
         if (file.uploaderId == currentUserId && !loading && transcript?.isWorking != true && transcript?.status != "ready") {
@@ -59,7 +66,7 @@ internal fun TranscriptPanel(file: SharedFile, currentUserId: String) {
                 }
             }) { Text(stringResource(if (transcript?.status == "failed") R.string.transcript_retry else R.string.transcript_generate)) }
         }
-        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
         if (error != null || (transcript == null && file.uploaderId != currentUserId)) {
             TextButton(onClick = { refresh++ }) { Text(stringResource(R.string.action_refresh)) }
         }

@@ -1,5 +1,9 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import au.edu.unimelb.campuscompanion.ui.text.UiText
 import au.edu.unimelb.campuscompanion.ui.text.textResources
 import au.edu.unimelb.campuscompanion.R
@@ -66,15 +70,15 @@ internal fun AttachmentUploadBubble(upload: AttachmentUpload, onRetry: () -> Uni
             Text(upload.fileName)
             when (upload.phase) {
                 AttachmentPhase.Uploading -> {
-                    LinearProgressIndicator(progress = { upload.progress }, modifier = Modifier.fillMaxWidth())
+                    LinearProgressIndicator(progress = { upload.progress }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = textResources.getString(R.string.a11y_uploading_file, upload.fileName) })
                     Text(textResources.getString(R.string.chat_attachments_uploading, (upload.progress * 100).toInt()), style = MaterialTheme.typography.labelSmall)
                 }
-                AttachmentPhase.Completed -> Text(textResources.getString(R.string.chat_attachments_uploaded_syncing))
+                AttachmentPhase.Completed -> Text(textResources.getString(R.string.chat_attachments_uploaded_syncing), modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                 AttachmentPhase.Failed -> {
-                    Text(upload.error ?: textResources.getString(R.string.chat_attachments_upload_failed), color = MaterialTheme.colorScheme.error)
+                    Text(upload.error ?: textResources.getString(R.string.chat_attachments_upload_failed), color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                     Row {
-                        TextButton(onClick = onRetry) { Text(textResources.getString(R.string.action_retry)) }
-                        TextButton(onClick = onDismiss) { Text(textResources.getString(R.string.chat_attachments_remove)) }
+                        TextButton(onClick = onRetry, modifier = Modifier.semantics { contentDescription = textResources.getString(R.string.a11y_retry_upload, upload.fileName) }) { Text(textResources.getString(R.string.action_retry)) }
+                        TextButton(onClick = onDismiss, modifier = Modifier.semantics { contentDescription = textResources.getString(R.string.a11y_remove_file, upload.fileName) }) { Text(textResources.getString(R.string.chat_attachments_remove)) }
                     }
                 }
             }
@@ -154,7 +158,7 @@ internal fun ChatAttachmentViewer(file: SharedFile, currentUserId: String, onDis
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (!file.allowDownloads) Text(if (canDownload) textResources.getString(R.string.chat_attachments_only_you_can_download_this_attachment) else textResources.getString(R.string.chat_attachments_downloads_disabled_by_the_uploader))
                 if (!canPreview) Text(textResources.getString(R.string.chat_attachments_in_app_preview_is_not_available_for_this))
-                if (loading) CircularProgressIndicator()
+                if (loading) CircularProgressIndicator(Modifier.semantics { contentDescription = textResources.getString(R.string.a11y_loading_file, file.fileName) })
                 bitmap?.let { Image(it, contentDescription = file.fileName, modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp)) }
                 localFile?.let { source ->
                     if (file.mimeType.startsWith("audio/")) AudioAttachmentPlayer(source)
@@ -186,7 +190,7 @@ internal fun ChatAttachmentViewer(file: SharedFile, currentUserId: String, onDis
                     }) { Text(textResources.getString(R.string.chat_attachments_open_in_another_app)) }
                 }
                 if (file.mimeType.startsWith("audio/")) TranscriptPanel(file, currentUserId)
-                error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
                 if (error != null && localFile == null && !loading) {
                     TextButton(onClick = { attempt++ }) { Text(textResources.getString(R.string.action_retry)) }
                 }

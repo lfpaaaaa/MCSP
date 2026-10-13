@@ -99,11 +99,11 @@ object AppRepositories {
                 notify = { reminder -> DepartureNotifier.show(appContext, reminder) },
                 preferenceChanges = CourseReminderPreferencesStore.changes.map { Unit },
                 cancelCourse = { key -> DepartureNotifier.cancelCourse(appContext, key) },
-                wasSent = { session, state -> SupabaseProvider.client?.auth?.currentUserOrNull()?.id?.let {
-                    departureHistory.wasSent(it, session, state)
+                wasSent = { session, stage -> SupabaseProvider.client?.auth?.currentUserOrNull()?.id?.let {
+                    departureHistory.wasSent(it, session, stage)
                 } ?: true },
-                rememberSent = { session, state -> SupabaseProvider.client?.auth?.currentUserOrNull()?.id?.let {
-                    departureHistory.record(it, session, state)
+                rememberSent = { session, stage -> SupabaseProvider.client?.auth?.currentUserOrNull()?.id?.let {
+                    departureHistory.record(it, session, stage)
                 }; Unit }
             ).run()
         }

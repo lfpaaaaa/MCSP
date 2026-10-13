@@ -9,6 +9,9 @@ import au.edu.unimelb.campuscompanion.data.model.TravelEstimate
 import au.edu.unimelb.campuscompanion.data.model.WeatherSnapshot
 import au.edu.unimelb.campuscompanion.data.repository.EtaRepository
 import au.edu.unimelb.campuscompanion.data.repository.WeatherRepository
+import au.edu.unimelb.campuscompanion.sensing.location.ArrivalDetector
+import au.edu.unimelb.campuscompanion.sensing.location.DistanceTrend
+import au.edu.unimelb.campuscompanion.sensing.location.TravelState
 import au.edu.unimelb.campuscompanion.sensing.location.TravelStateManager
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
 import au.edu.unimelb.campuscompanion.ui.model.CourseReminderPreference
@@ -66,6 +69,7 @@ class TravelEngine(
     private var trackedSessionId: String? = null
     private var building: BuildingLocation? = null
     private var stateManager = TravelStateManager()
+    private val progressTracker = DestinationProgressTracker()
 
     /** The timetable sessions; an empty list stops tracking. */
     fun updateSessions(value: List<CourseSession>) {
@@ -73,8 +77,8 @@ class TravelEngine(
     }
 
     /** The current position, or null when it is unknown. */
-    fun updateOrigin(value: GeoPoint?, recordedAt: Instant = clock()) {
-        origin.value = value?.let { OriginFix(it, recordedAt) }
+    fun updateOrigin(value: GeoPoint?, recordedAt: Instant = clock(), accuracyMeters: Float = 50f) {
+        origin.value = value?.let { OriginFix(it, recordedAt, accuracyMeters) }
     }
 
     fun updateMoving(value: Boolean) {
@@ -112,9 +116,11 @@ class TravelEngine(
             .filter { it.end.toInstant().isAfter(now) }
             .minByOrNull { it.start.toInstant() }
 
-        if (tracked?.id != trackedSessionId) {
+        val resolvedBuilding = tracked?.let { BuildingResolver.resolve(it, buildings) }
+        if (tracked?.id != trackedSessionId || resolvedBuilding != building) {
             trackedSessionId = tracked?.id
-            building = tracked?.let { BuildingResolver.resolve(it, buildings) }
+            building = resolvedBuilding
+            progressTracker.reset()
             // Every class starts as upcoming; the previous class's state does not carry over.
             stateManager = TravelStateManager()
         }
@@ -128,16 +134,26 @@ class TravelEngine(
         val lead = courseReminder?.let { if (it.enabled) it.leadMinutes.coerceIn(0, 60) else 0 }
             ?: inputs.leadMinutes
         val destination = building
-        val from = inputs.origin?.takeIf {
+        val fix = inputs.origin?.takeIf {
             val age = Duration.between(it.recordedAt, now)
             !age.isNegative && age <= maxLocationAge
-        }?.point
+        }
+        val from = fix?.point
+        var progress = DistanceTrend.UNKNOWN
+        if (from == null || destination == null) progressTracker.reset()
         var distance: Double? = null
         var estimate: TravelEstimate? = null
         var weatherNow: WeatherSnapshot? = null
         var weatherBuffer = 0
         if (destination != null && from != null) {
             distance = GeoMath.distanceMeters(from, destination.location)
+            progress = progressTracker.observe(distance, fix.accuracyMeters, fix.recordedAt, now)
+            // A confirmed stop/turn-away must not leave the previous EN_ROUTE state latched.
+            if ((stateManager.state.value == TravelState.EN_ROUTE &&
+                    progress in setOf(DistanceTrend.STABLE, DistanceTrend.MOVING_AWAY)) ||
+                (stateManager.state.value == TravelState.ARRIVED && !ArrivalDetector.hasArrived(distance))) {
+                stateManager = TravelStateManager()
+            }
             val mode = preferences().preferredMode(distance.roundToInt())
             // A position far from campus (another city, or an emulator's default location) gives no
             // useful travel time, and the routing quota is better kept for real trips.
@@ -153,7 +169,11 @@ class TravelEngine(
                 distanceMeters = distance,
                 minutesUntilClass = minutesUntilClass.coerceIn(MINUTES_RANGE).toInt(),
                 estimatedTravelMinutes = estimate?.durationMinutes,
-                isMoving = inputs.moving,
+                isMoving = when (progress) {
+                    DistanceTrend.APPROACHING -> true
+                    DistanceTrend.STABLE, DistanceTrend.MOVING_AWAY -> false
+                    DistanceTrend.UNKNOWN -> inputs.moving
+                },
                 bufferMinutes = lead + weatherBuffer
             )
         }
@@ -161,17 +181,18 @@ class TravelEngine(
         _snapshot.value = TravelSnapshot(
             session = tracked,
             building = destination,
-            state = if (from != null) stateManager.state.value else au.edu.unimelb.campuscompanion.sensing.location.TravelState.UPCOMING_CLASS,
+            state = if (from != null) stateManager.state.value else TravelState.UPCOMING_CLASS,
             evaluatedAt = now,
             estimate = estimate,
             distanceMeters = distance,
             minutesUntilClass = minutesUntilClass,
             weather = weatherNow,
-            weatherBufferMinutes = weatherBuffer
+            weatherBufferMinutes = weatherBuffer,
+            destinationProgress = progress
         )
     }
 
-    private data class OriginFix(val point: GeoPoint, val recordedAt: Instant)
+    private data class OriginFix(val point: GeoPoint, val recordedAt: Instant, val accuracyMeters: Float)
 
     private data class Inputs(
         val sessions: List<CourseSession>,

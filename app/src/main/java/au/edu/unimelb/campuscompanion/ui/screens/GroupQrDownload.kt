@@ -6,6 +6,10 @@ import androidx.compose.runtime.getValue
 
 import au.edu.unimelb.campuscompanion.ui.text.textResources
 import au.edu.unimelb.campuscompanion.R
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.LiveRegionMode
 import android.graphics.Bitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -81,6 +85,6 @@ internal fun GroupQrDownload(code: String) {
                 }
             }
         ) { Text(if (saving) textResources.getString(R.string.chat_attachments_saving) else textResources.getString(R.string.group_qr_download_download_qr_code)) }
-        message?.let { Text(it) }
+        message?.let { Text(it, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
     }
 }

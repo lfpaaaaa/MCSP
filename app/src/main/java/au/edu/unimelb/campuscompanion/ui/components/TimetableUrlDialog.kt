@@ -1,11 +1,17 @@
 package au.edu.unimelb.campuscompanion.ui.components
 
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.error
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.runtime.setValue
 
 import androidx.compose.runtime.getValue
 
 import au.edu.unimelb.campuscompanion.ui.text.textResources
 import au.edu.unimelb.campuscompanion.R
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -54,7 +60,7 @@ fun TimetableUrlDialog(
         },
         title = { Text(textResources.getString(R.string.timetable_url_connect_timetable)) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
                     text = textResources.getString(R.string.timetable_url_paste_the_private_calendar_subscription_url_from_mytimetable),
                     style = MaterialTheme.typography.bodyMedium
@@ -66,12 +72,12 @@ fun TimetableUrlDialog(
                         showError = false
                         requestError = null
                     },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().semantics { supportingMessage?.let { error(it) } },
                     singleLine = true,
                     label = { Text(textResources.getString(R.string.timetable_url_calendar_url)) },
                     isError = (showError && !isValid) || requestError != null,
                     supportingText = supportingMessage?.let { message ->
-                        { Text(message) }
+                        { Text(message, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
                     }
                 )
             }

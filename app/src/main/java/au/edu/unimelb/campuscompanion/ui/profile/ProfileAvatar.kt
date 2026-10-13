@@ -1,5 +1,7 @@
 package au.edu.unimelb.campuscompanion.ui.profile
 
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import au.edu.unimelb.campuscompanion.ui.text.textResources
 import au.edu.unimelb.campuscompanion.R
 import androidx.compose.foundation.Image
@@ -34,7 +36,7 @@ fun ProfileAvatar(name: String, reference: String?, modifier: Modifier = Modifie
             catch (_: Exception) { /* A missing/offline image falls back to initials. */ }
         }
     }
-    Surface(modifier, shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
+    Surface(modifier.clearAndSetSemantics { contentDescription = textResources.getString(R.string.copy_profile_photo, name) }, shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
         Box(contentAlignment = Alignment.Center) {
             val loaded = image
             if (loaded == null) Text(name.trim().take(1).uppercase(), style = MaterialTheme.typography.headlineSmall)

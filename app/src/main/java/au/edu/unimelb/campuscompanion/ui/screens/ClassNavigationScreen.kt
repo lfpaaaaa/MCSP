@@ -1,5 +1,8 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import au.edu.unimelb.campuscompanion.ui.text.textResources
 import au.edu.unimelb.campuscompanion.R
 import android.Manifest
@@ -88,7 +91,7 @@ fun ClassNavigationScreen(modifier: Modifier = Modifier) {
             Text(textResources.getString(R.string.class_navigation_enable_precise_location_to_plan_a_route_or), color = MaterialTheme.colorScheme.error)
             TextButton(onClick = { locationPermissions.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) }) { Text(textResources.getString(R.string.class_navigation_update_location)) }
         }
-        state.error?.let { Text(it.resolve(textResources), color = MaterialTheme.colorScheme.error) }
+        state.error?.let { Text(it.resolve(textResources), color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
         if (!state.active) {
             Button(onClick = { navigation.loadRoutes() }, enabled = !state.loading, modifier = Modifier.fillMaxWidth()) {
                 if (state.loading) { CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp); Spacer(Modifier.width(8.dp)) }
@@ -137,7 +140,7 @@ fun ClassNavigationScreen(modifier: Modifier = Modifier) {
             Text(textResources.getString(R.string.class_navigation_confirm_the_line_before_boarding_movement_can_suggest), style = MaterialTheme.typography.bodySmall)
         }
         permissionMessage?.let {
-            Text(it, color = MaterialTheme.colorScheme.error)
+            Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
             TextButton(onClick = { context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))) }) { Text(textResources.getString(R.string.class_navigation_open_settings)) }
         }
         if (state.active) Text(textResources.getString(R.string.class_navigation_google_maps_may_suggest_a_different_route_get), style = MaterialTheme.typography.bodySmall)

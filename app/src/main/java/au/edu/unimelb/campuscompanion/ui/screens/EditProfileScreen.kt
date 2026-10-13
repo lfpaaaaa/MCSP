@@ -1,5 +1,9 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.error
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import au.edu.unimelb.campuscompanion.ui.text.textResources
 import au.edu.unimelb.campuscompanion.R
 import android.content.Intent
@@ -63,7 +67,9 @@ fun EditProfileScreen(
         }
         OutlinedTextField(
             value = name, onValueChange = { name = it.take(80); touched = true; onClearError() },
-            enabled = !state.saving, singleLine = true, modifier = Modifier.fillMaxWidth(),
+            enabled = !state.saving, singleLine = true, modifier = Modifier.fillMaxWidth().semantics {
+                if (touched && nameError != null) error(nameError.resolve(textResources))
+            },
             label = { Text(textResources.getString(R.string.auths_display_name)) }, isError = touched && nameError != null,
             supportingText = { Text(if (touched && nameError != null) nameError.resolve(textResources) else textResources.getString(R.string.profile_name_character_count, name.length)) }
         )
@@ -71,7 +77,7 @@ fun EditProfileScreen(
         OutlinedTextField(value = user.email.orEmpty(), onValueChange = {}, readOnly = true,
             modifier = Modifier.fillMaxWidth(), label = { Text(textResources.getString(R.string.edit_profile_account_email)) },
             supportingText = { Text(textResources.getString(R.string.edit_profile_your_sign_in_email)) })
-        state.error?.let { Text(it.resolve(textResources), color = MaterialTheme.colorScheme.error) }
+        state.error?.let { Text(it.resolve(textResources), color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
         Button(enabled = !state.saving && changed && nameError == null, modifier = Modifier.fillMaxWidth(), onClick = {
             focus.clearFocus()
             onSave(name, photo?.let(Uri::parse), removePhoto)

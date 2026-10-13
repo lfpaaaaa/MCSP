@@ -25,6 +25,6 @@ internal fun createGroupQrBitmap(code: String, size: Int): Bitmap {
 internal fun GroupJoinQrCode(code: String) {
     val textResources = textResources()
     val bitmap = remember(code) { createGroupQrBitmap(code, 512).asImageBitmap() }
-    Image(bitmap, contentDescription = textResources.getString(R.string.group_join_qr_code_group_invitation_qr_code_join_code, code),
+    Image(bitmap, contentDescription = textResources.getString(R.string.group_join_qr_code_description),
         modifier = Modifier.size(192.dp))
 }

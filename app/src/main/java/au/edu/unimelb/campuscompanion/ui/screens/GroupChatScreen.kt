@@ -1,5 +1,10 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.runtime.setValue
 
 import androidx.compose.runtime.getValue
@@ -536,7 +541,7 @@ fun GroupChatScreen(
                         value = draft,
                         onValueChange = { draft = it.take(ChatRepository.MAX_MESSAGE_LENGTH) },
                         modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text(textResources.getString(R.string.group_chat_message)) },
+                        label = { Text(textResources.getString(R.string.group_chat_message)) },
                         maxLines = 4,
                         shape = RoundedCornerShape(6.dp),
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
@@ -604,7 +609,7 @@ private fun ConnectionBanner(
             textResources.getString(R.string.group_chat_you_re_offline_saved_messages_and_files_are)
     }
     Surface(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
         color = if (connection == ChatConnection.Offline) {
             MaterialTheme.colorScheme.errorContainer
         } else {
@@ -625,7 +630,7 @@ private fun ConnectionBanner(
                 )
             } else {
                 CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp),
+                    modifier = Modifier.size(16.dp).clearAndSetSemantics {},
                     strokeWidth = 2.dp
                 )
             }
@@ -657,7 +662,7 @@ private fun GroupNotice(
     ) {
         if (isLoadingOlder) {
             CircularProgressIndicator(
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(20.dp).semantics { contentDescription = textResources.getString(R.string.a11y_loading_messages) },
                 strokeWidth = 2.dp
             )
         }
@@ -692,6 +697,7 @@ private fun DayLabel(
     ) {
         Text(
             text = label,
+            modifier = Modifier.semantics { heading() },
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -721,7 +727,9 @@ private fun ChatBubble(
         Surface(
             modifier = Modifier
                 .widthIn(max = 292.dp)
-                .then(if (isFailed) Modifier.clickable(onClick = onRetry) else Modifier),
+                .semantics(mergeDescendants = true) {}
+                .then(if (isFailed) Modifier.clickable(role = Role.Button,
+                    onClickLabel = textResources.getString(R.string.a11y_retry_message), onClick = onRetry) else Modifier),
             shape = bubbleShape(isMine),
             color = when {
                 isFailed -> MaterialTheme.colorScheme.errorContainer
@@ -800,7 +808,7 @@ private fun FileBubble(
         Surface(
             modifier = Modifier
                 .widthIn(min = 200.dp, max = 292.dp)
-                .clickable(onClick = onOpen),
+                .clickable(role = Role.Button, onClickLabel = textResources.getString(R.string.a11y_open_file, file.fileName), onClick = onOpen),
             shape = bubbleShape(isMine),
             color = if (isMine) {
                 MaterialTheme.colorScheme.primary
@@ -830,7 +838,7 @@ private fun FileBubble(
                 thumbnail?.let { image ->
                     Image(
                         bitmap = image,
-                        contentDescription = file.fileName,
+                        contentDescription = null, // The file name is already in this merged button.
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(180.dp),
@@ -902,7 +910,7 @@ private fun NoticeRow(
         ) {
             Text(
                 text = text,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).semantics { liveRegion = LiveRegionMode.Polite },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onErrorContainer
             )
@@ -941,8 +949,8 @@ private fun PendingAttachment(
                     Text(sizeBytes?.takeIf { it >= 0L }?.let { textResources.getString(R.string.group_chat_ready_to_send, formatFileSize(it)) } ?: textResources.getString(R.string.group_chat_ready_to_send_2),
                         style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                IconButton(onClick = onRemove, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Outlined.Close, contentDescription = textResources.getString(R.string.group_chat_remove_attachment))
+                IconButton(onClick = onRemove, modifier = Modifier.size(48.dp)) {
+                    Icon(Icons.Outlined.Close, contentDescription = textResources.getString(R.string.a11y_remove_file, displayName))
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1046,7 +1054,7 @@ private fun ChatAvatar(
     modifier: Modifier = Modifier
 ) {
     Surface(
-        modifier = modifier.size(38.dp),
+        modifier = modifier.size(38.dp).clearAndSetSemantics {},
         shape = RoundedCornerShape(6.dp),
         color = if (isMine) {
             MaterialTheme.colorScheme.secondaryContainer

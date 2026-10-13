@@ -1,5 +1,8 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import au.edu.unimelb.campuscompanion.ui.text.textResources
 import au.edu.unimelb.campuscompanion.R
 import androidx.compose.foundation.layout.size
@@ -68,7 +71,7 @@ fun NfcShareDialog(
             }
         },
         title = { Text(title) },
-        text = { Text(message) },
+        text = { Text(message, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) },
         confirmButton = {
             when (state) {
                 NfcShareUiState.Disabled -> TextButton(onClick = onOpenNfcSettings) {

@@ -1,5 +1,8 @@
 package au.edu.unimelb.campuscompanion.ui.components
 
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.res.stringResource
 import au.edu.unimelb.campuscompanion.ui.text.textResources
 import au.edu.unimelb.campuscompanion.R
@@ -60,6 +63,7 @@ fun SectionHeader(
     ) {
         Text(
             text = title,
+            modifier = Modifier.semantics { heading() },
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurface
         )
@@ -260,7 +264,7 @@ fun GroupUpdateRow(
     val textResources = textResources()
     Card(
         onClick = onClick,
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().semantics { onClick(label = textResources.getString(R.string.campus_components_open_group), action = null) },
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
@@ -309,7 +313,7 @@ fun GroupUpdateRow(
                 Spacer(Modifier.width(8.dp))
                 Icon(
                     imageVector = Icons.Outlined.ChevronRight,
-                    contentDescription = textResources.getString(R.string.campus_components_open_group),
+                    contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }

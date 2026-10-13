@@ -8,6 +8,7 @@ import au.edu.unimelb.campuscompanion.data.model.TravelEstimate
 import au.edu.unimelb.campuscompanion.data.model.WeatherSnapshot
 import au.edu.unimelb.campuscompanion.data.repository.EtaRepository
 import au.edu.unimelb.campuscompanion.data.repository.WeatherRepository
+import au.edu.unimelb.campuscompanion.sensing.location.DistanceTrend
 import au.edu.unimelb.campuscompanion.sensing.location.TravelState
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
 import au.edu.unimelb.campuscompanion.ui.model.CourseReminderPreference
@@ -239,6 +240,78 @@ class TravelEngineTest {
         now = now.plusSeconds(121)
         live.refresh()
         assertNull(live.snapshot.value.estimate)
+    }
+
+    @Test
+    fun freshStationaryPositionsOverrideTheStickyEnRouteStateAndTriggerUrgentReminder() = runBlocking<Unit> {
+        val live = TravelEngine(eta, FakeBuildingLookup(), { preferences }, clock = { now })
+        live.updateSessions(listOf(lecture))
+        now = lecture.start.toInstant().minusSeconds(21 * 60)
+        live.updateOrigin(HOME, now, accuracyMeters = 5f)
+        live.refresh()
+        live.updateMoving(true) // Earlier fusion decided the user had departed.
+        live.refresh()
+        assertEquals(TravelState.EN_ROUTE, live.snapshot.value.state)
+        repeat(6) {
+            now = now.plusSeconds(10)
+            live.updateOrigin(HOME, now, accuracyMeters = 5f)
+            live.refresh()
+        }
+        assertEquals(DistanceTrend.STABLE, live.snapshot.value.destinationProgress)
+        assertEquals(TravelState.SHOULD_LEAVE_SOON, live.snapshot.value.state)
+        val sent = mutableListOf<DepartureReminder>()
+        val reminders = DepartureReminders(kotlinx.coroutines.flow.flowOf(), { CourseReminderPreference() }, sent::add)
+        assertEquals(DepartureReminderStage.LeaveNow, reminders.consider(live.snapshot.value)?.stage)
+    }
+
+    @Test
+    fun gpsProgressDoesNotRequireThePhoneToFaceTheBuilding() = runBlocking<Unit> {
+        val live = TravelEngine(eta, FakeBuildingLookup(), { preferences }, clock = { now })
+        live.updateSessions(listOf(lecture))
+        now = lecture.start.toInstant().minusSeconds(21 * 60)
+        repeat(4) { index ->
+            now = now.plusSeconds(10)
+            live.updateOrigin(GeoPoint(HOME.latitude + index * 0.0004, HOME.longitude), now, accuracyMeters = 5f)
+            live.refresh()
+        }
+        assertEquals(DistanceTrend.APPROACHING, live.snapshot.value.destinationProgress)
+        val reminders = DepartureReminders(kotlinx.coroutines.flow.flowOf(), { CourseReminderPreference() }, { true })
+        assertNull(reminders.consider(live.snapshot.value))
+    }
+
+    @Test
+    fun gpsLossAndChangingClassClearTheMovementEvidence() = runBlocking<Unit> {
+        val live = TravelEngine(eta, FakeBuildingLookup(), { preferences }, clock = { now })
+        live.updateSessions(listOf(lecture))
+        repeat(4) {
+            now = now.plusSeconds(10)
+            live.updateOrigin(HOME, now, accuracyMeters = 5f)
+            live.refresh()
+        }
+        assertEquals(DistanceTrend.STABLE, live.snapshot.value.destinationProgress)
+        live.updateOrigin(null)
+        live.refresh()
+        assertEquals(DistanceTrend.UNKNOWN, live.snapshot.value.destinationProgress)
+        assertNull(live.snapshot.value.estimate)
+        live.updateOrigin(HOME, now, accuracyMeters = 5f)
+        live.updateSessions(listOf(tutorial))
+        live.refresh()
+        assertEquals(DistanceTrend.UNKNOWN, live.snapshot.value.destinationProgress)
+    }
+
+    @Test
+    fun oldMovementEvidenceExpiresEvenWhileTheEtaIsStillAvailable() = runBlocking<Unit> {
+        val live = TravelEngine(eta, FakeBuildingLookup(), { preferences }, clock = { now })
+        live.updateSessions(listOf(lecture))
+        repeat(4) {
+            now = now.plusSeconds(10)
+            live.updateOrigin(HOME, now, accuracyMeters = 5f)
+            live.refresh()
+        }
+        now = now.plusSeconds(91)
+        live.refresh()
+        assertEquals(DistanceTrend.UNKNOWN, live.snapshot.value.destinationProgress)
+        assertEquals(15, live.snapshot.value.estimate?.durationMinutes)
     }
 
     private fun session(id: String, startsIn: Duration, room: String): CourseSession {

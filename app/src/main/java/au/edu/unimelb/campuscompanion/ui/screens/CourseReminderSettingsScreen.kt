@@ -1,5 +1,9 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.setValue
 
 import androidx.compose.runtime.getValue
@@ -120,7 +124,7 @@ fun CourseReminderSettingsScreen(
             items(courses, key = CourseReminderSeries::key) { course ->
                 val preference = preferences[course.key] ?: CourseReminderPreference()
                 ListItem(
-                    modifier = Modifier.clickable { selectedCourseKey = course.key },
+                    modifier = Modifier.clickable(role = Role.Button, onClickLabel = textResources.getString(R.string.a11y_edit_reminder, course.displayName)) { selectedCourseKey = course.key },
                     leadingContent = {
                         Icon(
                             imageVector = if (preference.enabled) Icons.Outlined.NotificationsActive else Icons.Outlined.NotificationsOff,
@@ -188,7 +192,7 @@ private fun CourseReminderDialog(
         onDismissRequest = onDismiss,
         title = { Text(course.displayName) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
                         text = course.title.trimTrailingCommas(),
@@ -211,23 +215,12 @@ private fun CourseReminderDialog(
                     }
                 }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = textResources.getString(R.string.course_reminder_settings_departure_reminder),
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.bodyLarge
-                    )
-                    Switch(
-                        modifier = Modifier.semantics { contentDescription = textResources.getString(R.string.copy_reminders, course.displayName) },
-                        checked = preference.enabled,
-                        onCheckedChange = { enabled ->
-                            onPreferenceChange(preference.copy(enabled = enabled))
-                        }
-                    )
-                }
+                SettingSwitchRow(
+                    title = textResources.getString(R.string.course_reminder_settings_departure_reminder),
+                    description = textResources.getString(R.string.copy_reminders, course.displayName),
+                    checked = preference.enabled,
+                    onCheckedChange = { onPreferenceChange(preference.copy(enabled = it)) }
+                )
 
                 if (preference.enabled) {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -237,6 +230,10 @@ private fun CourseReminderDialog(
                             fontWeight = FontWeight.Medium
                         )
                         Slider(
+                            modifier = Modifier.semantics {
+                                contentDescription = textResources.getString(R.string.a11y_preparation_time)
+                                stateDescription = textResources.getString(R.string.course_reminder_settings_prepare_min_before_departure, preference.leadMinutes)
+                            },
                             value = preference.leadMinutes.toFloat(),
                             onValueChange = { value ->
                                 onPreferenceChange(
@@ -247,6 +244,11 @@ private fun CourseReminderDialog(
                             },
                             valueRange = 0f..MAX_COURSE_REMINDER_LEAD_MINUTES.toFloat(),
                             steps = 11
+                        )
+                        Text(
+                            text = textResources.getString(R.string.departure_urgent_explanation),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
 

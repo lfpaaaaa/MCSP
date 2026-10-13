@@ -215,7 +215,7 @@
     <string name="group_invite_qr_this_qr_invitation_has_expired_generate_a_new">This QR invitation has expired. Generate a new one to share.</string>
     <string name="group_invite_qr_scan_in_campus_companion_to_join_downloaded_images">Scan in Campus Companion to join. Downloaded images have the same expiry.</string>
     <string name="group_invite_qr_new_qr_code">New QR code</string>
-    <string name="group_join_qr_code_group_invitation_qr_code_join_code">Group invitation QR code. Join code: %1$s</string>
+    <string name="group_join_qr_code_description">Group invitation QR code</string>
     <string name="group_members_section_members">Members (%1$d)</string>
     <string name="group_members_section_transfer_leave">Transfer &amp; leave</string>
     <string name="group_members_section_invite_another_member_before_transferring_ownership_and_leaving">Invite another member before transferring ownership and leaving.</string>
@@ -523,6 +523,8 @@
     <string name="departure_class_starts">%1$s starts at %2$s.</string>
     <string name="departure_estimated_travel">Estimated travel time: %1$d min %2$s.</string>
     <string name="departure_travel">Travel time: %1$d min %2$s.</string>
+    <string name="departure_urgent_explanation">If you are not moving toward class, a leave-now reminder is sent 5 minutes before the departure time calculated from your travel time.</string>
+    <string name="departure_not_approaching">You are not getting closer to your class. Please leave immediately to arrive on time.</string>
     <string name="departure_avoid_delay">Leave now to avoid further delay.</string>
     <string name="departure_leave_by">Leave by %1$s (within %2$d min).</string>
     <string name="departure_weather_buffer">Includes %1$d min extra for weather.</string>
@@ -616,4 +618,37 @@
         <item quantity="one">%1$d of %2$d class reminder enabled</item>
         <item quantity="other">%1$d of %2$d class reminders enabled</item>
     </plurals>
+
+    <!-- Accessibility labels and announcements. Decorative icons use no description. -->
+    <string name="a11y_edit_reminder">Edit reminders for %1$s</string>
+    <string name="a11y_preparation_time">Preparation time before departure</string>
+    <string name="a11y_audio_position">Audio playback position</string>
+    <string name="a11y_audio_progress">%1$s of %2$s</string>
+    <string name="a11y_duration">%1$s, %2$s</string>
+    <string name="a11y_recording_duration">Recording duration: %1$s</string>
+    <string name="a11y_recording_stopped">Recording stopped. Ready to review.</string>
+    <string name="a11y_recording_ready">Ready to record</string>
+    <string name="a11y_retry_message">Retry sending this message</string>
+    <string name="a11y_open_file">Open %1$s</string>
+    <string name="a11y_remove_file">Remove attachment %1$s</string>
+    <string name="a11y_delete_file">Delete %1$s</string>
+    <string name="a11y_loading_messages">Loading earlier messages</string>
+    <string name="a11y_loading_files">Loading group files</string>
+    <string name="a11y_loading_file">Loading %1$s</string>
+    <string name="a11y_loading_members">Loading group members</string>
+    <string name="a11y_transfer_owner">Transfer ownership to %1$s and leave</string>
+    <string name="a11y_loading_transcript">Loading transcript</string>
+    <string name="a11y_transcript_ready">Transcript ready</string>
+    <string name="a11y_uploading_file">Uploading %1$s</string>
+    <string name="a11y_retry_upload">Retry uploading %1$s</string>
+    <plurals name="a11y_minutes">
+        <item quantity="one">%1$d minute</item>
+        <item quantity="other">%1$d minutes</item>
+    </plurals>
+    <plurals name="a11y_seconds">
+        <item quantity="one">%1$d second</item>
+        <item quantity="other">%1$d seconds</item>
+    </plurals>
+    <string name="a11y_expanded">Expanded</string>
+    <string name="a11y_collapsed">Collapsed</string>
 </resources>

@@ -1,5 +1,9 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import au.edu.unimelb.campuscompanion.ui.text.textResources
 import au.edu.unimelb.campuscompanion.R
 import androidx.compose.foundation.layout.Arrangement
@@ -44,11 +48,11 @@ internal fun GroupInviteQrDialog(
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(groupName)
-                if (loading) CircularProgressIndicator()
-                error?.let { Text(it) }
+                if (loading) CircularProgressIndicator(Modifier.semantics { contentDescription = textResources.getString(R.string.nfc_share_creating_invitation) })
+                error?.let { Text(it, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
                 invite?.let { current ->
                     if (current.isExpired(now)) {
-                        Text(textResources.getString(R.string.group_invite_qr_this_qr_invitation_has_expired_generate_a_new))
+                        Text(textResources.getString(R.string.group_invite_qr_this_qr_invitation_has_expired_generate_a_new), modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                     } else {
                         GroupQrDownload(current.joinUri)
                         val seconds = Duration.between(now, current.expiresAt).seconds.coerceAtLeast(0)

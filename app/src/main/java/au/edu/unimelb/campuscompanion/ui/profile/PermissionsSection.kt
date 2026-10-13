@@ -1,5 +1,8 @@
 package au.edu.unimelb.campuscompanion.ui.profile
 
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.runtime.setValue
 
 import androidx.compose.runtime.getValue
@@ -115,7 +118,10 @@ private fun PermissionRow(
 
     Card(
         onClick = onClick,
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().semantics {
+            stateDescription = textResources.getString(if (status.granted) R.string.permissions_section_allowed else R.string.permissions_section_not_allowed)
+            onClick(label = textResources.getString(R.string.permissions_section_change), action = null)
+        },
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
@@ -146,7 +152,7 @@ private fun PermissionRow(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = if (status.granted) Icons.Outlined.CheckCircle else Icons.Outlined.ErrorOutline,
-                        contentDescription = if (status.granted) textResources.getString(R.string.permissions_section_allowed) else textResources.getString(R.string.permissions_section_not_allowed),
+                        contentDescription = null,
                         tint = statusColor,
                         modifier = Modifier.size(16.dp)
                     )
@@ -160,7 +166,7 @@ private fun PermissionRow(
             }
             Icon(
                 imageVector = Icons.Outlined.ChevronRight,
-                contentDescription = textResources.getString(R.string.permissions_section_change),
+                contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }

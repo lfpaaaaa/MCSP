@@ -1,7 +1,13 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import au.edu.unimelb.campuscompanion.ui.text.textResources
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -55,12 +61,11 @@ internal fun GroupFilesScreen(groupId: String, groupName: String, currentUserId:
         finally { loading = false }
     }
     val visible = remember(files, query, filter) { filterGroupFiles(files, query, filter) }
-    BackHandler(onBack = onBack)
-    Scaffold(topBar = { TopAppBar(title = { Text(stringResource(R.string.group_files)) }, navigationIcon = {
+    Scaffold(modifier = Modifier.semantics { paneTitle = textResources.getString(R.string.group_files) }, topBar = { TopAppBar(title = { Text(stringResource(R.string.group_files)) }, navigationIcon = {
         TextButton(onClick = onBack) { Text(stringResource(R.string.action_back)) }
     }) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(groupName, style = MaterialTheme.typography.titleMedium)
+            Text(groupName, style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
             OutlinedTextField(value = query, onValueChange = { query = it }, singleLine = true,
                 label = { Text(stringResource(R.string.files_search)) }, modifier = Modifier.fillMaxWidth())
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -68,18 +73,20 @@ internal fun GroupFilesScreen(groupId: String, groupName: String, currentUserId:
                     FilterChip(selected = filter == option, onClick = { filter = option }, label = { Text(stringResource(option.label)) })
                 }
             }
-            if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error); TextButton(onClick = { retry++ }) { Text(stringResource(R.string.action_retry)) } }
+            if (loading) LinearProgressIndicator(Modifier.fillMaxWidth().semantics { contentDescription = textResources.getString(R.string.a11y_loading_files) })
+            error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }); TextButton(onClick = { retry++ }) { Text(stringResource(R.string.action_retry)) } }
             if (!loading && error == null && visible.isEmpty()) Text(stringResource(if (files.isEmpty()) R.string.files_empty else R.string.files_no_matches))
             LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(visible, key = { it.id }) { file ->
-                    OutlinedCard(onClick = { selectedId = file.id }, modifier = Modifier.fillMaxWidth()) {
+                    OutlinedCard(onClick = { selectedId = file.id }, modifier = Modifier.fillMaxWidth().semantics {
+                        onClick(label = textResources.getString(R.string.a11y_open_file, file.fileName), action = null)
+                    }) {
                         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text(file.fileName, style = MaterialTheme.typography.titleMedium)
                             Text(file.uploaderName + " · " + file.createdAt.atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("dd MMM yyyy HH:mm")), style = MaterialTheme.typography.bodySmall)
                             Text(textResources.getString(R.string.attachment_kind_size, file.mimeType, formatFileSize(file.sizeBytes)), style = MaterialTheme.typography.bodySmall)
                             if (!file.allowDownloads) Text(stringResource(R.string.files_preview_only), style = MaterialTheme.typography.labelMedium)
-                            if (file.uploaderId == currentUserId) TextButton(onClick = { deleting = file }) { Text(stringResource(R.string.files_delete)) }
+                            if (file.uploaderId == currentUserId) TextButton(onClick = { deleting = file }, modifier = Modifier.semantics { contentDescription = textResources.getString(R.string.a11y_delete_file, file.fileName) }) { Text(stringResource(R.string.files_delete)) }
                         }
                     }
                 }

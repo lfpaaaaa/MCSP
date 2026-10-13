@@ -488,7 +488,11 @@ class SensingForegroundService : Service() {
 
                     AppRepositories.navigation.updateLocation(location)
 
-                    travel.updateOrigin(currentPoint, java.time.Instant.ofEpochMilli(location.timestampMillis))
+                    travel.updateOrigin(
+                        currentPoint,
+                        java.time.Instant.ofEpochMilli(location.timestampMillis),
+                        accuracyMeters = location.accuracyMeters
+                    )
 
                     // -------------------------------------------------
                     // Destination: the building of the next class

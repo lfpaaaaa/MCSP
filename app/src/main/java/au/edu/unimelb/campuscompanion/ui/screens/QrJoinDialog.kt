@@ -1,5 +1,8 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.runtime.setValue
 
 import androidx.compose.runtime.getValue
@@ -99,9 +102,9 @@ internal fun QrJoinDialog(
                     joining -> textResources.getString(R.string.qr_join_checking_the_invitation_and_joining_the_group)
                     invite != null -> textResources.getString(R.string.qr_join_group_invitation_found_tap_join_to_accept_it)
                     else -> textResources.getString(R.string.qr_join_scan_the_qr_code_shown_by_a_group)
-                })
+                }, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                 if (joining) CircularProgressIndicator(modifier = Modifier.size(28.dp))
-                message?.let { Text(it) }
+                message?.let { Text(it, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
                 if (permissionDenied) {
                     TextButton(onClick = {
                         context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,

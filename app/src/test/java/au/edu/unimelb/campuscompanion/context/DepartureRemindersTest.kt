@@ -5,6 +5,7 @@ import au.edu.unimelb.campuscompanion.english
 import au.edu.unimelb.campuscompanion.data.TravelMode
 import au.edu.unimelb.campuscompanion.data.model.EstimateSource
 import au.edu.unimelb.campuscompanion.data.model.TravelEstimate
+import au.edu.unimelb.campuscompanion.sensing.location.DistanceTrend
 import au.edu.unimelb.campuscompanion.sensing.location.TravelState
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
 import au.edu.unimelb.campuscompanion.ui.model.CourseReminderPreference
@@ -106,7 +107,7 @@ class DepartureRemindersTest {
         assertEquals(1, sent.size)
     }
     @Test fun persistedHistoryPreventsRepeatsAfterRestart() {
-        val history = mutableSetOf<Pair<String, TravelState>>()
+        val history = mutableSetOf<Pair<String, DepartureReminderStage>>()
         fun notifier() = DepartureReminders(flowOf(), { preferences }, sent::add,
             wasSent = { session, state -> (session.id to state) in history },
             rememberSent = { session, state -> history.add(session.id to state); Unit })
@@ -136,6 +137,81 @@ class DepartureRemindersTest {
             withTimeout(2000) { while (sent.isEmpty()) delay(1) }
             assertEquals(lecture.reminderSeriesKey(), sent.single().courseKey)
         } finally { job.cancel(); job.join() }
+    }
+    @Test fun stationaryUserGetsUrgentReminderFiveMinutesBeforeDeparture() {
+        reminders.consider(snapshot(lecture, 25))
+        val warning = reminders.consider(snapshot(lecture, 20).copy(destinationProgress = DistanceTrend.STABLE))!!
+        assertEquals(DepartureReminderStage.LeaveNow, warning.stage)
+        assertEquals("Leave now for COMP90018", warning.title.english())
+        assertTrue(warning.text.english().contains("Please leave immediately"))
+        assertEquals(sent.first().notificationId, warning.notificationId)
+        assertEquals(2, sent.size)
+        assertNull(reminders.consider(snapshot(lecture, 19).copy(destinationProgress = DistanceTrend.STABLE)))
+        assertNull(reminders.consider(snapshot(lecture, 15))) // No third alert at the original deadline.
+    }
+    @Test fun urgentBoundaryDoesNotFireOneSecondEarly() {
+        val atFive = snapshot(lecture, 20).copy(destinationProgress = DistanceTrend.STABLE,
+            evaluatedAt = lecture.start.toInstant().minusSeconds(20 * 60))
+        val earlier = reminders.consider(atFive.copy(evaluatedAt = atFive.evaluatedAt!!.minusSeconds(1)))!!
+        assertEquals(DepartureReminderStage.Prepare, earlier.stage)
+        assertEquals(DepartureReminderStage.LeaveNow, reminders.consider(atFive)?.stage)
+    }
+    @Test fun travellingAwayCanAlertEvenIfOldUiStateSaysEnRoute() {
+        val warning = reminders.consider(snapshot(lecture, 20).copy(
+            state = TravelState.EN_ROUTE, destinationProgress = DistanceTrend.MOVING_AWAY))!!
+        assertEquals(DepartureReminderStage.LeaveNow, warning.stage)
+    }
+    @Test fun approachingOrArrivedDoesNotGetUrgentReminder() {
+        assertNull(reminders.consider(snapshot(lecture, 20).copy(destinationProgress = DistanceTrend.APPROACHING)))
+        assertNull(reminders.consider(snapshot(lecture, 20).copy(
+            state = TravelState.ARRIVED, destinationProgress = DistanceTrend.STABLE)))
+        assertTrue(sent.isEmpty())
+    }
+    @Test fun unknownDirectionDoesNotClaimTheUserHasNotDeparted() {
+        val warning = reminders.consider(snapshot(lecture, 20))!!
+        assertEquals(DepartureReminderStage.Prepare, warning.stage)
+        assertFalse(warning.text.english().contains("Please leave immediately"))
+    }
+    @Test fun changingTravelTimeReevaluatesTheUrgentBoundary() {
+        val position = snapshot(lecture, 30).copy(destinationProgress = DistanceTrend.STABLE)
+        assertNull(reminders.consider(position))
+        assertEquals(DepartureReminderStage.LeaveNow, reminders.consider(position.copy(estimate = estimate(25)))?.stage)
+        assertNull(reminders.consider(position.copy(estimate = estimate(20)))) // Never downgrade the alert.
+    }
+    @Test fun fiveMinuteUrgentCheckIsIndependentOfThePreparationSlider() {
+        preferences = CourseReminderPreference(leadMinutes = 0)
+        assertEquals(DepartureReminderStage.LeaveNow, reminders.consider(
+            snapshot(lecture, 20).copy(destinationProgress = DistanceTrend.STABLE))?.stage)
+    }
+    @Test fun disabledCourseNoEtaAndEndedClassCannotTriggerUrgentReminder() {
+        val position = snapshot(lecture, 20).copy(destinationProgress = DistanceTrend.STABLE)
+        preferences = CourseReminderPreference(enabled = false)
+        assertNull(reminders.consider(position))
+        preferences = CourseReminderPreference()
+        assertNull(reminders.consider(position.copy(estimate = null)))
+        assertNull(reminders.consider(position.copy(evaluatedAt = lecture.end.toInstant())))
+        assertTrue(sent.isEmpty())
+    }
+    @Test fun urgentWarningSurvivesRestartAndRetriesIfNotificationPermissionIsDenied() {
+        val history = mutableSetOf<Pair<String, DepartureReminderStage>>()
+        var allowed = true
+        fun notifier() = DepartureReminders(flowOf(), { preferences }, { allowed && sent.add(it) },
+            wasSent = { session, stage -> (session.id to stage) in history },
+            rememberSent = { session, stage -> history.add(session.id to stage); Unit })
+        notifier().consider(snapshot(lecture, 25))
+        val stopped = snapshot(lecture, 20).copy(destinationProgress = DistanceTrend.STABLE)
+        allowed = false
+        assertNull(notifier().consider(stopped))
+        allowed = true
+        assertEquals(DepartureReminderStage.LeaveNow, notifier().consider(stopped)?.stage)
+        assertNull(notifier().consider(stopped))
+        assertEquals(2, sent.size)
+    }
+    @Test fun weatherBufferStillMovesTheUrgentCheckEarlier() {
+        val warning = reminders.consider(snapshot(lecture, 25).copy(
+            destinationProgress = DistanceTrend.STABLE, weatherBufferMinutes = 5))!!
+        assertEquals(DepartureReminderStage.LeaveNow, warning.stage)
+        assertTrue(warning.text.english().contains("Includes 5 min extra for weather"))
     }
     private fun estimate(minutes: Int = 15) = TravelEstimate(TravelMode.Walking, minutes * 60L, 1200, EstimateSource.Routing, Instant.parse("2026-10-12T00:00:00Z"))
     private fun snapshot(session: CourseSession, minutesUntil: Long) = TravelSnapshot(session = session,

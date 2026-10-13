@@ -1,5 +1,10 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.error
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.runtime.setValue
 
 import androidx.compose.runtime.getValue
@@ -154,7 +159,7 @@ fun GroupsScreen(
             Text(textResources.getString(R.string.groups_joining_your_course_and_tutorial_workshop_groups))
         }
         timetableState.groupSyncError?.let {
-            Text(it, color = MaterialTheme.colorScheme.error)
+            Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
         }
 
         Row(
@@ -234,7 +239,9 @@ fun GroupsScreen(
 
             OutlinedButton(
                 onClick = { showFoldedGroups = !showFoldedGroups },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth().semantics {
+                    stateDescription = textResources.getString(if (showFoldedGroups) R.string.a11y_expanded else R.string.a11y_collapsed)
+                }
             ) {
                 Icon(Icons.Outlined.Archive, contentDescription = null)
                 Text(
@@ -339,7 +346,7 @@ private fun NfcJoinDialog(
             }
         },
         title = { Text(title) },
-        text = { Text(message) },
+        text = { Text(message, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) },
         confirmButton = {
             when (state) {
                 NfcJoinUiState.Disabled -> TextButton(onClick = onOpenNfcSettings) {
@@ -469,6 +476,7 @@ private fun StartGroupDialog(
                     errorMessage?.let { error ->
                         Text(
                             text = error,
+                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error
                         )
@@ -604,7 +612,7 @@ private fun JoinGroupDialog(
                         code = normalizeGroupJoinCode(it)
                         errorMessage = null
                     },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().semantics { errorMessage?.let { error(it) } },
                     label = { Text(textResources.getString(R.string.groups_join_code)) },
                     placeholder = { Text(textResources.getString(R.string.label_a1b2c3)) },
                     supportingText = { Text(textResources.getString(R.string.input_code_character_count, code.length, GROUP_JOIN_CODE_LENGTH)) },
@@ -615,6 +623,7 @@ private fun JoinGroupDialog(
                 errorMessage?.let { error ->
                     Text(
                         text = error,
+                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error
                     )

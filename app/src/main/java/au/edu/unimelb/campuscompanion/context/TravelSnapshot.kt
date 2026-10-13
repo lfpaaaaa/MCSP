@@ -4,6 +4,7 @@ import au.edu.unimelb.campuscompanion.data.TravelMode
 import au.edu.unimelb.campuscompanion.data.building.BuildingLocation
 import au.edu.unimelb.campuscompanion.data.model.TravelEstimate
 import au.edu.unimelb.campuscompanion.data.model.WeatherSnapshot
+import au.edu.unimelb.campuscompanion.sensing.location.DistanceTrend
 import au.edu.unimelb.campuscompanion.sensing.location.TravelState
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
 import au.edu.unimelb.campuscompanion.ui.model.RouteEstimate
@@ -26,7 +27,9 @@ data class TravelSnapshot(
     /** Extra minutes added to the departure buffer because of the weather. */
     val weatherBufferMinutes: Int = 0,
     /** Clock used for this position/ETA calculation, including second-accurate reminder boundaries. */
-    val evaluatedAt: java.time.Instant? = null
+    val evaluatedAt: java.time.Instant? = null,
+    /** Recent GPS progress toward this class; UNKNOWN means insufficient or stale evidence. */
+    val destinationProgress: DistanceTrend = DistanceTrend.UNKNOWN
 ) {
     /** The sessions with the tracked one carrying its travel time and route, for the screens. */
     fun applyTo(sessions: List<CourseSession>): List<CourseSession> {

@@ -1,5 +1,8 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import au.edu.unimelb.campuscompanion.ui.text.textResources
 import au.edu.unimelb.campuscompanion.R
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -37,7 +40,7 @@ internal fun GroupExitAction(isOwner: Boolean, onExit: suspend (Boolean) -> Resu
         title = { Text(label) },
         text = { Text(error ?: if (isOwner)
             textResources.getString(R.string.group_exit_action_this_permanently_deletes_the_group_messages_and_shared)
-            else textResources.getString(R.string.group_exit_action_this_group_will_be_removed_from_your_list)) },
+            else textResources.getString(R.string.group_exit_action_this_group_will_be_removed_from_your_list), modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) },
         confirmButton = {
             TextButton(enabled = !busy, onClick = {
                 busy = true

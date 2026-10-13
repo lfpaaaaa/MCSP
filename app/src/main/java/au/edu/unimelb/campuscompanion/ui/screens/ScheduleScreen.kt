@@ -57,6 +57,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import au.edu.unimelb.campuscompanion.ui.components.TimetableSyncStatus
 import au.edu.unimelb.campuscompanion.ui.components.TimetableUrlDialog
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
@@ -133,7 +134,7 @@ fun ScheduleScreen(
         state = listState,
         modifier = modifier.fillMaxSize(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 20.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item(key = "title") {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -277,7 +278,7 @@ private fun ScheduleWeekSelector(
             }
         }
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-            val dayWidth = ((maxWidth - 24.dp) / 7).coerceAtLeast(44.dp)
+            val dayWidth = ((maxWidth - 24.dp) / 7).coerceAtLeast(48.dp)
             Row(
                 modifier = Modifier.horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -330,11 +331,11 @@ private fun ScheduleSessionCard(session: CourseSession, onNavigate: () -> Unit) 
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
                 text = "${session.startTime.format(scheduleTimeFormat)}–${session.endTime.format(scheduleTimeFormat)}" +
                     if (session.end.toLocalDate() != session.startDate) " (${session.end.format(scheduleDateFormat)})" else "",
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleMedium.copy(fontSize = 15.sp),
                 color = MaterialTheme.colorScheme.primary
             )
             Text(
@@ -342,11 +343,11 @@ private fun ScheduleSessionCard(session: CourseSession, onNavigate: () -> Unit) 
                     session.code,
                     session.reminderActivity()?.replaceFirstChar { it.titlecase(Locale.ENGLISH) }
                 ).joinToString(" · "),
-                style = MaterialTheme.typography.titleLarge
+                style = MaterialTheme.typography.titleLarge.copy(fontSize = 18.sp)
             )
             Text(
                 session.title.trimTrailingCommas(),
-                style = MaterialTheme.typography.bodyLarge,
+                style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             val location = listOf(session.location, session.room).filter(String::isNotBlank).joinToString(" - ")
@@ -449,7 +450,7 @@ private fun DepartureReminderSettingRow(
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .clickable(role = Role.Button, onClickLabel = textResources.getString(R.string.schedule_open_departure_reminder_settings), onClick = onClick),
         shape = RoundedCornerShape(8.dp),
         color = MaterialTheme.colorScheme.surfaceContainer
     ) {
@@ -485,7 +486,7 @@ private fun DepartureReminderSettingRow(
             }
             Icon(
                 imageVector = Icons.Outlined.ChevronRight,
-                contentDescription = textResources.getString(R.string.schedule_open_departure_reminder_settings),
+                contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }

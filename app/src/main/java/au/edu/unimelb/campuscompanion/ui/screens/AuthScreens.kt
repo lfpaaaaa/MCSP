@@ -1,5 +1,8 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.runtime.setValue
 
 import androidx.compose.runtime.getValue
@@ -413,7 +416,7 @@ private fun OrDivider() {
 @Composable
 private fun MessageSurface(message: String, isError: Boolean) {
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
         shape = RoundedCornerShape(8.dp),
         color = if (isError) {
             MaterialTheme.colorScheme.errorContainer

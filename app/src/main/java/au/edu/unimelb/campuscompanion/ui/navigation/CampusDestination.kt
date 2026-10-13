@@ -48,6 +48,8 @@ sealed class CampusDestination(
     )
 
     companion object {
-        val topLevelDestinations = listOf(Home, Schedule, Groups, Profile)
+        // A getter avoids a circular static initialization when Home is accessed first.
+        val topLevelDestinations: List<CampusDestination>
+            get() = listOf(Home, Schedule, Groups, Profile)
     }
 }

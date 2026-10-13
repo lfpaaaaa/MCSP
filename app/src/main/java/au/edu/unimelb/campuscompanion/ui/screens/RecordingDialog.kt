@@ -1,5 +1,10 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import au.edu.unimelb.campuscompanion.ui.text.spokenDuration
 import au.edu.unimelb.campuscompanion.ui.text.textResources
 import android.Manifest
 import android.media.MediaRecorder
@@ -92,16 +97,19 @@ internal fun RecordingDialog(onDismiss: () -> Unit, onUse: (Uri, String) -> Unit
     AlertDialog(onDismissRequest = ::close, title = { Text(stringResource(R.string.record_audio)) },
         text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(stringResource(R.string.recording_help))
-            Text(audioTime(elapsed), style = MaterialTheme.typography.headlineLarge)
-            if (recorder != null) Text(stringResource(R.string.recording_active), color = MaterialTheme.colorScheme.error)
+            // The timer is readable on demand; only start/stop changes are live announcements.
+            Text(audioTime(elapsed), style = MaterialTheme.typography.headlineLarge,
+                modifier = Modifier.semantics { contentDescription = textResources.getString(R.string.a11y_recording_duration, textResources.spokenDuration(elapsed)) })
+            Text(stringResource(if (recorder != null) R.string.recording_active else if (savedPath != null) R.string.a11y_recording_stopped else R.string.a11y_recording_ready),
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
             if (recorder == null) savedPath?.let { AudioAttachmentPlayer(File(it)) }
             if (denied) {
-                Text(stringResource(R.string.recording_permission_denied))
+                Text(stringResource(R.string.recording_permission_denied), modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                 TextButton(onClick = { AppPermissions.openSettings(context, AppPermission.Microphone) }) {
                     Text(stringResource(R.string.recording_open_settings))
                 }
             }
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
             if (recorder != null) Button(onClick = ::stop) { Text(stringResource(R.string.recording_stop)) }
             else if (savedPath == null) Button(onClick = {
                 if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) start()

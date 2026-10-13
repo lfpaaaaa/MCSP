@@ -1,5 +1,8 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.runtime.setValue
 
 import androidx.compose.runtime.getValue
@@ -327,6 +330,7 @@ private fun TravelPreferencesCard(
     modifier: Modifier = Modifier
 ) {
     val textResources = textResources()
+    val walkingDistanceLabel = formatDistance(walkingThresholdKm)
     val longerDistanceOptions = listOf(
         TravelMode.PublicTransport,
         TravelMode.Driving
@@ -364,6 +368,10 @@ private fun TravelPreferencesCard(
             }
 
             Slider(
+                modifier = Modifier.semantics {
+                    contentDescription = textResources.getString(R.string.profile_walking_range)
+                    stateDescription = walkingDistanceLabel
+                },
                 value = walkingThresholdKm,
                 onValueChange = { value ->
                     onWalkingThresholdChange((value * 2f).roundToInt() / 2f)
