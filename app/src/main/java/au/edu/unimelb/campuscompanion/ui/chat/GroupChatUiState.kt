@@ -1,5 +1,6 @@
 package au.edu.unimelb.campuscompanion.ui.chat
 
+import au.edu.unimelb.campuscompanion.ui.text.UiText
 import au.edu.unimelb.campuscompanion.data.model.ChatConnection
 import au.edu.unimelb.campuscompanion.data.model.ChatMessage
 import au.edu.unimelb.campuscompanion.data.model.SharedFile
@@ -41,7 +42,7 @@ data class PendingUpload(
     /** Share of the bytes stored so far, 0 to 1. */
     val fraction: Float = 0f,
     /** Why the upload stopped; null while it is running. */
-    val error: String? = null,
+    val error: UiText? = null,
     val allowDownloads: Boolean = true
 ) {
     val isFailed: Boolean get() = error != null
@@ -56,7 +57,7 @@ data class GroupChatUiState(
     val hasOlderMessages: Boolean = true,
     val uploads: List<PendingUpload> = emptyList(),
     /** A short explanation of the latest failure, cleared by the screen once shown. */
-    val notice: String? = null
+    val notice: UiText? = null
 )
 
 /** How long chat operations took, for the responsiveness measurements. */

@@ -1,5 +1,11 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
+import androidx.compose.runtime.setValue
+
+import androidx.compose.runtime.getValue
+
+import au.edu.unimelb.campuscompanion.ui.text.textResources
+import au.edu.unimelb.campuscompanion.R
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -7,7 +13,6 @@ import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.size
@@ -16,21 +21,16 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import au.edu.unimelb.campuscompanion.data.toUserMessage
 import au.edu.unimelb.campuscompanion.ui.model.groupInviteFromQr
-import com.google.zxing.BarcodeFormat
-import com.journeyapps.barcodescanner.BarcodeEncoder
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import kotlinx.coroutines.CancellationException
@@ -42,6 +42,7 @@ internal fun QrJoinDialog(
     onEnterCode: () -> Unit,
     onJoinGroup: suspend (String) -> Result<Unit>
 ) {
+    val textResources = textResources()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var invite by rememberSaveable { mutableStateOf<String?>(null) }
@@ -56,7 +57,7 @@ internal fun QrJoinDialog(
         result.contents?.let { contents ->
             invite = groupInviteFromQr(contents)
             message = if (invite == null) {
-                "This QR code is not a Campus Companion invitation. Ask a group member for a new code."
+                textResources.getString(R.string.qr_join_this_qr_code_is_not_a_campus_companion)
             } else null
         }
     }
@@ -64,7 +65,7 @@ internal fun QrJoinDialog(
         message = null
         permissionDenied = false
         if (!context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)) {
-            message = "No camera is available. You can still enter the group code."
+            message = textResources.getString(R.string.qr_join_no_camera_is_available_you_can_still_enter)
             return
         }
         try {
@@ -72,32 +73,32 @@ internal fun QrJoinDialog(
             scanner.launch(
                 ScanOptions()
                     .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                    .setPrompt("Scan a Campus Companion group invitation")
+                    .setPrompt(textResources.getString(R.string.qr_join_scan_a_campus_companion_group_invitation))
                     .setBeepEnabled(false)
                     .setOrientationLocked(false)
             )
         } catch (_: Exception) {
             scanning = false
-            message = "The camera could not be opened. Try again or enter the group code."
+            message = textResources.getString(R.string.qr_join_the_camera_could_not_be_opened_try_again)
         }
     }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) launchScanner() else {
             permissionDenied = true
-            message = "Camera access is needed to scan. Allow it in Settings, or enter the group code."
+            message = textResources.getString(R.string.qr_join_camera_access_is_needed_to_scan_allow_it)
         }
     }
 
     AlertDialog(
         onDismissRequest = { if (!joining && !scanning) onDismiss() },
-        title = { Text(if (joined) "Group joined" else "Scan to join") },
+        title = { Text(if (joined) textResources.getString(R.string.groups_group_joined) else textResources.getString(R.string.qr_join_scan_to_join)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(when {
-                    joined -> "The group now appears in your active groups."
-                    joining -> "Checking the invitation and joining the group…"
-                    invite != null -> "Group invitation found. Tap Join to accept it."
-                    else -> "Scan the QR code shown by a group member."
+                    joined -> textResources.getString(R.string.qr_join_the_group_now_appears_in_your_active_groups)
+                    joining -> textResources.getString(R.string.qr_join_checking_the_invitation_and_joining_the_group)
+                    invite != null -> textResources.getString(R.string.qr_join_group_invitation_found_tap_join_to_accept_it)
+                    else -> textResources.getString(R.string.qr_join_scan_the_qr_code_shown_by_a_group)
                 })
                 if (joining) CircularProgressIndicator(modifier = Modifier.size(28.dp))
                 message?.let { Text(it) }
@@ -105,12 +106,12 @@ internal fun QrJoinDialog(
                     TextButton(onClick = {
                         context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                             Uri.parse("package:${context.packageName}")))
-                    }) { Text("Open settings") }
+                    }) { Text(textResources.getString(R.string.class_navigation_open_settings)) }
                 }
                 if (!joined && !joining && !scanning) {
-                    TextButton(onClick = onEnterCode) { Text("Enter code instead") }
+                    TextButton(onClick = onEnterCode) { Text(textResources.getString(R.string.qr_join_enter_code_instead)) }
                     if (invite != null) {
-                        TextButton(onClick = { invite = null; message = null }) { Text("Use another QR code") }
+                        TextButton(onClick = { invite = null; message = null }) { Text(textResources.getString(R.string.qr_join_use_another_qr_code)) }
                     }
                 }
             }
@@ -129,12 +130,12 @@ internal fun QrJoinDialog(
                                 try {
                                     onJoinGroup(scannedInvite).fold(
                                         onSuccess = { joined = true },
-                                        onFailure = { message = it.toUserMessage().body }
+                                        onFailure = { message = it.toUserMessage().body.resolve(textResources) }
                                     )
                                 } catch (cancelled: CancellationException) {
                                     throw cancelled
                                 } catch (error: Exception) {
-                                    message = error.toUserMessage().body
+                                    message = error.toUserMessage().body.resolve(textResources)
                                 } finally {
                                     joining = false
                                 }
@@ -145,11 +146,11 @@ internal fun QrJoinDialog(
                         else -> permission.launch(Manifest.permission.CAMERA)
                     }
                 }
-            ) { Text(if (joined) "Done" else if (invite != null) "Join" else "Open scanner") }
+            ) { Text(if (joined) textResources.getString(R.string.course_reminder_settings_done) else if (invite != null) textResources.getString(R.string.groups_join) else textResources.getString(R.string.qr_join_open_scanner)) }
         },
         dismissButton = {
             if (!joined) {
-                TextButton(onClick = onDismiss, enabled = !joining && !scanning) { Text("Cancel") }
+                TextButton(onClick = onDismiss, enabled = !joining && !scanning) { Text(textResources.getString(R.string.action_cancel)) }
             }
         }
     )

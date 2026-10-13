@@ -207,10 +207,12 @@ object AppRepositories {
         val json = Json { ignoreUnknownKeys = true }
         val restored = runCatching { json.decodeFromString(serializer, preferences.getString("queue", "[]")!!) }.getOrDefault(emptyList())
         AttachmentUploadQueue(files, applicationScope,
+            resolveText = { it.resolve(appContext.resources) },
             currentUserId = { SupabaseProvider.client?.auth?.currentUserOrNull()?.id },
             readBytes = { readAttachment(appContext, it) }, restored = restored,
             persist = { preferences.edit().putString("queue", json.encodeToString(serializer, it)).apply() },
-            onCompleted = { groups.refresh() })
+            onCompleted = { groups.refresh() },
+            releaseSource = { discardLocalRecording(appContext, it) })
     }
 
     val buildings by lazy { BuildingLocationRepository(appContext) }

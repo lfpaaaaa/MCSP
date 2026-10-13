@@ -1,5 +1,11 @@
 package au.edu.unimelb.campuscompanion.ui
 
+import androidx.compose.runtime.setValue
+
+import androidx.compose.runtime.getValue
+
+import au.edu.unimelb.campuscompanion.ui.text.textResources
+import au.edu.unimelb.campuscompanion.R
 import au.edu.unimelb.campuscompanion.ui.model.trimTrailingCommas
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
 import android.app.Activity
@@ -37,12 +43,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -85,7 +89,6 @@ import au.edu.unimelb.campuscompanion.ui.model.NfcJoinUiState
 import au.edu.unimelb.campuscompanion.ui.model.NfcShareUiState
 import au.edu.unimelb.campuscompanion.ui.model.PendingDocument
 import au.edu.unimelb.campuscompanion.ui.model.StartedGroupAccess
-import au.edu.unimelb.campuscompanion.ui.model.TimetableState
 import au.edu.unimelb.campuscompanion.ui.model.buildCourseReminderSeries
 import au.edu.unimelb.campuscompanion.ui.model.foldedOverrideAfterEdit
 import au.edu.unimelb.campuscompanion.ui.model.isFolded
@@ -114,10 +117,8 @@ import java.time.Duration
 import java.time.Instant
 import java.time.ZonedDateTime
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 private const val GROUP_CHAT_ROUTE = "group_chat/{groupId}"
 private const val CLASS_NAVIGATION_ROUTE = "class_navigation"
@@ -130,6 +131,7 @@ private fun groupChatRoute(groupId: String): String = "group_chat/${Uri.encode(g
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CampusCompanionApp(authViewModel: AuthViewModel) {
+    val textResources = textResources()
     val authState by authViewModel.uiState.collectAsState()
     val profileSaveState by authViewModel.profileState.collectAsState()
     val context = LocalContext.current
@@ -230,10 +232,10 @@ fun CampusCompanionApp(authViewModel: AuthViewModel) {
 
             val errors = mutableListOf<String>()
             if (result.rejectedTooLarge > 0) {
-                errors += "Each document must be 10 MB or smaller."
+                errors += textResources.getString(R.string.campus_companion_app_each_document_must_be_10_mb_or_smaller)
             }
             if (result.rejectedByLimit > 0) {
-                errors += "You can attach up to 9 documents."
+                errors += textResources.getString(R.string.campus_companion_app_you_can_attach_up_to_9_documents)
             }
             pendingDocumentError = errors.takeIf { it.isNotEmpty() }?.joinToString(" ")
         }
@@ -300,7 +302,7 @@ fun CampusCompanionApp(authViewModel: AuthViewModel) {
                 onPickDocuments = { groupId ->
                     pendingDocumentError = null
                     if (pendingDocuments.size >= MAX_PENDING_DOCUMENTS) {
-                        pendingDocumentError = "You can attach up to 9 documents."
+                        pendingDocumentError = textResources.getString(R.string.campus_companion_app_you_can_attach_up_to_9_documents)
                     } else {
                         pendingDocumentGroupId = groupId
                         filePicker.launch(arrayOf("*/*"))
@@ -347,6 +349,7 @@ private fun AuthenticatedCampusApp(
     onGroupClosed: () -> Unit,
     onSignOut: () -> Unit
 ) {
+    val textResources = textResources()
     RequestLocationPermissionOnFirstUse()
 
     val context = LocalContext.current
@@ -444,7 +447,7 @@ private fun AuthenticatedCampusApp(
         if (!SupabaseProvider.isConfigured) {
             emptyList()
         } else {
-            syncedGroupSummaries.orEmpty().map { summary -> summary.toCourseGroup(user.id) }
+            syncedGroupSummaries.orEmpty().map { summary -> summary.toCourseGroup(user.id, textResources) }
         }
     }
     val allGroups = remember(timetableState.groups, syncedGroups) {
@@ -509,7 +512,7 @@ private fun AuthenticatedCampusApp(
                 break
             }
             isSyncingTimetableGroups = false
-            timetableGroupSyncError = "Could not join timetable groups. Retrying automatically…"
+            timetableGroupSyncError = textResources.getString(R.string.campus_companion_app_could_not_join_timetable_groups_retrying_automatically)
             delay(30_000)
         }
     }
@@ -543,7 +546,7 @@ private fun AuthenticatedCampusApp(
     fun navigateToClass(session: CourseSession) {
         val building = au.edu.unimelb.campuscompanion.context.BuildingResolver.resolve(session, AppRepositories.buildings)
         if (building == null) {
-            android.widget.Toast.makeText(context, "The timetable location could not be matched to a teaching building.", android.widget.Toast.LENGTH_LONG).show()
+            android.widget.Toast.makeText(context, textResources.getString(R.string.campus_companion_app_the_timetable_location_could_not_be_matched_to), android.widget.Toast.LENGTH_LONG).show()
             return
         }
         val destination = session.toClassDestination(building)
@@ -623,8 +626,8 @@ private fun AuthenticatedCampusApp(
                         onFailure = { error ->
                             val message = error.toUserMessage()
                             nfcShareState = NfcShareUiState.Failed(
-                                title = message.title,
-                                message = message.body
+                                title = message.title.resolve(textResources),
+                                message = message.body.resolve(textResources)
                             )
                         }
                     )
@@ -677,9 +680,9 @@ private fun AuthenticatedCampusApp(
                     onFailure = { error ->
                         activity.runOnUiThread {
                             nfcJoinState = NfcJoinUiState.Failed(
-                                title = "Could not read invitation",
-                                message = error.message
-                                    ?: "Hold the phones together and try again."
+                                title = textResources.getString(R.string.campus_companion_app_could_not_read_invitation),
+                                message = (error as? au.edu.unimelb.campuscompanion.nfc.NfcReadException)?.userMessage?.resolve(textResources)
+                                    ?: textResources.getString(R.string.campus_companion_app_hold_the_phones_together_and_try_again)
                             )
                         }
                     }
@@ -695,8 +698,8 @@ private fun AuthenticatedCampusApp(
             }.isSuccess
             if (!readerEnabled) {
                 nfcJoinState = NfcJoinUiState.Failed(
-                    title = "NFC could not start",
-                    message = "Keep Campus Companion open and try again."
+                    title = textResources.getString(R.string.presentation_nfc_could_not_start),
+                    message = textResources.getString(R.string.campus_companion_app_keep_campus_companion_open_and_try_again)
                 )
             }
             onDispose {
@@ -721,8 +724,8 @@ private fun AuthenticatedCampusApp(
         if (nfcShareState == ready) {
             NfcInviteHostSession.clear()
             nfcShareState = NfcShareUiState.Failed(
-                title = "Invitation expired",
-                message = "Create a new NFC invitation and try again."
+                title = textResources.getString(R.string.campus_companion_app_invitation_expired),
+                message = textResources.getString(R.string.campus_companion_app_create_a_new_nfc_invitation_and_try_again)
             )
         }
     }
@@ -775,8 +778,8 @@ private fun AuthenticatedCampusApp(
             onFailure = { error ->
                 val message = error.toUserMessage()
                 nfcJoinState = NfcJoinUiState.Failed(
-                    title = message.title,
-                    message = message.body
+                    title = message.title.resolve(textResources),
+                    message = message.body.resolve(textResources)
                 )
             }
         )
@@ -873,12 +876,12 @@ private fun AuthenticatedCampusApp(
                                 } ?: selectedGroup?.courseCode
                                     ?.takeIf(String::isNotBlank)
                                     ?: selectedGroup?.name
-                                    ?: "Group"
+                                    ?: textResources.getString(R.string.campus_companion_app_group)
                             )
                             selectedGroup?.let { group ->
                                 Text(
                                     text = if (group.members > 0) {
-                                        "${group.members} members"
+                                        textResources.getQuantityString(R.plurals.member_count, group.members, group.members)
                                     } else {
                                         group.name
                                     },
@@ -888,13 +891,13 @@ private fun AuthenticatedCampusApp(
                             }
                         }
                     } else if (isEditingProfile) {
-                        Text("Edit profile")
+                        Text(textResources.getString(R.string.campus_companion_app_edit_profile))
                     } else if (isClassNavigation) {
-                        Text("Class navigation")
+                        Text(textResources.getString(R.string.campus_companion_app_class_navigation))
                     } else if (isCourseReminderSettings) {
-                        Text("Departure reminders")
+                        Text(textResources.getString(R.string.campus_companion_app_departure_reminders))
                     } else {
-                        Text(currentScreen.title)
+                        Text(currentScreen.title.resolve(textResources))
                     }
                 },
                 navigationIcon = {
@@ -902,14 +905,14 @@ private fun AuthenticatedCampusApp(
                         IconButton(onClick = ::closeGroup) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                                contentDescription = "Back to groups"
+                                contentDescription = textResources.getString(R.string.campus_companion_app_back_to_groups)
                             )
                         }
                     } else if (isCourseReminderSettings || isClassNavigation || isEditingProfile) {
                         IconButton(enabled = !isEditingProfile || !profileSaveState.saving, onClick = { navController.navigateUp() }) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                                contentDescription = if (isEditingProfile) "Back to profile" else if (isClassNavigation) "Back" else "Back to schedule"
+                                contentDescription = if (isEditingProfile) textResources.getString(R.string.campus_companion_app_back_to_profile) else if (isClassNavigation) textResources.getString(R.string.action_back) else textResources.getString(R.string.campus_companion_app_back_to_schedule)
                             )
                         }
                     }
@@ -919,7 +922,7 @@ private fun AuthenticatedCampusApp(
                         IconButton(onClick = { showGroupSettings = true }) {
                             Icon(
                                 imageVector = Icons.Outlined.MoreVert,
-                                contentDescription = "Group settings"
+                                contentDescription = textResources.getString(R.string.campus_companion_app_group_settings)
                             )
                         }
                     }
@@ -946,10 +949,10 @@ private fun AuthenticatedCampusApp(
                             icon = {
                                 Icon(
                                     imageVector = if (selected) destination.selectedIcon else destination.unselectedIcon,
-                                    contentDescription = destination.title
+                                    contentDescription = destination.title.resolve(textResources)
                                 )
                             },
-                            label = { Text(destination.title) }
+                            label = { Text(destination.title.resolve(textResources)) }
                         )
                     }
                 }
@@ -1067,7 +1070,7 @@ private fun AuthenticatedCampusApp(
                             val groupName = group.name.substringBefore(",").trim().ifBlank { group.courseCode }.take(60)
                             groupRepository.createGroup(groupName, group.courseCode).map { created ->
                                 groupSyncReady = true
-                                openGroup(created.toCourseGroup(currentUserId = user.id, memberCount = 1))
+                                openGroup(created.toCourseGroup(currentUserId = user.id, memberCount = 1, textResources = textResources))
                             }
                         },
                         onGoToGroups = ::navigateToGroups
@@ -1117,7 +1120,7 @@ private fun AuthenticatedCampusApp(
                     onSaved = {
                         onClearProfileMessage()
                         navController.navigateUp()
-                        android.widget.Toast.makeText(context, "Profile updated", android.widget.Toast.LENGTH_SHORT).show()
+                        android.widget.Toast.makeText(context, textResources.getString(R.string.campus_companion_app_profile_updated), android.widget.Toast.LENGTH_SHORT).show()
                     }
                 )
             }
@@ -1142,25 +1145,25 @@ private fun AuthenticatedCampusApp(
 }
 
 /** A group the user has just created, before its summary has been fetched. */
-private fun Group.toCourseGroup(currentUserId: String, memberCount: Int): CourseGroup = CourseGroup(
+private fun Group.toCourseGroup(currentUserId: String, memberCount: Int, textResources: android.content.res.Resources): CourseGroup = CourseGroup(
     id = id,
     courseCode = courseCode.orEmpty(),
     name = name,
     members = memberCount,
     unreadCount = 0,
-    latestMessage = "No messages yet.",
+    latestMessage = textResources.getString(R.string.chat_no_messages_yet),
     latestFileName = null,
     origin = if (createdBy == currentUserId) GroupOrigin.CreatedByUser else GroupOrigin.Joined,
     joinCode = joinCode
 )
 
-private fun GroupSummary.toCourseGroup(currentUserId: String): CourseGroup = CourseGroup(
+private fun GroupSummary.toCourseGroup(currentUserId: String, textResources: android.content.res.Resources): CourseGroup = CourseGroup(
     id = group.id,
     courseCode = group.courseCode.orEmpty(),
     name = if (group.timetableKey != null) group.name.trimTrailingCommas() else group.name,
     members = memberCount,
     unreadCount = unreadCount,
-    latestMessage = latestMessagePreview ?: "No messages yet.",
+    latestMessage = latestMessagePreview ?: textResources.getString(R.string.chat_no_messages_yet),
     latestFileName = latestFileName,
     origin = if (group.timetableKey != null) {
         GroupOrigin.Timetable
@@ -1221,7 +1224,7 @@ private fun resolveDocument(
     }
     return PendingDocument(
         uri = uri.toString(),
-        displayName = displayName?.takeIf(String::isNotBlank) ?: "Shared file",
+        displayName = displayName?.takeIf(String::isNotBlank) ?: context.getString(R.string.file_shared_file),
         sizeBytes = sizeBytes
     )
 }

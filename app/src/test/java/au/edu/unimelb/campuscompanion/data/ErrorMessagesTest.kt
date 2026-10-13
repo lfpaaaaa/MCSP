@@ -1,5 +1,7 @@
 package au.edu.unimelb.campuscompanion.data
 
+import au.edu.unimelb.campuscompanion.english
+
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -23,9 +25,9 @@ class ErrorMessagesTest {
 
         errors.forEach { error ->
             val message = error.toUserMessage()
-            assertTrue(message.title.isNotBlank())
-            assertTrue(message.body.isNotBlank())
-            assertFalse(message.body.contains("socket closed") || message.body.contains("boom"))
+            assertTrue(message.title.english().isNotBlank())
+            assertTrue(message.body.english().isNotBlank())
+            assertFalse(message.body.english().contains("socket closed") || message.body.english().contains("boom"))
         }
     }
 
@@ -53,7 +55,7 @@ class ErrorMessagesTest {
     fun validationMessagesAreShownAsWritten() {
         val message = DataError.Validation("Messages need 1 to 2000 characters.").toUserMessage()
 
-        assertEquals("Messages need 1 to 2000 characters.", message.body)
+        assertEquals("Messages need 1 to 2000 characters.", message.body.english())
     }
 
     @Test

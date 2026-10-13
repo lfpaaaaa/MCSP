@@ -1,5 +1,14 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
+import androidx.compose.runtime.setValue
+
+import androidx.compose.runtime.getValue
+
+import au.edu.unimelb.campuscompanion.ui.text.textResources
+import au.edu.unimelb.campuscompanion.R
+import androidx.compose.ui.res.stringResource
+import androidx.compose.material.icons.outlined.Mic
+import au.edu.unimelb.campuscompanion.data.discardLocalRecording
 import android.Manifest
 import android.content.Context
 import android.content.Intent
@@ -61,7 +70,6 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -69,7 +77,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.material3.Switch
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
@@ -144,6 +151,7 @@ private enum class AttachmentKind {
     File,
     Photo,
     Video,
+    Audio,
     Camera
 }
 
@@ -168,6 +176,7 @@ fun GroupChatScreen(
     chatRepository: ChatRepository = AppRepositories.chat,
     fileRepository: FileRepository = AppRepositories.files
 ) {
+    val textResources = textResources()
     val listState = rememberLazyListState()
     val focusManager = LocalFocusManager.current
     val context = LocalContext.current
@@ -226,6 +235,7 @@ fun GroupChatScreen(
     fun setDownloadAllowed(uri: String, allowed: Boolean) {
         blockedDownloadUris = ArrayList(if (allowed) blockedDownloadUris - uri else (blockedDownloadUris + uri).distinct())
     }
+    var showRecording by rememberSaveable(group.id) { mutableStateOf(false) }
     var showAttachmentSheet by remember { mutableStateOf(false) }
     var cameraPermissionDenied by remember { mutableStateOf(false) }
     val attachmentSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -246,7 +256,7 @@ fun GroupChatScreen(
             documents.forEach { document -> uploadFromUri(Uri.parse(document.uri), document.displayName) }
             local?.let {
                 uploadFromUri(it.uri, it.displayName,
-                    if (it.kind == AttachmentKind.Video) "video/mp4" else "image/jpeg")
+                    when (it.kind) { AttachmentKind.Video -> "video/mp4"; AttachmentKind.Audio -> "audio/mp4"; else -> "image/jpeg" })
             }
         } catch (error: Exception) {
             session.report(error)
@@ -268,6 +278,7 @@ fun GroupChatScreen(
     }
 
     fun stageAttachment(uri: Uri, fallbackName: String, kind: AttachmentKind) {
+        localAttachment?.let { discardLocalRecording(context, it.uri.toString()) }
         runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
         localAttachment = LocalAttachment(
             uri = uri,
@@ -279,12 +290,12 @@ fun GroupChatScreen(
     val photoPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri ->
-        uri?.let { stageAttachment(it, "Photo", AttachmentKind.Photo) }
+        uri?.let { stageAttachment(it, textResources.getString(R.string.chat_attachments_photo), AttachmentKind.Photo) }
     }
     val videoPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri ->
-        uri?.let { stageAttachment(it, "Video", AttachmentKind.Video) }
+        uri?.let { stageAttachment(it, textResources.getString(R.string.chat_attachments_video), AttachmentKind.Video) }
     }
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -306,7 +317,7 @@ fun GroupChatScreen(
     // Stage captured photos as well, so consent is chosen before the original bytes are sent.
     LaunchedEffect(group.id, capturedCameraUri) {
         val uri = capturedCameraUri?.let(Uri::parse) ?: return@LaunchedEffect
-        val fileName = "Photo ${LocalDateTime.now().format(photoNameFormatter)}.jpg"
+        val fileName = textResources.getString(R.string.presentation_photo_jpg, LocalDateTime.now().format(photoNameFormatter))
         stageAttachment(uri, fileName, AttachmentKind.Camera)
         onCapturedCameraPhotoConsumed()
     }
@@ -338,6 +349,12 @@ fun GroupChatScreen(
             session.clearNotice()
         }
     }
+
+    if (showRecording) RecordingDialog(onDismiss = { showRecording = false }, onUse = { uri, name ->
+        localAttachment?.let { discardLocalRecording(context, it.uri.toString()) }
+        localAttachment = LocalAttachment(uri, name, AttachmentKind.Audio)
+        showRecording = false
+    })
 
     if (showAttachmentSheet) {
         ModalBottomSheet(
@@ -408,7 +425,7 @@ fun GroupChatScreen(
                 key = TimelineRow::key
             ) { row ->
                 when (row) {
-                    is TimelineRow.Day -> DayLabel(label = row.label)
+                    is TimelineRow.Day -> DayLabel(label = row.label.resolve(textResources))
                     is TimelineRow.Entry -> when (val item = row.item) {
                         is ChatTimelineItem.Message -> ChatBubble(
                             item = item,
@@ -433,7 +450,7 @@ fun GroupChatScreen(
         }
 
         state.notice?.let { notice ->
-            NoticeRow(text = notice, onDismiss = session::clearNotice)
+            NoticeRow(text = notice.resolve(textResources), onDismiss = session::clearNotice)
         }
 
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -453,7 +470,7 @@ fun GroupChatScreen(
                 ) {
                     Icon(
                         imageVector = Icons.Outlined.AddCircleOutline,
-                        contentDescription = "Add attachment",
+                        contentDescription = textResources.getString(R.string.group_chat_add_attachment),
                         tint = MaterialTheme.colorScheme.primary
                     )
                 }
@@ -492,6 +509,7 @@ fun GroupChatScreen(
                                         allowDownloads = attachment.uri.toString() !in blockedDownloadUris,
                                         onAllowDownloadsChange = { setDownloadAllowed(attachment.uri.toString(), it) },
                                         onRemove = {
+                                            discardLocalRecording(context, attachment.uri.toString())
                                             setDownloadAllowed(attachment.uri.toString(), true)
                                             localAttachment = null
                                         }
@@ -501,7 +519,7 @@ fun GroupChatScreen(
                         }
                         if (pendingDocuments.isNotEmpty()) {
                             Text(
-                                text = "${pendingDocuments.size}/$MAX_PENDING_DOCUMENTS documents",
+                                text = textResources.getQuantityString(R.plurals.document_capacity, MAX_PENDING_DOCUMENTS, pendingDocuments.size, MAX_PENDING_DOCUMENTS),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -518,7 +536,7 @@ fun GroupChatScreen(
                         value = draft,
                         onValueChange = { draft = it.take(ChatRepository.MAX_MESSAGE_LENGTH) },
                         modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("Message") },
+                        placeholder = { Text(textResources.getString(R.string.group_chat_message)) },
                         maxLines = 4,
                         shape = RoundedCornerShape(6.dp),
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
@@ -532,6 +550,18 @@ fun GroupChatScreen(
                         )
                     )
                 }
+                IconButton(
+                    onClick = {
+                        focusManager.clearFocus()
+                        showRecording = true
+                    }
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Mic,
+                        contentDescription = stringResource(R.string.record_audio),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
                 val canSend = draft.isNotBlank() || pendingDocuments.isNotEmpty() || localAttachment != null
                 IconButton(
                     onClick = { sendDraft() },
@@ -539,7 +569,7 @@ fun GroupChatScreen(
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.Send,
-                        contentDescription = "Send message",
+                        contentDescription = textResources.getString(R.string.group_chat_send_message),
                         tint = if (canSend) {
                             MaterialTheme.colorScheme.primary
                         } else {
@@ -557,6 +587,7 @@ private fun ConnectionBanner(
     connection: ChatConnection,
     modifier: Modifier = Modifier
 ) {
+    val textResources = textResources()
     // A short connecting phase is normal, so the banner only appears when it drags on.
     var showConnecting by remember { mutableStateOf(false) }
     LaunchedEffect(connection) {
@@ -568,9 +599,9 @@ private fun ConnectionBanner(
     }
     val text = when (connection) {
         ChatConnection.Live -> return
-        ChatConnection.Connecting -> if (showConnecting) "Connecting…" else return
+        ChatConnection.Connecting -> if (showConnecting) textResources.getString(R.string.group_chat_connecting) else return
         ChatConnection.Offline ->
-            "You're offline. Saved messages and files are shown; unsent messages go out once you're back online."
+            textResources.getString(R.string.group_chat_you_re_offline_saved_messages_and_files_are)
     }
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -618,6 +649,7 @@ private fun GroupNotice(
     isStartOfChat: Boolean,
     modifier: Modifier = Modifier
 ) {
+    val textResources = textResources()
     Column(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -636,9 +668,9 @@ private fun GroupNotice(
             ) {
                 Text(
                     text = when (group.origin) {
-                        GroupOrigin.Timetable -> "You joined ${group.name} from your timetable"
-                        GroupOrigin.CreatedByUser -> "You created this group"
-                        GroupOrigin.Joined -> "You joined this group"
+                        GroupOrigin.Timetable -> textResources.getString(R.string.group_chat_you_joined_from_your_timetable, group.name)
+                        GroupOrigin.CreatedByUser -> textResources.getString(R.string.group_chat_you_created_this_group)
+                        GroupOrigin.Joined -> textResources.getString(R.string.group_chat_you_joined_this_group)
                     },
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                     style = MaterialTheme.typography.labelMedium,
@@ -672,6 +704,7 @@ private fun ChatBubble(
     onRetry: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val textResources = textResources()
     val message = item.message
     val isMine = item.isMine
     val isFailed = message.status == MessageStatus.Failed
@@ -722,8 +755,8 @@ private fun ChatBubble(
                 )
                 Text(
                     text = when (message.status) {
-                        MessageStatus.Sending -> "Sending…"
-                        MessageStatus.Failed -> "Not sent. Tap to try again"
+                        MessageStatus.Sending -> textResources.getString(R.string.group_chat_sending)
+                        MessageStatus.Failed -> textResources.getString(R.string.group_chat_not_sent_tap_to_try_again)
                         MessageStatus.Sent -> formatTime(message.createdAt)
                     },
                     modifier = Modifier.align(Alignment.End),
@@ -735,7 +768,7 @@ private fun ChatBubble(
 
         if (isMine) {
             Spacer(Modifier.width(10.dp))
-            ChatAvatar(label = "You", isMine = true)
+            ChatAvatar(label = textResources.getString(R.string.chat_attachments_you), isMine = true)
         }
     }
 }
@@ -747,6 +780,7 @@ private fun FileBubble(
     onOpen: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val textResources = textResources()
     val file = item.file
     val isMine = item.isMine
     val isImage = file.mimeType.startsWith("image/")
@@ -822,8 +856,7 @@ private fun FileBubble(
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = "${fileKind(file.mimeType).label()} · ${formatFileSize(file.sizeBytes)} · " +
-                                "Tap to open",
+                            text = textResources.getString(R.string.attachment_summary, fileKind(file.mimeType).label(), formatFileSize(file.sizeBytes)),
                             style = MaterialTheme.typography.labelSmall,
                             color = contentColor.copy(alpha = 0.78f)
                         )
@@ -831,7 +864,7 @@ private fun FileBubble(
                 }
                 if (!file.allowDownloads) {
                     Text(
-                        text = if (isMine) "Downloads disabled for others" else "Preview only",
+                        text = if (isMine) textResources.getString(R.string.files_preview_only) else textResources.getString(R.string.group_chat_preview_only),
                         style = MaterialTheme.typography.labelSmall,
                         color = contentColor.copy(alpha = 0.78f)
                     )
@@ -847,7 +880,7 @@ private fun FileBubble(
 
         if (isMine) {
             Spacer(Modifier.width(10.dp))
-            ChatAvatar(label = "You", isMine = true)
+            ChatAvatar(label = textResources.getString(R.string.chat_attachments_you), isMine = true)
         }
     }
 }
@@ -858,6 +891,7 @@ private fun NoticeRow(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val textResources = textResources()
     Surface(
         modifier = modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.errorContainer
@@ -875,7 +909,7 @@ private fun NoticeRow(
             IconButton(onClick = onDismiss) {
                 Icon(
                     imageVector = Icons.Outlined.Close,
-                    contentDescription = "Dismiss",
+                    contentDescription = textResources.getString(R.string.group_chat_dismiss),
                     tint = MaterialTheme.colorScheme.onErrorContainer
                 )
             }
@@ -893,6 +927,7 @@ private fun PendingAttachment(
     onRemove: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val textResources = textResources()
     Surface(
         modifier = modifier.width(240.dp),
         shape = RoundedCornerShape(6.dp),
@@ -903,17 +938,17 @@ private fun PendingAttachment(
                 Icon(kind.icon(), contentDescription = null, modifier = Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
                 Column(Modifier.weight(1f)) {
                     Text(displayName, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(sizeBytes?.takeIf { it >= 0L }?.let { "${formatFileSize(it)} · Ready to send" } ?: "Ready to send",
+                    Text(sizeBytes?.takeIf { it >= 0L }?.let { textResources.getString(R.string.group_chat_ready_to_send, formatFileSize(it)) } ?: textResources.getString(R.string.group_chat_ready_to_send_2),
                         style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 IconButton(onClick = onRemove, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Outlined.Close, contentDescription = "Remove attachment")
+                    Icon(Icons.Outlined.Close, contentDescription = textResources.getString(R.string.group_chat_remove_attachment))
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Allow others to download", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                Text(textResources.getString(R.string.group_chat_allow_others_to_download), modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
                 Switch(checked = allowDownloads, onCheckedChange = onAllowDownloadsChange,
-                    modifier = Modifier.semantics { contentDescription = "Allow others to download $displayName" })
+                    modifier = Modifier.semantics { contentDescription = textResources.getString(R.string.group_chat_allow_others_to_download_2, displayName) })
             }
         }
     }
@@ -928,6 +963,7 @@ private fun AttachmentPicker(
     onCameraClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val textResources = textResources()
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -935,7 +971,7 @@ private fun AttachmentPicker(
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
         Text(
-            text = "Share",
+            text = textResources.getString(R.string.group_chat_share),
             style = MaterialTheme.typography.titleLarge
         )
         Row(
@@ -943,29 +979,29 @@ private fun AttachmentPicker(
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
             AttachmentOption(
-                label = "File",
+                label = textResources.getString(R.string.chat_attachments_file),
                 icon = Icons.Outlined.Description,
                 onClick = onFileClick
             )
             AttachmentOption(
-                label = "Photo",
+                label = textResources.getString(R.string.chat_attachments_photo),
                 icon = Icons.Outlined.Image,
                 onClick = onPhotoClick
             )
             AttachmentOption(
-                label = "Video",
+                label = textResources.getString(R.string.chat_attachments_video),
                 icon = Icons.Outlined.Videocam,
                 onClick = onVideoClick
             )
             AttachmentOption(
-                label = "Camera",
+                label = textResources.getString(R.string.group_chat_camera),
                 icon = Icons.Outlined.PhotoCamera,
                 onClick = onCameraClick
             )
         }
         if (cameraPermissionDenied) {
             Text(
-                text = "Camera permission is required to take a photo.",
+                text = textResources.getString(R.string.group_chat_camera_permission_is_required_to_take_a_photo),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.error
             )
@@ -1045,6 +1081,7 @@ private fun bubbleShape(isMine: Boolean): RoundedCornerShape = if (isMine) {
 private fun fileKind(mimeType: String): AttachmentKind = when {
     mimeType.startsWith("image/") -> AttachmentKind.Photo
     mimeType.startsWith("video/") -> AttachmentKind.Video
+    mimeType.startsWith("audio/") -> AttachmentKind.Audio
     else -> AttachmentKind.File
 }
 
@@ -1052,20 +1089,24 @@ private fun AttachmentKind.icon(): ImageVector = when (this) {
     AttachmentKind.File -> Icons.Outlined.Description
     AttachmentKind.Photo -> Icons.Outlined.Image
     AttachmentKind.Video -> Icons.Outlined.Videocam
+    AttachmentKind.Audio -> Icons.Outlined.Mic
     AttachmentKind.Camera -> Icons.Outlined.PhotoCamera
 }
 
+@Composable
 private fun AttachmentKind.label(): String = when (this) {
-    AttachmentKind.File -> "File"
-    AttachmentKind.Photo -> "Photo"
-    AttachmentKind.Video -> "Video"
-    AttachmentKind.Camera -> "Camera photo"
+    AttachmentKind.File -> stringResource(R.string.chat_attachments_file)
+    AttachmentKind.Photo -> stringResource(R.string.chat_attachments_photo)
+    AttachmentKind.Video -> stringResource(R.string.chat_attachments_video)
+    AttachmentKind.Audio -> stringResource(R.string.files_audio)
+    AttachmentKind.Camera -> stringResource(R.string.label_camera_photo)
 }
 
-private fun formatFileSize(sizeBytes: Long): String = when {
-    sizeBytes >= 1024L * 1024L -> "%.1f MB".format(sizeBytes / (1024.0 * 1024.0))
-    sizeBytes >= 1024L -> "%.1f KB".format(sizeBytes / 1024.0)
-    else -> "$sizeBytes B"
+@Composable
+internal fun formatFileSize(sizeBytes: Long): String = when {
+    sizeBytes >= 1024L * 1024L -> stringResource(R.string.file_size_mb, sizeBytes / (1024.0 * 1024.0))
+    sizeBytes >= 1024L -> stringResource(R.string.file_size_kb, sizeBytes / 1024.0)
+    else -> stringResource(R.string.file_size_bytes, sizeBytes)
 }
 
 private fun formatTime(instant: Instant): String =

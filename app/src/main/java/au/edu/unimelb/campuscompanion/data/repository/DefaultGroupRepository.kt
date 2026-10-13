@@ -1,5 +1,7 @@
 package au.edu.unimelb.campuscompanion.data.repository
 
+import au.edu.unimelb.campuscompanion.ui.text.UiText
+import au.edu.unimelb.campuscompanion.R
 import au.edu.unimelb.campuscompanion.data.DataError
 import au.edu.unimelb.campuscompanion.data.model.Group
 import au.edu.unimelb.campuscompanion.data.model.GroupMember
@@ -90,7 +92,7 @@ class DefaultGroupRepository(
         if (currentUserId() == null) return Result.failure(DataError.Unauthenticated())
         val name = nickname.trim()
         if (name.isEmpty() || name.length > 40) {
-            return Result.failure(DataError.Validation("Group nicknames need 1 to 40 characters."))
+            return Result.failure(DataError.Validation(UiText(R.string.validation_group_nicknames_need_1_to_40_characters)))
         }
         return dataResult { remote.setMyNickname(groupId, name) }
     }

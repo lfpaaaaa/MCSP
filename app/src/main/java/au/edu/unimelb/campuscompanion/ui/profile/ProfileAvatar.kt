@@ -1,5 +1,7 @@
 package au.edu.unimelb.campuscompanion.ui.profile
 
+import au.edu.unimelb.campuscompanion.ui.text.textResources
+import au.edu.unimelb.campuscompanion.R
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,6 +23,7 @@ import kotlinx.coroutines.CancellationException
 
 @Composable
 fun ProfileAvatar(name: String, reference: String?, modifier: Modifier = Modifier) {
+    val textResources = textResources()
     val context = LocalContext.current
     val accountId = SupabaseProvider.client?.auth?.currentUserOrNull()?.id
     val image by produceState<ImageBitmap?>(null, reference, accountId) {
@@ -35,7 +38,7 @@ fun ProfileAvatar(name: String, reference: String?, modifier: Modifier = Modifie
         Box(contentAlignment = Alignment.Center) {
             val loaded = image
             if (loaded == null) Text(name.trim().take(1).uppercase(), style = MaterialTheme.typography.headlineSmall)
-            else Image(loaded, contentDescription = "$name profile photo", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            else Image(loaded, contentDescription = textResources.getString(R.string.copy_profile_photo, name), modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         }
     }
 }

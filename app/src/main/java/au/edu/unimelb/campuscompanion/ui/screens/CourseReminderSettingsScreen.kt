@@ -1,5 +1,11 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
+import androidx.compose.runtime.setValue
+
+import androidx.compose.runtime.getValue
+
+import au.edu.unimelb.campuscompanion.ui.text.textResources
+import au.edu.unimelb.campuscompanion.R
 import au.edu.unimelb.campuscompanion.ui.model.trimTrailingCommas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -28,10 +34,8 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -53,6 +57,7 @@ fun CourseReminderSettingsScreen(
     onPreferenceChange: (String, CourseReminderPreference) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val textResources = textResources()
     var selectedCourseKey by rememberSaveable { mutableStateOf<String?>(null) }
     val selectedCourse = courses.firstOrNull { it.key == selectedCourseKey }
 
@@ -85,11 +90,11 @@ fun CourseReminderSettingsScreen(
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Text(
-                            text = "No courses available",
+                            text = textResources.getString(R.string.course_reminder_settings_no_courses_available),
                             style = MaterialTheme.typography.titleMedium
                         )
                         Text(
-                            text = "Connect a timetable with course events first.",
+                            text = textResources.getString(R.string.course_reminder_settings_connect_a_timetable_with_course_events_first),
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -98,7 +103,7 @@ fun CourseReminderSettingsScreen(
         } else {
             item {
                 Text(
-                    text = "CLASS REMINDERS",
+                    text = textResources.getString(R.string.label_class_reminders),
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary
@@ -106,7 +111,7 @@ fun CourseReminderSettingsScreen(
             }
             item {
                 Text(
-                    text = "Control lecture, tutorial and workshop reminders separately. Changes are saved automatically.",
+                    text = textResources.getString(R.string.course_reminder_settings_control_lecture_tutorial_and_workshop_reminders_separately_changes),
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -137,14 +142,14 @@ fun CourseReminderSettingsScreen(
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(course.title.trimTrailingCommas())
                             Text(
-                                text = course.summaryLine(preference),
+                                text = course.summaryLine(preference, textResources),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     },
                     trailingContent = {
                         Switch(
-                            modifier = Modifier.semantics { contentDescription = "${course.displayName} reminders" },
+                            modifier = Modifier.semantics { contentDescription = textResources.getString(R.string.copy_reminders, course.displayName) },
                             checked = preference.enabled,
                             onCheckedChange = { enabled ->
                                 onPreferenceChange(
@@ -168,14 +173,15 @@ private fun CourseReminderDialog(
     onPreferenceChange: (CourseReminderPreference) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val textResources = textResources()
     val session = course.nextSession
     val notificationTime = session.etaMinutes?.let {
         session.departureReminderTime(preference.leadMinutes)
     }
     val preparationMessage = if (preference.leadMinutes == 0) {
-        "Leave when the reminder arrives"
+        textResources.getString(R.string.course_reminder_settings_leave_when_the_reminder_arrives)
     } else {
-        "Prepare to leave within ${preference.leadMinutes} min"
+        textResources.getString(R.string.course_reminder_settings_prepare_to_leave_within_min, preference.leadMinutes)
     }
 
     AlertDialog(
@@ -210,12 +216,12 @@ private fun CourseReminderDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Departure reminder",
+                        text = textResources.getString(R.string.course_reminder_settings_departure_reminder),
                         modifier = Modifier.weight(1f),
                         style = MaterialTheme.typography.bodyLarge
                     )
                     Switch(
-                        modifier = Modifier.semantics { contentDescription = "${course.displayName} reminders" },
+                        modifier = Modifier.semantics { contentDescription = textResources.getString(R.string.copy_reminders, course.displayName) },
                         checked = preference.enabled,
                         onCheckedChange = { enabled ->
                             onPreferenceChange(preference.copy(enabled = enabled))
@@ -226,7 +232,7 @@ private fun CourseReminderDialog(
                 if (preference.enabled) {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(
-                            text = "Prepare ${preference.leadMinutes} min before departure",
+                            text = textResources.getString(R.string.course_reminder_settings_prepare_min_before_departure, preference.leadMinutes),
                             style = MaterialTheme.typography.bodyLarge,
                             fontWeight = FontWeight.Medium
                         )
@@ -265,14 +271,14 @@ private fun CourseReminderDialog(
                             ) {
                                 Text(
                                     text = notificationTime?.format(notificationTimeFormatter)
-                                        ?: "Calculated from your live route",
+                                        ?: textResources.getString(R.string.course_reminder_settings_calculated_from_your_live_route),
                                     style = MaterialTheme.typography.titleMedium
                                 )
                                 Text(
                                     text = if (session.etaMinutes == null) {
-                                        "$preparationMessage. Live travel time will be included."
+                                        textResources.getString(R.string.course_reminder_settings_live_travel_time_will_be_included, preparationMessage)
                                     } else {
-                                        "$preparationMessage. Travel time: ${session.etaMinutes} min."
+                                        textResources.getString(R.string.course_reminder_settings_travel_time_min, preparationMessage, session.etaMinutes)
                                     },
                                     style = MaterialTheme.typography.bodyMedium
                                 )
@@ -284,18 +290,18 @@ private fun CourseReminderDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("Done")
+                Text(textResources.getString(R.string.course_reminder_settings_done))
             }
         }
     )
 }
 
-private fun CourseReminderSeries.summaryLine(preference: CourseReminderPreference): String {
-    val recurrence = if (occurrenceCount == 1) "1 class" else "$occurrenceCount classes"
+private fun CourseReminderSeries.summaryLine(preference: CourseReminderPreference, textResources: android.content.res.Resources): String {
+    val recurrence = textResources.getQuantityString(R.plurals.class_count, occurrenceCount, occurrenceCount)
     val reminder = if (preference.enabled) {
-        "${preference.leadMinutes} min early"
+        textResources.getString(R.string.reminder_min_early, preference.leadMinutes)
     } else {
-        "Off"
+        textResources.getString(R.string.reminder_off)
     }
-    return "${nextSession.start.format(courseTimeFormatter)} - $recurrence - $reminder"
+    return textResources.getString(R.string.copy_label, nextSession.start.format(courseTimeFormatter), recurrence, reminder)
 }

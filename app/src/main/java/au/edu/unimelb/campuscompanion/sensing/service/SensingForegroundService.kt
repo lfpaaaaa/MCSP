@@ -218,7 +218,7 @@ class SensingForegroundService : Service() {
         startForeground(
             NOTIFICATION_ID,
             buildNotification(
-                "Preparing sensing..."
+                getString(R.string.sensing_preparing_sensing)
             )
         )
 
@@ -334,7 +334,7 @@ class SensingForegroundService : Service() {
         )
 
         updateNotification(
-            "Background sensing — battery saving mode"
+            getString(R.string.sensing_background_sensing_battery_saving_mode)
         )
     }
 
@@ -375,7 +375,7 @@ class SensingForegroundService : Service() {
         compassHeadingDetector.start()
 
         updateNotification(
-            "Monitoring your trip to class"
+            getString(R.string.sensing_monitoring_your_trip_to_class)
         )
     }
 
@@ -823,7 +823,7 @@ class SensingForegroundService : Service() {
             CHANNEL_ID
         )
             .setContentTitle(
-                "Campus Companion"
+                getString(R.string.app_name)
             )
             .setContentText(
                 text
@@ -866,12 +866,12 @@ class SensingForegroundService : Service() {
             val channel =
                 NotificationChannel(
                     CHANNEL_ID,
-                    "Campus Companion sensing",
+                    getString(R.string.sensing_campus_companion_sensing),
                     NotificationManager.IMPORTANCE_LOW
                 )
 
             channel.description =
-                "Keeps location and motion sensing active"
+                getString(R.string.sensing_keeps_location_and_motion_sensing_active)
 
             val manager =
                 getSystemService(

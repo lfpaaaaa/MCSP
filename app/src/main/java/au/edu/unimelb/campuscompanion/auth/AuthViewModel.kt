@@ -1,5 +1,7 @@
 package au.edu.unimelb.campuscompanion.auth
 
+import au.edu.unimelb.campuscompanion.ui.text.UiText
+import au.edu.unimelb.campuscompanion.R
 import android.content.Context
 import android.net.Uri
 import au.edu.unimelb.campuscompanion.profile.*
@@ -70,7 +72,7 @@ class AuthViewModel : ViewModel() {
             _uiState.value = AuthUiState(
                 isConfigured = false,
                 isInitializing = false,
-                infoMessage = "Add the Supabase URL and publishable key to local.properties to enable sign-in."
+                infoMessage = UiText(R.string.auth_add_the_supabase_url_and_publishable_key_to)
             )
         } else {
             viewModelScope.launch {
@@ -86,7 +88,7 @@ class AuthViewModel : ViewModel() {
     fun sendEmailCode(email: String) {
         val normalizedEmail = email.trim().lowercase()
         if (!android.util.Patterns.EMAIL_ADDRESS.matcher(normalizedEmail).matches()) {
-            setError("Enter a valid email address.")
+            setError(UiText(R.string.auth_enter_a_valid_email_address))
             return
         }
 
@@ -99,7 +101,7 @@ class AuthViewModel : ViewModel() {
                 isSubmitting = false,
                 pendingEmail = normalizedEmail,
                 errorMessage = null,
-                infoMessage = "A 6-digit code was sent to $normalizedEmail."
+                infoMessage = UiText(R.string.auth_a_6_digit_code_was_sent_to, normalizedEmail)
             )
         }
     }
@@ -108,7 +110,7 @@ class AuthViewModel : ViewModel() {
         val email = _uiState.value.pendingEmail ?: return
         val normalizedCode = code.filter(Char::isDigit)
         if (normalizedCode.length != 6) {
-            setError("Enter the 6-digit code from the email.")
+            setError(UiText(R.string.auth_enter_the_6_digit_code_from_the_email))
             return
         }
 
@@ -213,7 +215,7 @@ class AuthViewModel : ViewModel() {
                     isSubmitting = false,
                     user = user,
                     pendingEmail = null,
-                    errorMessage = if (user == null) "The account profile could not be loaded." else null,
+                    errorMessage = if (user == null) UiText(R.string.auth_the_account_profile_could_not_be_loaded) else null,
                     infoMessage = null
                 )
             }
@@ -224,14 +226,14 @@ class AuthViewModel : ViewModel() {
             is SessionStatus.RefreshFailure -> _uiState.value.copy(
                 isInitializing = false,
                 isSubmitting = false,
-                errorMessage = "The saved session could not be refreshed. Check the connection and try again."
+                errorMessage = UiText(R.string.auth_the_saved_session_could_not_be_refreshed_check)
             )
         }
     }
 
     private fun clientOrThrow() = client ?: error("Authentication is not configured.")
 
-    private fun setError(message: String) {
+    private fun setError(message: UiText) {
         _uiState.value = _uiState.value.copy(errorMessage = message, infoMessage = null)
     }
 }

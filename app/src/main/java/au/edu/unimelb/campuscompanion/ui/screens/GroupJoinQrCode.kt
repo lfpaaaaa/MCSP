@@ -1,5 +1,7 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
+import au.edu.unimelb.campuscompanion.ui.text.textResources
+import au.edu.unimelb.campuscompanion.R
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.size
@@ -21,7 +23,8 @@ internal fun createGroupQrBitmap(code: String, size: Int): Bitmap {
 
 @Composable
 internal fun GroupJoinQrCode(code: String) {
+    val textResources = textResources()
     val bitmap = remember(code) { createGroupQrBitmap(code, 512).asImageBitmap() }
-    Image(bitmap, contentDescription = "Group invitation QR code. Join code: $code",
+    Image(bitmap, contentDescription = textResources.getString(R.string.group_join_qr_code_group_invitation_qr_code_join_code, code),
         modifier = Modifier.size(192.dp))
 }

@@ -1,5 +1,7 @@
 package au.edu.unimelb.campuscompanion.data
 
+import au.edu.unimelb.campuscompanion.ui.text.UiText
+import au.edu.unimelb.campuscompanion.R
 import au.edu.unimelb.campuscompanion.ui.model.TimetableState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -67,7 +69,7 @@ class TimetableSession(
 
     private fun fail(error: Throwable): Result<Unit> {
         mutableState.value = state.value.copy(isLoading = false, isCached = state.value.isConnected,
-            errorMessage = error.message ?: "The timetable could not be refreshed.")
+            errorMessage = (error as? TimetableImportException)?.userMessage ?: UiText(R.string.timetable_the_timetable_could_not_be_refreshed))
         return Result.failure(error)
     }
 }

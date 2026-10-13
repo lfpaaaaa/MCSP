@@ -1,5 +1,7 @@
 package au.edu.unimelb.campuscompanion.data
 
+import au.edu.unimelb.campuscompanion.ui.text.UiText
+import au.edu.unimelb.campuscompanion.R
 import au.edu.unimelb.campuscompanion.data.model.UploadState
 import au.edu.unimelb.campuscompanion.data.repository.FileRepository
 import kotlinx.coroutines.CancellationException
@@ -44,13 +46,15 @@ class AttachmentUploadQueue(
     private val scope: CoroutineScope,
     private val currentUserId: () -> String?,
     private val readBytes: suspend (String) -> ByteArray,
+    private val resolveText: (UiText) -> String,
     restored: List<AttachmentUpload> = emptyList(),
     private val persist: (List<AttachmentUpload>) -> Unit = {},
-    private val onCompleted: suspend () -> Unit = {}
+    private val onCompleted: suspend () -> Unit = {},
+    private val releaseSource: (String) -> Unit = {}
 ) {
     private val state = MutableStateFlow(restored.map {
         if (it.phase == AttachmentPhase.Uploading) it.copy(phase = AttachmentPhase.Failed,
-            error = "Upload interrupted. Tap Retry.") else it
+            error = resolveText(UiText(R.string.upload_upload_interrupted_tap_retry))) else it
     })
     val uploads = state.asStateFlow()
     private val transferSlots = Semaphore(1) // Bound memory: existing storage API takes a byte array.
@@ -75,8 +79,10 @@ class AttachmentUploadQueue(
 
     @Synchronized
     fun dismiss(id: String) {
+        val discarded = state.value.firstOrNull { it.id == id && it.userId == currentUserId() && it.phase == AttachmentPhase.Failed }
         state.update { list -> list.filterNot { it.id == id && it.userId == currentUserId() && it.phase == AttachmentPhase.Failed } }
         persist(state.value)
+        discarded?.let { runCatching { releaseSource(it.uri) } }
     }
 
     @Synchronized
@@ -102,19 +108,20 @@ class AttachmentUploadQueue(
                         when (result) {
                             is UploadState.InProgress -> update(task.copy(progress = result.fraction), save = false)
                             is UploadState.Failed -> update(task.copy(phase = AttachmentPhase.Failed,
-                                error = result.error.toUserMessage().body))
+                                error = result.error.toUserMessage().body.let(resolveText)))
                             is UploadState.Completed -> {
                                 update(task.copy(phase = AttachmentPhase.Completed, progress = 1f, fileId = result.file.id))
+                                runCatching { releaseSource(task.uri) }
                                 onCompleted()
                             }
                         }
                     }
                 }
             } catch (error: CancellationException) {
-                update(task.copy(phase = AttachmentPhase.Failed, error = "Upload interrupted. Tap Retry."))
+                update(task.copy(phase = AttachmentPhase.Failed, error = resolveText(UiText(R.string.upload_upload_interrupted_tap_retry))))
                 throw error
             } catch (error: Exception) {
-                update(task.copy(phase = AttachmentPhase.Failed, error = error.toUserMessage().body))
+                update(task.copy(phase = AttachmentPhase.Failed, error = error.toUserMessage().body.let(resolveText)))
             }
         }
     }

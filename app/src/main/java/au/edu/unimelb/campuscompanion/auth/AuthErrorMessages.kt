@@ -1,5 +1,7 @@
 package au.edu.unimelb.campuscompanion.auth
 
+import au.edu.unimelb.campuscompanion.ui.text.UiText
+import au.edu.unimelb.campuscompanion.R
 import au.edu.unimelb.campuscompanion.data.toUserMessage
 import io.github.jan.supabase.auth.exception.AuthErrorCode
 import io.github.jan.supabase.auth.exception.AuthRestException
@@ -8,33 +10,33 @@ import io.github.jan.supabase.auth.exception.AuthRestException
  * A short explanation of a failed sign-in step that says what to do next. Raw server text is
  * never shown; errors the app does not know fall back to the general messages.
  */
-internal fun authErrorMessage(error: Throwable): String =
+internal fun authErrorMessage(error: Throwable): UiText =
     when ((error as? AuthRestException)?.errorCode) {
         AuthErrorCode.OtpExpired ->
-            "That code is wrong or has expired. Check the newest email or send a new code."
+            UiText(R.string.auth_that_code_is_wrong_or_has_expired_check)
         AuthErrorCode.OverEmailSendRateLimit ->
-            "Too many codes were requested. Wait a minute before sending another."
+            UiText(R.string.auth_too_many_codes_were_requested_wait_a_minute)
         AuthErrorCode.OverRequestRateLimit ->
-            "Too many attempts. Wait a minute and try again."
+            UiText(R.string.auth_too_many_attempts_wait_a_minute_and_try)
         AuthErrorCode.ValidationFailed ->
-            "Check the email address and try again."
+            UiText(R.string.auth_check_the_email_address_and_try_again)
         AuthErrorCode.EmailProviderDisabled,
         AuthErrorCode.OtpDisabled,
         AuthErrorCode.ProviderDisabled,
         AuthErrorCode.SignupDisabled ->
-            "This sign-in option is turned off. Try signing in another way."
+            UiText(R.string.auth_this_sign_in_option_is_turned_off_try)
         AuthErrorCode.UserBanned ->
-            "This account is blocked. Contact the Campus Companion team for help."
+            UiText(R.string.auth_this_account_is_blocked_contact_the_campus_companion)
         AuthErrorCode.SessionNotFound,
         AuthErrorCode.BadJwt,
         AuthErrorCode.NoAuthorization,
         AuthErrorCode.ReauthenticationNeeded ->
-            "Your session has ended. Sign in again."
+            UiText(R.string.auth_your_session_has_ended_sign_in_again)
         AuthErrorCode.BadOauthState,
         AuthErrorCode.BadOauthCallback,
         AuthErrorCode.FlowStateExpired,
         AuthErrorCode.FlowStateNotFound,
         AuthErrorCode.BadCodeVerifier ->
-            "The sign-in did not finish. Try again."
+            UiText(R.string.auth_the_sign_in_did_not_finish_try_again)
         else -> error.toUserMessage().body
     }

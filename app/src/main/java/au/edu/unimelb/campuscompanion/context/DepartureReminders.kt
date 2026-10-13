@@ -1,5 +1,7 @@
 package au.edu.unimelb.campuscompanion.context
 
+import au.edu.unimelb.campuscompanion.ui.text.UiText
+import au.edu.unimelb.campuscompanion.R
 import au.edu.unimelb.campuscompanion.data.TravelMode
 import au.edu.unimelb.campuscompanion.sensing.location.TravelState
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
@@ -18,8 +20,8 @@ data class DepartureReminder(
     val sessionId: String,
     val courseKey: String,
     val state: TravelState,
-    val title: String,
-    val text: String
+    val title: UiText,
+    val text: UiText
 ) {
     val notificationId: Int get() = sessionId.hashCode()
 }
@@ -71,13 +73,16 @@ class DepartureReminders(
             sessionId = session.id,
             courseKey = session.reminderSeriesKey(),
             state = state,
-            title = if (secondsLeft <= 0) "Leave now for ${session.code}" else "Leave within $minutesLeft min · ${session.code}",
-            text = buildString {
-                append("${session.title.trimTrailingCommas()} starts at ${session.startTime.format(timeFormatter)}. ")
-                append("${if (estimate.isApproximate) "Estimated travel time" else "Travel time"}: ${estimate.durationMinutes} min ${estimate.mode.asTravelPhrase()}. ")
-                append(if (secondsLeft <= 0) "Leave now to avoid further delay." else "Leave by $deadline (within $minutesLeft min).")
-                if (snapshot.weatherBufferMinutes > 0) append(" Includes ${snapshot.weatherBufferMinutes} min extra for weather.")
-            }
+            title = if (secondsLeft <= 0) UiText(R.string.departure_leave_now, session.code)
+                else UiText(R.string.departure_leave_within, minutesLeft, session.code),
+            text = UiText.Joined(buildList {
+                add(UiText(R.string.departure_class_starts, session.title.trimTrailingCommas(), session.startTime.format(timeFormatter)))
+                add(UiText(if (estimate.isApproximate) R.string.departure_estimated_travel else R.string.departure_travel,
+                    estimate.durationMinutes, estimate.mode.asTravelPhrase()))
+                add(if (secondsLeft <= 0) UiText(R.string.departure_avoid_delay)
+                    else UiText(R.string.departure_leave_by, deadline, minutesLeft))
+                if (snapshot.weatherBufferMinutes > 0) add(UiText(R.string.departure_weather_buffer, snapshot.weatherBufferMinutes))
+            })
         )
         if (!notify(reminder)) return null // Permission/channel disabled: retry when it becomes available.
         sent.add(key)
@@ -85,10 +90,10 @@ class DepartureReminders(
         return reminder
     }
 
-    private fun TravelMode.asTravelPhrase(): String = when (this) {
-        TravelMode.Walking -> "on foot"
-        TravelMode.PublicTransport -> "by public transport"
-        TravelMode.Driving -> "by car"
+    private fun TravelMode.asTravelPhrase(): UiText = when (this) {
+        TravelMode.Walking -> UiText(R.string.departure_on_foot)
+        TravelMode.PublicTransport -> UiText(R.string.departure_by_public_transport)
+        TravelMode.Driving -> UiText(R.string.departure_by_car)
     }
 
     private companion object {

@@ -1,5 +1,7 @@
 package au.edu.unimelb.campuscompanion.data.repository
 
+import au.edu.unimelb.campuscompanion.english
+
 import au.edu.unimelb.campuscompanion.data.*
 import au.edu.unimelb.campuscompanion.data.model.CurrentUser
 import kotlinx.coroutines.CompletableDeferred
@@ -17,7 +19,7 @@ class AttachmentUploadQueueTest {
 
     @Test fun uploadsOriginalUriForDocumentsImagesAndVideos() = runBlocking<Unit> {
         val read = mutableListOf<String>()
-        val queue = AttachmentUploadQueue(files, this, { "student" }, { uri -> read += uri; ByteArray(16) })
+        val queue = AttachmentUploadQueue(files, this, { "student" }, { uri -> read += uri; ByteArray(16) }, { it.english() })
         listOf("application/pdf", "image/png", "video/mp4").forEachIndexed { i, type ->
             queue.enqueue(FILE_GROUP_ID, "content://original/$i", "file-$i", type)
         }
@@ -29,7 +31,7 @@ class AttachmentUploadQueueTest {
 
     @Test fun failedUploadRetriesButCompletedUploadCannotResend() = runBlocking<Unit> {
         remote.uploadFailure = DataError.Offline()
-        val queue = AttachmentUploadQueue(files, this, { "student" }, { ByteArray(16) })
+        val queue = AttachmentUploadQueue(files, this, { "student" }, { ByteArray(16) }, { it.english() })
         queue.enqueue(FILE_GROUP_ID, "uri", "photo.png", "image/png")
         val failed = withTimeout(5000) { queue.uploads.first { it.single().phase == AttachmentPhase.Failed }.single() }
         remote.uploadFailure = null
@@ -45,7 +47,7 @@ class AttachmentUploadQueueTest {
     @Test fun restartRestoresInterruptedUploadAsRetryable() = runBlocking<Unit> {
         val restored = AttachmentUpload("id", "student", FILE_GROUP_ID, "uri", "x.txt", "text/plain", "2026-10-10T00:00:00Z")
         var saved: List<AttachmentUpload> = emptyList()
-        val queue = AttachmentUploadQueue(files, this, { "student" }, { ByteArray(1) }, listOf(restored), { saved = it })
+        val queue = AttachmentUploadQueue(files, this, { "student" }, { ByteArray(1) }, { it.english() }, listOf(restored), { saved = it })
         assertEquals(AttachmentPhase.Failed, queue.uploads.value.single().phase)
         queue.retry("id")
         withTimeout(5000) { queue.uploads.first { it.single().phase == AttachmentPhase.Completed } }
@@ -55,14 +57,14 @@ class AttachmentUploadQueueTest {
     @Test fun downloadConsentSurvivesFailurePersistenceAndRestart() = runBlocking<Unit> {
         remote.uploadFailure = DataError.Offline()
         var saved: List<AttachmentUpload> = emptyList()
-        val queue = AttachmentUploadQueue(files, this, { "student" }, { ByteArray(4) }, persist = { saved = it })
+        val queue = AttachmentUploadQueue(files, this, { "student" }, { ByteArray(4) }, { it.english() }, persist = { saved = it })
         queue.enqueue(FILE_GROUP_ID, "uri", "photo.png", "image/png", allowDownloads = false)
         withTimeout(5000) { queue.uploads.first { it.single().phase == AttachmentPhase.Failed } }
         assertFalse(saved.single().allowDownloads)
         val json = kotlinx.serialization.json.Json
         val restored = json.decodeFromString<List<AttachmentUpload>>(json.encodeToString(saved))
         remote.uploadFailure = null
-        val restarted = AttachmentUploadQueue(files, this, { "student" }, { ByteArray(4) }, restored)
+        val restarted = AttachmentUploadQueue(files, this, { "student" }, { ByteArray(4) }, { it.english() }, restored)
         restarted.retry(restored.single().id)
         withTimeout(5000) { restarted.uploads.first { it.single().phase == AttachmentPhase.Completed } }
         assertFalse(remote.stored.single().allowDownloads)
@@ -76,12 +78,37 @@ class AttachmentUploadQueueTest {
     @Test fun switchingAccountDoesNotUploadAnotherUsersPendingAttachment() = runBlocking<Unit> {
         val release = CompletableDeferred<Unit>()
         var user: String? = "student"
-        val queue = AttachmentUploadQueue(files, this, { user }, { release.await(); ByteArray(1) })
+        val queue = AttachmentUploadQueue(files, this, { user }, { release.await(); ByteArray(1) }, { it.english() })
         queue.enqueue(FILE_GROUP_ID, "uri", "x.txt", "text/plain")
         user = "someone-else"
         release.complete(Unit)
         withTimeout(5000) { queue.uploads.first { it.single().phase == AttachmentPhase.Failed } }
         assertTrue(remote.stored.isEmpty())
+    }
+
+    @Test fun recordingSourceIsKeptForRetryAndReleasedOnlyAfterSuccess() = runBlocking<Unit> {
+        remote.uploadFailure = DataError.Offline()
+        val released = mutableListOf<String>()
+        val queue = AttachmentUploadQueue(files, this, { "student" }, { ByteArray(16) }, { it.english() }, releaseSource = { released += it })
+        queue.enqueue(FILE_GROUP_ID, "recording-uri", "recording.m4a", "audio/mp4", allowDownloads = false)
+        val failed = withTimeout(5000) { queue.uploads.first { it.single().phase == AttachmentPhase.Failed }.single() }
+        assertTrue(released.isEmpty())
+        remote.uploadFailure = null
+        queue.retry(failed.id)
+        withTimeout(5000) { queue.uploads.first { it.single().phase == AttachmentPhase.Completed } }
+        assertEquals(listOf("recording-uri"), released)
+        assertFalse(remote.stored.single().allowDownloads)
+    }
+
+    @Test fun dismissingFailedRecordingReleasesItsSource() = runBlocking<Unit> {
+        remote.uploadFailure = DataError.Offline()
+        val released = mutableListOf<String>()
+        val queue = AttachmentUploadQueue(files, this, { "student" }, { ByteArray(16) }, { it.english() }, releaseSource = { released += it })
+        queue.enqueue(FILE_GROUP_ID, "recording-uri", "recording.m4a", "audio/mp4")
+        val failed = withTimeout(5000) { queue.uploads.first { it.single().phase == AttachmentPhase.Failed }.single() }
+        queue.dismiss(failed.id)
+        assertEquals(listOf("recording-uri"), released)
+        assertTrue(queue.uploads.value.isEmpty())
     }
 
     @Test fun unknownSizeStreamsAreBoundedBeforeUpload() {

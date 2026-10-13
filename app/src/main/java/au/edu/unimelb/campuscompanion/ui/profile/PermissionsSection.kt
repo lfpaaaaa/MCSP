@@ -1,5 +1,11 @@
 package au.edu.unimelb.campuscompanion.ui.profile
 
+import androidx.compose.runtime.setValue
+
+import androidx.compose.runtime.getValue
+
+import au.edu.unimelb.campuscompanion.ui.text.textResources
+import au.edu.unimelb.campuscompanion.R
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -9,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.DirectionsWalk
 import androidx.compose.material.icons.outlined.CheckCircle
@@ -25,10 +32,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -101,6 +106,7 @@ private fun PermissionRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val textResources = textResources()
     val statusColor = if (status.granted) {
         MaterialTheme.colorScheme.primary
     } else {
@@ -129,23 +135,23 @@ private fun PermissionRow(
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Text(
-                    text = status.permission.title,
+                    text = status.permission.title.resolve(textResources),
                     style = MaterialTheme.typography.titleMedium
                 )
                 Text(
-                    text = status.permission.purpose,
+                    text = status.permission.purpose.resolve(textResources),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = if (status.granted) Icons.Outlined.CheckCircle else Icons.Outlined.ErrorOutline,
-                        contentDescription = if (status.granted) "Allowed" else "Not allowed",
+                        contentDescription = if (status.granted) textResources.getString(R.string.permissions_section_allowed) else textResources.getString(R.string.permissions_section_not_allowed),
                         tint = statusColor,
                         modifier = Modifier.size(16.dp)
                     )
                     Text(
-                        text = status.detail,
+                        text = status.detail.resolve(textResources),
                         modifier = Modifier.padding(start = 6.dp),
                         style = MaterialTheme.typography.bodySmall,
                         color = statusColor
@@ -154,7 +160,7 @@ private fun PermissionRow(
             }
             Icon(
                 imageVector = Icons.Outlined.ChevronRight,
-                contentDescription = "Change",
+                contentDescription = textResources.getString(R.string.permissions_section_change),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
@@ -163,6 +169,7 @@ private fun PermissionRow(
 
 @Composable
 private fun PrivacyNote(modifier: Modifier = Modifier) {
+    val textResources = textResources()
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
@@ -173,14 +180,11 @@ private fun PrivacyNote(modifier: Modifier = Modifier) {
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Text(
-                text = "Where your location goes",
+                text = textResources.getString(R.string.permissions_section_where_your_location_goes),
                 style = MaterialTheme.typography.labelLarge
             )
             Text(
-                text = "Your current position updates travel times and departure reminders. Home sends " +
-                    "points rounded to about 110 m through our server to Google Maps or the fallback router. " +
-                    "An explicit navigation request sends precise start and end points to Google. " +
-                    "Notifications are calculated on this phone; we do not store a location history.",
+                text = textResources.getString(R.string.permissions_section_your_current_position_updates_travel_times_and_departure),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -192,5 +196,6 @@ private fun AppPermission.icon(): ImageVector = when (this) {
     AppPermission.Location -> Icons.Outlined.LocationOn
     AppPermission.Notifications -> Icons.Outlined.Notifications
     AppPermission.Camera -> Icons.Outlined.PhotoCamera
+    AppPermission.Microphone -> Icons.Outlined.Mic
     AppPermission.PhysicalActivity -> Icons.AutoMirrored.Outlined.DirectionsWalk
 }

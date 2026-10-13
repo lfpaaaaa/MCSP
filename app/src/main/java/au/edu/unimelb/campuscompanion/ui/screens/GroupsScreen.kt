@@ -1,5 +1,11 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
+import androidx.compose.runtime.setValue
+
+import androidx.compose.runtime.getValue
+
+import au.edu.unimelb.campuscompanion.ui.text.textResources
+import au.edu.unimelb.campuscompanion.R
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -36,12 +42,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
 import kotlinx.coroutines.delay
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -81,6 +85,7 @@ fun GroupsScreen(
     onOpenNfcSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val textResources = textResources()
     var showFoldedGroups by rememberSaveable { mutableStateOf(false) }
     var showStartGroup by rememberSaveable { mutableStateOf(false) }
     var showJoinGroup by rememberSaveable { mutableStateOf(false) }
@@ -129,16 +134,16 @@ fun GroupsScreen(
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(
-                text = "Course groups",
+                text = textResources.getString(R.string.groups_course_groups),
                 style = MaterialTheme.typography.headlineSmall
             )
             Text(
                 text = when {
-                    timetableState.isLoading -> "Checking your timetable and group memberships."
+                    timetableState.isLoading -> textResources.getString(R.string.groups_checking_your_timetable_and_group_memberships)
                     timetableState.isConnected -> {
-                        "Timetable groups are folded after their final class. Your own groups stay active."
+                        textResources.getString(R.string.groups_timetable_groups_are_folded_after_their_final_class)
                     }
-                    else -> "Create a group or connect your timetable to add course groups."
+                    else -> textResources.getString(R.string.groups_create_a_group_or_connect_your_timetable_to)
                 },
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -146,7 +151,7 @@ fun GroupsScreen(
         }
 
         if (timetableState.isSyncingGroups) {
-            Text("Joining your course and tutorial/workshop groups…")
+            Text(textResources.getString(R.string.groups_joining_your_course_and_tutorial_workshop_groups))
         }
         timetableState.groupSyncError?.let {
             Text(it, color = MaterialTheme.colorScheme.error)
@@ -162,7 +167,7 @@ fun GroupsScreen(
             ) {
                 Icon(Icons.Outlined.Add, contentDescription = null)
                 Text(
-                    text = "Start group",
+                    text = textResources.getString(R.string.groups_start_group),
                     modifier = Modifier.padding(start = 8.dp)
                 )
             }
@@ -172,7 +177,7 @@ fun GroupsScreen(
             ) {
                 Icon(Icons.Outlined.GroupAdd, contentDescription = null)
                 Text(
-                    text = "Join group",
+                    text = textResources.getString(R.string.groups_join_group),
                     modifier = Modifier.padding(start = 8.dp)
                 )
             }
@@ -180,12 +185,12 @@ fun GroupsScreen(
 
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             QuickActionChip(
-                label = "Scan QR",
+                label = textResources.getString(R.string.groups_scan_qr),
                 icon = Icons.Outlined.QrCodeScanner,
                 onClick = { showQrJoin = true }
             )
             QuickActionChip(
-                label = "NFC join",
+                label = textResources.getString(R.string.label_nfc_join),
                 icon = Icons.Outlined.Nfc,
                 onClick = onStartNfcJoin
             )
@@ -203,16 +208,16 @@ fun GroupsScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     CircularProgressIndicator(modifier = Modifier.size(28.dp))
-                    Text("Loading groups...")
+                    Text(textResources.getString(R.string.groups_loading_groups))
                 }
             }
         } else {
-            SectionHeader(title = "Active groups")
+            SectionHeader(title = textResources.getString(R.string.groups_active_groups))
             if (activeGroups.isEmpty()) {
                 EmptyActiveGroups(
                     timetableConnected = timetableState.isConnected,
                     hasFoldedGroups = foldedGroups.isNotEmpty(),
-                    errorMessage = timetableState.errorMessage,
+                    errorMessage = timetableState.errorMessage?.resolve(textResources),
                     onOpenTimetableSetup = onOpenTimetableSetup
                 )
             } else {
@@ -233,7 +238,7 @@ fun GroupsScreen(
             ) {
                 Icon(Icons.Outlined.Archive, contentDescription = null)
                 Text(
-                    text = "已折叠 (${foldedGroups.size})",
+                    text = textResources.getString(R.string.groups_label, foldedGroups.size),
                     modifier = Modifier.padding(horizontal = 8.dp)
                 )
                 Icon(
@@ -243,15 +248,15 @@ fun GroupsScreen(
                         Icons.Outlined.ExpandMore
                     },
                     contentDescription = if (showFoldedGroups) {
-                        "Hide folded groups"
+                        textResources.getString(R.string.groups_hide_folded_groups)
                     } else {
-                        "Show folded groups"
+                        textResources.getString(R.string.groups_show_folded_groups)
                     }
                 )
             }
 
             if (showFoldedGroups) {
-                SectionHeader(title = "Folded groups")
+                SectionHeader(title = textResources.getString(R.string.groups_folded_groups))
                 if (foldedGroups.isEmpty()) {
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
@@ -259,7 +264,7 @@ fun GroupsScreen(
                         color = MaterialTheme.colorScheme.surfaceContainer
                     ) {
                         Text(
-                            text = "No folded group chats.",
+                            text = textResources.getString(R.string.groups_no_folded_group_chats),
                             modifier = Modifier.padding(18.dp),
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -287,25 +292,26 @@ private fun NfcJoinDialog(
     onTryAgain: () -> Unit,
     onOpenNfcSettings: () -> Unit
 ) {
+    val textResources = textResources()
     val isJoining = state is NfcJoinUiState.Joining
     val title = when (state) {
         NfcJoinUiState.Idle -> ""
-        NfcJoinUiState.Waiting -> "Ready to join"
-        NfcJoinUiState.Joining -> "Joining group"
-        NfcJoinUiState.Disabled -> "Turn on NFC"
-        NfcJoinUiState.Unsupported -> "NFC is not available"
-        is NfcJoinUiState.Joined -> "Group joined"
+        NfcJoinUiState.Waiting -> textResources.getString(R.string.groups_ready_to_join)
+        NfcJoinUiState.Joining -> textResources.getString(R.string.groups_joining_group)
+        NfcJoinUiState.Disabled -> textResources.getString(R.string.groups_turn_on_nfc)
+        NfcJoinUiState.Unsupported -> textResources.getString(R.string.presentation_nfc_is_not_available)
+        is NfcJoinUiState.Joined -> textResources.getString(R.string.groups_group_joined)
         is NfcJoinUiState.Failed -> state.title
     }
     val message = when (state) {
         NfcJoinUiState.Idle -> ""
         NfcJoinUiState.Waiting -> {
-            "Hold the back of your phone near the phone sharing the invitation. Keep this screen open until the phone vibrates."
+            textResources.getString(R.string.groups_hold_the_back_of_your_phone_near_the)
         }
-        NfcJoinUiState.Joining -> "Checking the invitation and adding the group."
-        NfcJoinUiState.Disabled -> "NFC is switched off on this device. Turn it on, then return and try again."
-        NfcJoinUiState.Unsupported -> "This device cannot read NFC tags. You can still join with a QR code."
-        is NfcJoinUiState.Joined -> "${state.groupName} now appears in your active groups."
+        NfcJoinUiState.Joining -> textResources.getString(R.string.groups_checking_the_invitation_and_adding_the_group)
+        NfcJoinUiState.Disabled -> textResources.getString(R.string.groups_nfc_is_switched_off_on_this_device_turn)
+        NfcJoinUiState.Unsupported -> textResources.getString(R.string.groups_this_device_cannot_read_nfc_tags_you_can)
+        is NfcJoinUiState.Joined -> textResources.getString(R.string.copy_now_appears_in_your_active_groups, state.groupName)
         is NfcJoinUiState.Failed -> state.message
     }
 
@@ -337,21 +343,21 @@ private fun NfcJoinDialog(
         confirmButton = {
             when (state) {
                 NfcJoinUiState.Disabled -> TextButton(onClick = onOpenNfcSettings) {
-                    Text("Open NFC settings")
+                    Text(textResources.getString(R.string.groups_open_nfc_settings))
                 }
                 is NfcJoinUiState.Failed -> TextButton(onClick = onTryAgain) {
-                    Text("Try again")
+                    Text(textResources.getString(R.string.groups_try_again))
                 }
                 NfcJoinUiState.Joining -> Unit
                 else -> TextButton(onClick = onDismiss) {
-                    Text(if (state is NfcJoinUiState.Waiting) "Cancel" else "Done")
+                    Text(if (state is NfcJoinUiState.Waiting) textResources.getString(R.string.action_cancel) else textResources.getString(R.string.course_reminder_settings_done))
                 }
             }
         },
         dismissButton = {
             if (state is NfcJoinUiState.Disabled || state is NfcJoinUiState.Failed) {
                 TextButton(onClick = onDismiss) {
-                    Text("Cancel")
+                    Text(textResources.getString(R.string.action_cancel))
                 }
             }
         }
@@ -366,6 +372,7 @@ private fun EmptyActiveGroups(
     onOpenTimetableSetup: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val textResources = textResources()
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
@@ -383,22 +390,22 @@ private fun EmptyActiveGroups(
                 modifier = Modifier.size(40.dp)
             )
             Text(
-                text = "No active groups",
+                text = textResources.getString(R.string.groups_no_active_groups),
                 style = MaterialTheme.typography.titleLarge
             )
             Text(
                 text = when {
-                    hasFoldedGroups -> "Your existing group chats are in 已折叠."
-                    timetableConnected -> "No active groups are available."
+                    hasFoldedGroups -> textResources.getString(R.string.groups_your_existing_group_chats_are_in)
+                    timetableConnected -> textResources.getString(R.string.groups_no_active_groups_are_available)
                     errorMessage != null -> errorMessage
-                    else -> "Create a group or connect your timetable on Home."
+                    else -> textResources.getString(R.string.groups_create_a_group_or_connect_your_timetable_on)
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             if (!timetableConnected) {
                 Button(onClick = onOpenTimetableSetup) {
-                    Text("Go to Home")
+                    Text(textResources.getString(R.string.groups_go_to_home))
                 }
             }
         }
@@ -410,6 +417,7 @@ private fun StartGroupDialog(
     onDismiss: () -> Unit,
     onStartGroup: suspend (name: String, courseCode: String?) -> Result<StartedGroupAccess>
 ) {
+    val textResources = textResources()
     var name by rememberSaveable { mutableStateOf("") }
     var courseCode by rememberSaveable { mutableStateOf("") }
     var errorMessage by rememberSaveable { mutableStateOf<String?>(null) }
@@ -431,7 +439,7 @@ private fun StartGroupDialog(
                 Icon(Icons.Outlined.CheckCircle, contentDescription = null)
             }
         },
-        title = { Text(if (startedGroup == null) "Start group" else "Group started") },
+        title = { Text(if (startedGroup == null) textResources.getString(R.string.groups_start_group) else textResources.getString(R.string.groups_group_started)) },
         text = {
             val result = startedGroup
             if (result == null) {
@@ -443,7 +451,7 @@ private fun StartGroupDialog(
                             errorMessage = null
                         },
                         modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Group name") },
+                        label = { Text(textResources.getString(R.string.groups_group_name)) },
                         singleLine = true
                     )
                     OutlinedTextField(
@@ -453,8 +461,8 @@ private fun StartGroupDialog(
                             errorMessage = null
                         },
                         modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Course code (optional)") },
-                        placeholder = { Text("COMP90018") },
+                        label = { Text(textResources.getString(R.string.groups_course_code_optional)) },
+                        placeholder = { Text(textResources.getString(R.string.label_comp90018)) },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
                     )
@@ -471,7 +479,7 @@ private fun StartGroupDialog(
                     modifier = Modifier.verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text("${result.groupName} is ready.")
+                    Text(textResources.getString(R.string.copy_is_ready, result.groupName))
                     if (result.joinCode != null && result.expiresAt != null && now.isBefore(result.expiresAt)) {
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
@@ -484,7 +492,7 @@ private fun StartGroupDialog(
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = "Join code",
+                                        text = textResources.getString(R.string.groups_join_code),
                                         style = MaterialTheme.typography.labelMedium
                                     )
                                     Text(
@@ -499,16 +507,16 @@ private fun StartGroupDialog(
                                 ) {
                                     Icon(
                                         imageVector = Icons.Outlined.ContentCopy,
-                                        contentDescription = "Copy join code"
+                                        contentDescription = textResources.getString(R.string.groups_copy_join_code)
                                     )
                                 }
                             }
                         }
                         val remaining = Duration.between(now, result.expiresAt).seconds.coerceAtLeast(0)
-                        Text("Code expires in ${remaining / 60}:${(remaining % 60).toString().padStart(2, '0')}. Valid only during the first 5 minutes after group creation.")
+                        Text(textResources.getString(R.string.groups_code_expires_in_valid_only_during_the_first, remaining / 60, (remaining % 60).toString().padStart(2, '0')))
                     } else {
                         Text(
-                            text = "The 6-character code is unavailable or expired. Use Share QR code or NFC in group settings.",
+                            text = textResources.getString(R.string.groups_the_6_character_code_is_unavailable_or_expired),
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -524,7 +532,7 @@ private fun StartGroupDialog(
                             onStartGroup(name, courseCode.ifBlank { null }).fold(
                                 onSuccess = { startedGroup = it },
                                 onFailure = {
-                                    errorMessage = startGroupErrorMessage(it)
+                                    errorMessage = startGroupErrorMessage(it, textResources)
                                 }
                             )
                             isSubmitting = false
@@ -538,12 +546,12 @@ private fun StartGroupDialog(
                             strokeWidth = 2.dp
                         )
                     } else {
-                        Text("Start")
+                        Text(textResources.getString(R.string.groups_start))
                     }
                 }
             } else {
                 TextButton(onClick = onDismiss) {
-                    Text("Done")
+                    Text(textResources.getString(R.string.course_reminder_settings_done))
                 }
             }
         },
@@ -553,18 +561,18 @@ private fun StartGroupDialog(
                     onClick = onDismiss,
                     enabled = !isSubmitting
                 ) {
-                    Text("Cancel")
+                    Text(textResources.getString(R.string.action_cancel))
                 }
             }
         }
     )
 }
 
-private fun startGroupErrorMessage(error: Throwable): String = when (error) {
+private fun startGroupErrorMessage(error: Throwable, textResources: android.content.res.Resources): String = when (error) {
     is DataError.NotFound -> {
-        "Group creation is not available on the connected server yet."
+        textResources.getString(R.string.groups_group_creation_is_not_available_on_the_connected)
     }
-    else -> error.toUserMessage().body
+    else -> error.toUserMessage().body.resolve(textResources)
 }
 
 @Composable
@@ -572,6 +580,7 @@ private fun JoinGroupDialog(
     onDismiss: () -> Unit,
     onJoinGroup: suspend (code: String) -> Result<Unit>
 ) {
+    val textResources = textResources()
     var code by rememberSaveable { mutableStateOf("") }
     var errorMessage by rememberSaveable { mutableStateOf<String?>(null) }
     var isSubmitting by rememberSaveable { mutableStateOf(false) }
@@ -581,11 +590,11 @@ private fun JoinGroupDialog(
         onDismissRequest = {
             if (!isSubmitting) onDismiss()
         },
-        title = { Text("Join group") },
+        title = { Text(textResources.getString(R.string.groups_join_group)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    text = "Enter the 6-character code. It works only within 5 minutes of group creation; afterwards use QR or NFC.",
+                    text = textResources.getString(R.string.groups_enter_the_6_character_code_it_works_only),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -596,9 +605,9 @@ private fun JoinGroupDialog(
                         errorMessage = null
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Join code") },
-                    placeholder = { Text("A1B2C3") },
-                    supportingText = { Text("${code.length}/$GROUP_JOIN_CODE_LENGTH") },
+                    label = { Text(textResources.getString(R.string.groups_join_code)) },
+                    placeholder = { Text(textResources.getString(R.string.label_a1b2c3)) },
+                    supportingText = { Text(textResources.getString(R.string.input_code_character_count, code.length, GROUP_JOIN_CODE_LENGTH)) },
                     isError = errorMessage != null,
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
@@ -620,7 +629,7 @@ private fun JoinGroupDialog(
                         onJoinGroup(code).fold(
                             onSuccess = { onDismiss() },
                             onFailure = {
-                                errorMessage = joinCodeErrorMessage(it)
+                                errorMessage = joinCodeErrorMessage(it, textResources)
                             }
                         )
                         isSubmitting = false
@@ -634,7 +643,7 @@ private fun JoinGroupDialog(
                         strokeWidth = 2.dp
                     )
                 } else {
-                    Text("Join")
+                    Text(textResources.getString(R.string.groups_join))
                 }
             }
         },
@@ -643,23 +652,23 @@ private fun JoinGroupDialog(
                 onClick = onDismiss,
                 enabled = !isSubmitting
             ) {
-                Text("Cancel")
+                Text(textResources.getString(R.string.action_cancel))
             }
         }
     )
 }
 
-private fun joinCodeErrorMessage(error: Throwable): String = when (error) {
+private fun joinCodeErrorMessage(error: Throwable, textResources: android.content.res.Resources): String = when (error) {
     is DataError.InvalidInvite -> when (error.reason) {
         DataError.InvalidInvite.Reason.Unknown -> {
-            "This 6-character code was not recognised. Check it and try again."
+            textResources.getString(R.string.groups_this_6_character_code_was_not_recognised_check)
         }
         DataError.InvalidInvite.Reason.Expired -> {
-            "This join code has expired. Ask the group creator for a new code."
+            textResources.getString(R.string.groups_this_join_code_has_expired_ask_the_group)
         }
         DataError.InvalidInvite.Reason.UsedUp -> {
-            "This join code has reached its usage limit. Ask the group creator for a new code."
+            textResources.getString(R.string.groups_this_join_code_has_reached_its_usage_limit)
         }
     }
-    else -> error.toUserMessage().body
+    else -> error.toUserMessage().body.resolve(textResources)
 }

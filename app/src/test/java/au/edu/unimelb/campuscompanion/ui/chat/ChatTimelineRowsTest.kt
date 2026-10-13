@@ -1,5 +1,7 @@
 package au.edu.unimelb.campuscompanion.ui.chat
 
+import au.edu.unimelb.campuscompanion.english
+
 import au.edu.unimelb.campuscompanion.data.model.ChatMessage
 import au.edu.unimelb.campuscompanion.data.model.MessageStatus
 import org.junit.Assert.assertEquals
@@ -24,9 +26,11 @@ class ChatTimelineRowsTest {
         val rows = timelineRows(items, melbourne, today)
 
         assertEquals(
-            listOf("day:Mon 5 Oct", "message:a", "day:Yesterday", "message:b", "day:Today", "message:c", "message:d"),
+            listOf("day:2026-10-05", "message:a", "day:2026-10-08", "message:b", "day:2026-10-09", "message:c", "message:d"),
             rows.map { it.key }
         )
+        assertEquals(listOf("Mon 5 Oct", "Yesterday", "Today"),
+            rows.filterIsInstance<TimelineRow.Day>().map { it.label.english() })
     }
 
     @Test

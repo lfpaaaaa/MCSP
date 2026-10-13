@@ -172,7 +172,7 @@ Debug builds turn on `StrictMode` in `CampusCompanionApplication`: disk and netw
 - The app only ever holds the publishable key; the service-role key stays in the dashboard and in Edge Function secrets. Invite tokens expire after ten minutes and have a use limit; a wrong join code costs a one-second server-side wait.
 - Positions are coarsened before they leave the device (about 110 m for routing, about 1 km for weather). The server keeps travel times in a cache keyed by the rounded points and a per-user request count per day, never a user's positions; the sensor readings themselves stay on the phone, and only the derived travel state is shown.
 - `allowBackup` is off, so the on-device message cache and the sign-in session are not copied into cloud backups or device transfers; everything is re-fetched after sign-in.
-- Permissions are limited to what the features use: location (travel context and geofencing), activity recognition (motion state), camera (photos for the chat and QR codes), NFC (invitations), notifications and the foreground-service permissions for the sensing service. The app does not record audio. The Profile screen shows the real state of each permission (`ui/profile/AppPermissions.kt`); tapping a row asks for the permission or opens the app's system settings when the system no longer shows the dialog.
+- Permissions are limited to what the features use: location (travel context and geofencing), activity recognition (motion state), camera (photos for the chat and QR codes), NFC (invitations), notifications and the foreground-service permissions for the sensing service. Audio recording is available from the microphone button beside the chat input, with microphone permission requested only when recording starts. See [recording and transcription](services/transcription/README.md) for the local Whisper worker and deployment setup. The Profile screen shows the real state of each permission (`ui/profile/AppPermissions.kt`); tapping a row asks for the permission or opens the app's system settings when the system no longer shows the dialog.
 - Nothing secret is committed: `.env`, `local.properties`, `google-services.json` and OAuth or service-role keys are ignored by git.
 
 ## Front-end structure
@@ -307,3 +307,17 @@ For local development use `supabase migration up --local` and `supabase function
 The UI rechecks server permission before exporting cached bytes or sharing a FileProvider URI. Preview necessarily sends content to a device; this restriction is not DRM and cannot prevent screenshots or extraction by a modified client. Unsupported document formats are not passed to external viewers when downloads are disabled.
 
 Regression coverage: `attachment_download_permissions.test.sql` verifies defaults, uploader/member/outsider access, Storage policy checks and denied recipient changes; Kotlin tests cover consent decoding/caching, upload restart/retry, and preview versus download requests.
+
+## Interface text
+
+User-facing labels, accessibility descriptions, errors and notification copy live in
+`app/src/main/res/values/strings.xml`. Use `stringResource` in Compose, or capture
+`textResources()` for event callbacks. Models and validation errors carry `UiText` and resolve
+it at the display boundary; they must not retain an Activity. Keep user names, course titles,
+messages and server content as data. Use positional format arguments for dynamic text and
+`getQuantityString` for counts. Put complete sentences in resources, rather than joining
+English fragments. The default catalog remains English; additional translations can be added
+as Android `values-<language>` resources.
+
+The JVM resource tests read the actual catalog to check formatting, percentage signs, nested
+labels and singular/plural counts. Run `./gradlew testDebugUnitTest assembleDebug`.

@@ -1,5 +1,7 @@
 package au.edu.unimelb.campuscompanion.context
 
+import au.edu.unimelb.campuscompanion.english
+
 import au.edu.unimelb.campuscompanion.data.TravelMode
 import au.edu.unimelb.campuscompanion.data.model.EstimateSource
 import au.edu.unimelb.campuscompanion.data.model.TravelEstimate
@@ -30,15 +32,15 @@ class DepartureRemindersTest {
     @Test fun defaultReminderSaysToLeaveWithinTenMinutes() {
         assertNull(reminders.consider(snapshot(lecture, 26)))
         val reminder = reminders.consider(snapshot(lecture, 25))!!
-        assertEquals("Leave within 10 min · COMP90018", reminder.title)
-        assertEquals("Mobile Computing Systems Programming starts at 11:00 AM. Travel time: 15 min on foot. Leave by 10:45 AM (within 10 min).", reminder.text)
+        assertEquals("Leave within 10 min · COMP90018", reminder.title.english())
+        assertEquals("Mobile Computing Systems Programming starts at 11:00 AM. Travel time: 15 min on foot. Leave by 10:45 AM (within 10 min).", reminder.text.english())
         assertNull(reminders.consider(snapshot(lecture, 24)))
         assertEquals(1, sent.size)
     }
     @Test fun elevenAmClassAndTwentyMinuteTripNotifiesAtTenThirty() {
         val before = snapshot(lecture, 30).copy(estimate = estimate(20))
-        assertEquals("Leave within 10 min · COMP90018", reminders.consider(before)?.title)
-        assertTrue(sent.single().text.contains("Leave by 10:40 AM"))
+        assertEquals("Leave within 10 min · COMP90018", reminders.consider(before)?.title?.english())
+        assertTrue(sent.single().text.english().contains("Leave by 10:40 AM"))
     }
     @Test fun exactBoundaryDoesNotFireOneSecondEarly() {
         val boundary = lecture.start.toInstant().minusSeconds(25 * 60)
@@ -48,7 +50,7 @@ class DepartureRemindersTest {
     @Test fun theDeadlineUpdatesToLeaveNowOnlyOnce() {
         reminders.consider(snapshot(lecture, 25))
         val now = reminders.consider(snapshot(lecture, 15))!!
-        assertEquals("Leave now for COMP90018", now.title)
+        assertEquals("Leave now for COMP90018", now.title.english())
         assertEquals(sent[0].notificationId, now.notificationId)
         assertNull(reminders.consider(snapshot(lecture, 10)))
     }
@@ -79,21 +81,21 @@ class DepartureRemindersTest {
     @Test fun customLeadAndZeroLeadAreRespected() {
         preferences = CourseReminderPreference(leadMinutes = 5)
         assertNull(reminders.consider(snapshot(lecture, 25)))
-        assertEquals("Leave within 5 min · COMP90018", reminders.consider(snapshot(lecture, 20))?.title)
+        assertEquals("Leave within 5 min · COMP90018", reminders.consider(snapshot(lecture, 20))?.title?.english())
         preferences = CourseReminderPreference(leadMinutes = 0)
         assertNull(reminders.consider(snapshot(tutorial, 16)))
-        assertEquals("Leave now for SWEN90006", reminders.consider(snapshot(tutorial, 15))?.title)
+        assertEquals("Leave now for SWEN90006", reminders.consider(snapshot(tutorial, 15))?.title?.english())
     }
     @Test fun weatherMovesTheLeaveDeadlineEarlier() {
         val result = reminders.consider(snapshot(lecture, 30).copy(weatherBufferMinutes = 5))!!
-        assertTrue(result.text.contains("Leave by 10:40 AM (within 10 min)"))
-        assertTrue(result.text.contains("Includes 5 min extra for weather"))
+        assertTrue(result.text.english().contains("Leave by 10:40 AM (within 10 min)"))
+        assertTrue(result.text.english().contains("Includes 5 min extra for weather"))
     }
     @Test fun changedEtaCanBringReminderForward() {
         assertNull(reminders.consider(snapshot(lecture, 35)))
         val result = reminders.consider(snapshot(lecture, 35).copy(estimate = estimate(25)))!!
-        assertEquals("Leave within 10 min · COMP90018", result.title)
-        assertTrue(result.text.contains("Travel time: 25 min"))
+        assertEquals("Leave within 10 min · COMP90018", result.title.english())
+        assertTrue(result.text.english().contains("Travel time: 25 min"))
     }
     @Test fun deniedNotificationsCanBeRetriedWithoutConsumingTheReminder() {
         var allowed = false

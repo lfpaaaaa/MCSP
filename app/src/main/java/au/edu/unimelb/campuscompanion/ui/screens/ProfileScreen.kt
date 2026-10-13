@@ -1,5 +1,12 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
+import androidx.compose.runtime.setValue
+
+import androidx.compose.runtime.getValue
+
+import androidx.compose.ui.res.stringResource
+import au.edu.unimelb.campuscompanion.ui.text.textResources
+import au.edu.unimelb.campuscompanion.R
 import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -36,12 +43,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -72,6 +77,7 @@ fun ProfileScreen(
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val textResources = textResources()
     var walkingThresholdKm by rememberSaveable(travelPreferences.walkingThresholdMeters) {
         mutableFloatStateOf(travelPreferences.walkingThresholdMeters / 1_000f)
     }
@@ -92,9 +98,9 @@ fun ProfileScreen(
     if (showRemoveTimetableDialog) {
         AlertDialog(
             onDismissRequest = { showRemoveTimetableDialog = false },
-            title = { Text("Remove timetable URL?") },
+            title = { Text(textResources.getString(R.string.profile_remove_timetable_url)) },
             text = {
-                Text("Courses, departure reminders, and automatically joined groups will be cleared.")
+                Text(textResources.getString(R.string.profile_courses_departure_reminders_and_automatically_joined_groups_will))
             },
             confirmButton = {
                 TextButton(
@@ -103,12 +109,12 @@ fun ProfileScreen(
                         showRemoveTimetableDialog = false
                     }
                 ) {
-                    Text("Remove")
+                    Text(textResources.getString(R.string.chat_attachments_remove))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showRemoveTimetableDialog = false }) {
-                    Text("Cancel")
+                    Text(textResources.getString(R.string.action_cancel))
                 }
             }
         )
@@ -149,23 +155,23 @@ fun ProfileScreen(
                     color = MaterialTheme.colorScheme.onSecondaryContainer
                 )
                 Text(
-                    text = user.email ?: "Signed in with ${user.provider.displayName}",
+                    text = user.email ?: textResources.getString(R.string.auths_signed_in_with, user.provider.displayName.resolve(textResources)),
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSecondaryContainer
                 )
                 IconTextLine(
                     icon = Icons.Outlined.Route,
-                    text = "${user.provider.displayName} account",
+                    text = textResources.getString(R.string.copy_account, user.provider.displayName.resolve(textResources)),
                     tint = MaterialTheme.colorScheme.onSecondaryContainer
                 )
                 OutlinedButton(onClick = onEditProfile) {
                     Icon(Icons.Outlined.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Text("Edit profile", modifier = Modifier.padding(start = 8.dp))
+                    Text(textResources.getString(R.string.campus_companion_app_edit_profile), modifier = Modifier.padding(start = 8.dp))
                 }
             }
         }
 
-        SectionHeader(title = "Travel preferences")
+        SectionHeader(title = textResources.getString(R.string.profile_travel_preferences))
         TravelPreferencesCard(
             walkingThresholdKm = walkingThresholdKm,
             longerDistanceMode = longerDistanceMode,
@@ -177,7 +183,7 @@ fun ProfileScreen(
             }
         )
 
-        SectionHeader(title = "Timetable")
+        SectionHeader(title = textResources.getString(R.string.profile_timetable))
         TimetableSettingsCard(
             timetableState = timetableState,
             onAddOrChange = { showTimetableDialog = true },
@@ -185,13 +191,13 @@ fun ProfileScreen(
             onRefresh = onTimetableRefresh
         )
 
-        SectionHeader(title = "Permissions")
+        SectionHeader(title = textResources.getString(R.string.profile_permissions))
         PermissionsSection()
 
-        SectionHeader(title = "About")
+        SectionHeader(title = textResources.getString(R.string.profile_about))
         AboutSection()
 
-        SectionHeader(title = "Account")
+        SectionHeader(title = textResources.getString(R.string.profile_account))
         OutlinedButton(
             onClick = onSignOut,
             modifier = Modifier.fillMaxWidth()
@@ -202,7 +208,7 @@ fun ProfileScreen(
                 modifier = Modifier.size(18.dp)
             )
             Text(
-                text = "Sign out",
+                text = textResources.getString(R.string.profile_sign_out),
                 modifier = Modifier.padding(start = 8.dp)
             )
         }
@@ -217,9 +223,10 @@ private fun TimetableSettingsCard(
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val textResources = textResources()
     val hasSavedUrl = timetableState.url.isNotBlank()
     val host = remember(timetableState.url) {
-        Uri.parse(timetableState.url).host ?: "Calendar subscription"
+        Uri.parse(timetableState.url).host ?: textResources.getString(R.string.profile_calendar_subscription)
     }
 
     Card(
@@ -246,19 +253,19 @@ private fun TimetableSettingsCard(
                         .padding(start = 12.dp)
                 ) {
                     Text(
-                        text = "Timetable URL",
+                        text = textResources.getString(R.string.profile_timetable_url),
                         style = MaterialTheme.typography.titleMedium
                     )
                     Text(
                         text = when {
-                            timetableState.isLoading && !timetableState.isConnected -> "Checking saved URL..."
-                            timetableState.isCached -> "Saved timetable from $host"
+                            timetableState.isLoading && !timetableState.isConnected -> textResources.getString(R.string.profile_checking_saved_url)
+                            timetableState.isCached -> textResources.getString(R.string.profile_saved_timetable_from, host)
                             timetableState.isConnected -> {
-                                timetableState.offlineNotice()
-                                    ?: "Connected to $host - ${timetableState.detectedEventCount} calendar events"
+                                timetableState.offlineNotice()?.resolve(textResources)
+                                    ?: textResources.getQuantityString(R.plurals.connected_event_count, timetableState.detectedEventCount, host, timetableState.detectedEventCount)
                             }
-                            timetableState.errorMessage != null -> timetableState.errorMessage
-                            else -> "No timetable connected"
+                            timetableState.errorMessage != null -> timetableState.errorMessage.resolve(textResources)
+                            else -> textResources.getString(R.string.profile_no_timetable_connected)
                         },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -277,7 +284,7 @@ private fun TimetableSettingsCard(
                             modifier = Modifier.size(18.dp)
                         )
                         Text(
-                            text = "Change",
+                            text = textResources.getString(R.string.permissions_section_change),
                             modifier = Modifier.padding(start = 8.dp)
                         )
                     }
@@ -288,7 +295,7 @@ private fun TimetableSettingsCard(
                             modifier = Modifier.size(18.dp)
                         )
                         Text(
-                            text = "Remove",
+                            text = textResources.getString(R.string.chat_attachments_remove),
                             modifier = Modifier.padding(start = 8.dp)
                         )
                     }
@@ -301,7 +308,7 @@ private fun TimetableSettingsCard(
                         modifier = Modifier.size(18.dp)
                     )
                     Text(
-                        text = "Add URL",
+                        text = textResources.getString(R.string.home_add_url),
                         modifier = Modifier.padding(start = 8.dp)
                     )
                 }
@@ -319,6 +326,7 @@ private fun TravelPreferencesCard(
     onLongerDistanceModeChange: (TravelMode) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val textResources = textResources()
     val longerDistanceOptions = listOf(
         TravelMode.PublicTransport,
         TravelMode.Driving
@@ -344,11 +352,11 @@ private fun TravelPreferencesCard(
                 )
                 Column(modifier = Modifier.padding(start = 12.dp)) {
                     Text(
-                        text = "Walking range",
+                        text = textResources.getString(R.string.profile_walking_range),
                         style = MaterialTheme.typography.titleMedium
                     )
                     Text(
-                        text = "Walk when the destination is within ${formatDistance(walkingThresholdKm)}.",
+                        text = textResources.getString(R.string.profile_walk_when_the_destination_is_within, formatDistance(walkingThresholdKm)),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -369,7 +377,7 @@ private fun TravelPreferencesCard(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "0.5 km",
+                    text = textResources.getString(R.string.profile_0_5_km),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -379,7 +387,7 @@ private fun TravelPreferencesCard(
                     color = MaterialTheme.colorScheme.primary
                 )
                 Text(
-                    text = "3 km",
+                    text = textResources.getString(R.string.profile_3_km),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -387,7 +395,7 @@ private fun TravelPreferencesCard(
 
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    text = "For longer trips",
+                    text = textResources.getString(R.string.profile_for_longer_trips),
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -407,7 +415,7 @@ private fun TravelPreferencesCard(
                                     modifier = Modifier.size(18.dp)
                                 )
                             },
-                            label = { Text(mode.displayName) }
+                            label = { Text(mode.displayName.resolve(textResources)) }
                         )
                     }
                 }
@@ -425,16 +433,16 @@ private fun TravelPreferencesCard(
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Text(
-                        text = "Current route rule",
+                        text = textResources.getString(R.string.profile_current_route_rule),
                         style = MaterialTheme.typography.labelLarge
                     )
                     Text(
-                        text = "Up to ${formatDistance(walkingThresholdKm)}: Walking",
+                        text = textResources.getString(R.string.profile_up_to_walking, formatDistance(walkingThresholdKm)),
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.Medium
                     )
                     Text(
-                        text = "Over ${formatDistance(walkingThresholdKm)}: ${longerDistanceMode.displayName}",
+                        text = textResources.getString(R.string.profile_over, formatDistance(walkingThresholdKm), longerDistanceMode.displayName.resolve(textResources)),
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.Medium
                     )
@@ -444,11 +452,12 @@ private fun TravelPreferencesCard(
     }
 }
 
+@Composable
 private fun formatDistance(distanceKm: Float): String {
     return if (distanceKm == distanceKm.toInt().toFloat()) {
-        "${distanceKm.toInt()} km"
+        stringResource(R.string.label_km, distanceKm.toInt())
     } else {
-        "${distanceKm} km"
+        stringResource(R.string.label_km, distanceKm)
     }
 }
 

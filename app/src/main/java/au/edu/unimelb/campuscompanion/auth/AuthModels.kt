@@ -1,5 +1,8 @@
 package au.edu.unimelb.campuscompanion.auth
 
+import au.edu.unimelb.campuscompanion.ui.text.UiText
+import au.edu.unimelb.campuscompanion.R
+
 data class AuthenticatedUser(
     val id: String,
     val displayName: String?,
@@ -11,10 +14,10 @@ data class AuthenticatedUser(
         get() = displayName ?: email?.substringBefore('@') ?: "Campus Companion user"
 }
 
-enum class SignInProvider(val displayName: String) {
-    Google("Google"),
-    Apple("Apple"),
-    Email("Email")
+enum class SignInProvider(val displayName: UiText) {
+    Google(UiText(R.string.auth_google)),
+    Apple(UiText(R.string.auth_apple)),
+    Email(UiText(R.string.auth_email))
 }
 
 data class AuthUiState(
@@ -23,8 +26,8 @@ data class AuthUiState(
     val isSubmitting: Boolean = false,
     val user: AuthenticatedUser? = null,
     val pendingEmail: String? = null,
-    val errorMessage: String? = null,
-    val infoMessage: String? = null
+    val errorMessage: UiText? = null,
+    val infoMessage: UiText? = null
 ) {
     val requiresProfileName: Boolean
         get() = user != null && user.displayName.isNullOrBlank()
