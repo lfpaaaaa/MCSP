@@ -1,5 +1,7 @@
 package au.edu.unimelb.campuscompanion.data
 
+import au.edu.unimelb.campuscompanion.ui.text.UiText
+import au.edu.unimelb.campuscompanion.R
 import au.edu.unimelb.campuscompanion.ui.model.trimTrailingCommas
 import au.edu.unimelb.campuscompanion.data.model.TimetableGroupSpec
 import au.edu.unimelb.campuscompanion.ui.model.CourseGroup
@@ -72,22 +74,22 @@ class TimetableImporter(
 
             if (!response.status.isSuccess()) {
                 throw TimetableImportException(
-                    "The timetable server returned HTTP ${response.status.value}. Check the URL and try again."
+                    UiText(R.string.timetable_the_timetable_server_returned_http_check_the_url, response.status.value)
                 )
             }
 
             val declaredLength = response.headers[HttpHeaders.ContentLength]?.toLongOrNull()
             if (declaredLength != null && declaredLength > MAX_CALENDAR_BYTES) {
-                throw TimetableImportException("This calendar is too large to import.")
+                throw TimetableImportException(UiText(R.string.timetable_this_calendar_is_too_large_to_import))
             }
 
             val bytes: ByteArray = response.body()
             if (bytes.size > MAX_CALENDAR_BYTES) {
-                throw TimetableImportException("This calendar is too large to import.")
+                throw TimetableImportException(UiText(R.string.timetable_this_calendar_is_too_large_to_import))
             }
             if (!bytes.toString(Charsets.UTF_8).contains("BEGIN:VCALENDAR", ignoreCase = true)) {
                 throw TimetableImportException(
-                    "This URL did not return an iCalendar file. Use the private subscription URL, not the timetable web page."
+                    UiText(R.string.timetable_this_url_did_not_return_an_icalendar_file)
                 )
             }
             Result.success(bytes)
@@ -98,13 +100,13 @@ class TimetableImporter(
         } catch (error: HttpRequestTimeoutException) {
             Result.failure(
                 TimetableImportException(
-                    "The timetable server did not respond in time. Check your connection and try again."
+                    UiText(R.string.timetable_the_timetable_server_did_not_respond_in_time)
                 )
             )
         } catch (error: Exception) {
             Result.failure(
                 TimetableImportException(
-                    "The timetable could not be downloaded or read. Check your connection and subscription URL.",
+                    UiText(R.string.timetable_the_timetable_could_not_be_downloaded_or_read),
                     error
                 )
             )
@@ -128,7 +130,7 @@ class TimetableImporter(
             Result.failure(error)
         } catch (error: Exception) {
             Result.failure(
-                TimetableImportException("The timetable could not be read. Check your subscription URL.", error)
+                TimetableImportException(UiText(R.string.timetable_the_timetable_could_not_be_read_check_your), error)
             )
         }
     }
@@ -165,11 +167,11 @@ class IcsTimetableParser {
             CalendarBuilder(AndroidTimeZoneRegistry()).build(ByteArrayInputStream(bytes))
         } catch (error: LinkageError) {
             throw TimetableImportException(
-                "This calendar uses a time-zone format that is not supported on this device.",
+                UiText(R.string.timetable_this_calendar_uses_a_time_zone_format_that),
                 error
             )
         } catch (error: Exception) {
-            throw TimetableImportException("The downloaded file is not a valid iCalendar timetable.", error)
+            throw TimetableImportException(UiText(R.string.timetable_the_downloaded_file_is_not_a_valid_icalendar), error)
         }
 
         val events = calendar.componentList.all
@@ -364,9 +366,9 @@ class IcsTimetableParser {
 
 /** A calendar that could not be downloaded or parsed; [message] is written for the user. */
 class TimetableImportException(
-    message: String,
+    val userMessage: UiText,
     cause: Throwable? = null
-) : Exception(message, cause)
+) : Exception("Timetable import failed", cause)
 
 private class AndroidTimeZoneRegistry : TimeZoneRegistry {
     private val embeddedZones = ConcurrentHashMap<String, IcalTimeZone>()

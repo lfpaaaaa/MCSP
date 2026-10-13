@@ -1,5 +1,7 @@
 package au.edu.unimelb.campuscompanion.data
 
+import au.edu.unimelb.campuscompanion.english
+
 import au.edu.unimelb.campuscompanion.data.model.TimetableGroupSpec
 import au.edu.unimelb.campuscompanion.ui.model.CourseGroup
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
@@ -69,7 +71,7 @@ class TimetableCacheTest {
         assertTrue(session.state.value.isConnected)
         assertTrue(session.state.value.isCached)
         assertFalse(session.state.value.isLoading)
-        assertEquals("Offline", session.state.value.errorMessage)
+        assertEquals("The timetable could not be refreshed.", session.state.value.errorMessage?.english())
         assertEquals(before, disk)
     }
 

@@ -1,5 +1,11 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import au.edu.unimelb.campuscompanion.ui.text.textResources
+import au.edu.unimelb.campuscompanion.R
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.rememberScrollState
@@ -21,6 +27,7 @@ internal fun GroupInviteQrDialog(
     createInvite: suspend () -> Result<GroupInvite>,
     onDismiss: () -> Unit
 ) {
+    val textResources = textResources()
     var invite by remember { mutableStateOf<GroupInvite?>(null) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -30,32 +37,32 @@ internal fun GroupInviteQrDialog(
     LaunchedEffect(Unit) { while (true) { now = Instant.now(); delay(1_000) } }
     LaunchedEffect(refresh) {
         loading = true; error = null; invite = null
-        try { latestCreate().fold(onSuccess = { invite = it }, onFailure = { error = it.toUserMessage().body }) }
+        try { latestCreate().fold(onSuccess = { invite = it }, onFailure = { error = it.toUserMessage().body.resolve(textResources) }) }
         catch (cancelled: CancellationException) { throw cancelled }
-        catch (failure: Exception) { error = failure.toUserMessage().body }
+        catch (failure: Exception) { error = failure.toUserMessage().body.resolve(textResources) }
         finally { loading = false }
     }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Share QR code") },
+        title = { Text(textResources.getString(R.string.group_invite_qr_share_qr_code)) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(groupName)
-                if (loading) CircularProgressIndicator()
-                error?.let { Text(it) }
+                if (loading) CircularProgressIndicator(Modifier.semantics { contentDescription = textResources.getString(R.string.nfc_share_creating_invitation) })
+                error?.let { Text(it, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
                 invite?.let { current ->
                     if (current.isExpired(now)) {
-                        Text("This QR invitation has expired. Generate a new one to share.")
+                        Text(textResources.getString(R.string.group_invite_qr_this_qr_invitation_has_expired_generate_a_new), modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                     } else {
                         GroupQrDownload(current.joinUri)
                         val seconds = Duration.between(now, current.expiresAt).seconds.coerceAtLeast(0)
-                        Text("QR invitation expires in ${seconds / 60}:${(seconds % 60).toString().padStart(2, '0')}.")
-                        Text("Scan in Campus Companion to join. Downloaded images have the same expiry.")
+                        Text(textResources.getString(R.string.copy_qr_invitation_expires_in, seconds / 60, (seconds % 60).toString().padStart(2, '0')))
+                        Text(textResources.getString(R.string.group_invite_qr_scan_in_campus_companion_to_join_downloaded_images))
                     }
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
-        dismissButton = { TextButton(enabled = !loading, onClick = { refresh++ }) { Text("New QR code") } }
+        confirmButton = { TextButton(onClick = onDismiss) { Text(textResources.getString(R.string.course_reminder_settings_done)) } },
+        dismissButton = { TextButton(enabled = !loading, onClick = { refresh++ }) { Text(textResources.getString(R.string.group_invite_qr_new_qr_code)) } }
     )
 }

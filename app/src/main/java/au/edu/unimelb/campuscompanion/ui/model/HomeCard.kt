@@ -1,5 +1,8 @@
 package au.edu.unimelb.campuscompanion.ui.model
 
+import au.edu.unimelb.campuscompanion.R
+import au.edu.unimelb.campuscompanion.ui.text.UiText
+import au.edu.unimelb.campuscompanion.context.needsUrgentDeparture
 import au.edu.unimelb.campuscompanion.context.ContextEngine
 import au.edu.unimelb.campuscompanion.context.ContextState
 import au.edu.unimelb.campuscompanion.context.TravelSnapshot
@@ -24,37 +27,38 @@ data class HomeCardUiState(
     val weatherBufferMinutes: Int,
     val entryAllowanceMinutes: Int,
     /** Validated post-class occurrence; can coexist with urgent guidance for the next class. */
-    val finishedSession: CourseSession?
+    val finishedSession: CourseSession?,
+    val urgentDeparture: Boolean = false
 ) {
     val isUpdating: Boolean get() = state == null
 
     /** Calendar feeds can embed the room in location rather than the separate room field. */
-    val destinationText: String
+    val destinationText: UiText
         get() = listOfNotNull(building?.name, session?.location, session?.room)
             .map(String::trim)
             .filter { it.isNotBlank() && it != "Location not provided" }
             .distinct()
             .joinToString(" · ")
-            .ifBlank { "Location not provided" }
+            .let { if (it.isBlank()) UiText(R.string.home_location_missing) else UiText.Literal(it) }
 
-    val statusLabel: String
-        get() = when (state) {
-            null -> "Updating"
-            ContextState.NO_UPCOMING_CLASS -> "Not today"
-            ContextState.LONG_BREAK -> "Long break"
-            ContextState.UPCOMING -> "Upcoming"
-            ContextState.LEAVE_SOON -> "Leave soon"
-            ContextState.EN_ROUTE -> "En route"
-            ContextState.RUNNING_LATE -> "Running late"
-            ContextState.ARRIVED -> "Arrived"
-            ContextState.IN_CLASS -> "In class"
+    val statusLabel: UiText
+        get() = if (urgentDeparture) UiText(R.string.home_leave_now) else when (state) {
+            null -> UiText(R.string.home_status_updating)
+            ContextState.NO_UPCOMING_CLASS -> UiText(R.string.home_status_not_today)
+            ContextState.LONG_BREAK -> UiText(R.string.home_status_long_break)
+            ContextState.UPCOMING -> UiText(R.string.home_status_upcoming)
+            ContextState.LEAVE_SOON -> UiText(R.string.home_status_leave_soon)
+            ContextState.EN_ROUTE -> UiText(R.string.home_status_en_route)
+            ContextState.RUNNING_LATE -> UiText(R.string.home_status_running_late)
+            ContextState.ARRIVED -> UiText(R.string.home_status_arrived)
+            ContextState.IN_CLASS -> UiText(R.string.home_status_in_class)
             // This pill belongs to the next class; the finished class remains available separately.
-            ContextState.POST_CLASS -> if (session != null) "Upcoming" else "Post class"
+            ContextState.POST_CLASS -> if (session != null) UiText(R.string.home_status_upcoming) else UiText(R.string.home_status_post_class)
         }
 
     /** Reuses the existing pill colours only; [state] remains the full engine decision. */
     val statusTone: SessionStatus
-        get() = when (state) {
+        get() = if (urgentDeparture) SessionStatus.LeaveSoon else when (state) {
             null, ContextState.LONG_BREAK, ContextState.UPCOMING -> SessionStatus.Upcoming
             ContextState.NO_UPCOMING_CLASS -> SessionStatus.Finished
             ContextState.LEAVE_SOON, ContextState.RUNNING_LATE -> SessionStatus.LeaveSoon
@@ -100,7 +104,8 @@ fun buildHomeCardState(
         leadMinutes = current?.leadMinutes ?: 0,
         weatherBufferMinutes = current?.weatherBufferMinutes ?: 0,
         entryAllowanceMinutes = current?.entryAllowanceMinutes ?: 0,
-        finishedSession = finishedSession.takeIf { matches }
+        finishedSession = finishedSession.takeIf { matches },
+        urgentDeparture = current?.needsUrgentDeparture(now.toInstant()) == true
     )
 }
 

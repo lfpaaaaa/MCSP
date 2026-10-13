@@ -1,5 +1,7 @@
 package au.edu.unimelb.campuscompanion.data.fake
 
+import au.edu.unimelb.campuscompanion.ui.text.UiText
+import au.edu.unimelb.campuscompanion.R
 import au.edu.unimelb.campuscompanion.data.DataError
 import au.edu.unimelb.campuscompanion.data.model.SharedFile
 import au.edu.unimelb.campuscompanion.data.model.UploadState
@@ -34,7 +36,7 @@ class FakeFileRepository(
         allowDownloads: Boolean
     ): Flow<UploadState> = flow {
         if (bytes.isEmpty() || bytes.size > FileRepository.MAX_FILE_SIZE_BYTES) {
-            emit(UploadState.Failed(DataError.Validation("Files must be between 1 byte and 20 MB.")))
+            emit(UploadState.Failed(DataError.Validation(UiText(R.string.validation_files_must_be_between_1_byte_and_20))))
             return@flow
         }
         val total = bytes.size.toLong()

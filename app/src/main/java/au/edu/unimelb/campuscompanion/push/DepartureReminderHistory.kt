@@ -3,7 +3,7 @@ package au.edu.unimelb.campuscompanion.push
 import android.content.Context
 import android.net.Uri
 import android.util.Log
-import au.edu.unimelb.campuscompanion.context.ContextState
+import au.edu.unimelb.campuscompanion.context.DepartureReminderStage
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
 import java.time.Instant
 
@@ -15,23 +15,27 @@ class DepartureReminderHistory(
 ) {
     private val storage = context.applicationContext.getSharedPreferences(preferenceName, Context.MODE_PRIVATE)
 
-    fun wasSent(userId: String, session: CourseSession, state: ContextState): Boolean =
-        storage.getLong(key(userId, session, state), 0L) > now().toEpochMilli()
+    fun wasSent(userId: String, session: CourseSession, stage: DepartureReminderStage): Boolean =
+        storage.getLong(key(userId, session, stage), 0L) > now().toEpochMilli()
 
     /** Call off the main thread: delivery is recorded on disk before this method returns. */
-    fun record(userId: String, session: CourseSession, state: ContextState): Boolean {
+    fun record(userId: String, session: CourseSession, stage: DepartureReminderStage): Boolean {
         val cutoff = now().toEpochMilli()
         val expiry = session.end.toInstant().toEpochMilli()
         val saved = storage.edit().apply {
             storage.all.forEach { (key, expiry) -> if (expiry is Long && expiry <= cutoff) remove(key) }
-            if (expiry > cutoff) putLong(key(userId, session, state), expiry)
+            if (expiry > cutoff) putLong(key(userId, session, stage), expiry)
         }.commit()
         if (!saved) Log.w("DepartureReminderHistory", "Could not persist departure reminder delivery")
         return saved
     }
 
-    // The former TravelState.RUNNING_LATE meant reaching the leave-by time. Keep its records
-    // separate from the ContextEngine's actual lateness reminders, and distinguish recurrences.
-    private fun key(userId: String, session: CourseSession, state: ContextState) =
-        "context-v1:${Uri.encode(userId)}:${Uri.encode(session.id)}:${session.start.toInstant()}:${state.name}"
+    // Keep the main branch's occurrence/account history while adding the earlier urgent warning.
+    private val DepartureReminderStage.storageKey: String
+        get() = when (this) {
+            DepartureReminderStage.Prepare -> "LEAVE_SOON"
+            DepartureReminderStage.LeaveNow -> "RUNNING_LATE"
+        }
+    private fun key(userId: String, session: CourseSession, stage: DepartureReminderStage) =
+        "context-v1:${Uri.encode(userId)}:${Uri.encode(session.id)}:${session.start.toInstant()}:${stage.storageKey}"
 }

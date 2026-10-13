@@ -1,5 +1,7 @@
 package au.edu.unimelb.campuscompanion.profile
 
+import au.edu.unimelb.campuscompanion.ui.text.UiText
+import au.edu.unimelb.campuscompanion.R
 import au.edu.unimelb.campuscompanion.auth.AuthenticatedUser
 import au.edu.unimelb.campuscompanion.data.DataError
 import java.util.UUID
@@ -15,13 +17,13 @@ sealed interface AvatarChange {
     class Replace(val bytes: ByteArray) : AvatarChange
 }
 
-data class ProfileSaveState(val saving: Boolean = false, val saved: Boolean = false, val error: String? = null)
+data class ProfileSaveState(val saving: Boolean = false, val saved: Boolean = false, val error: UiText? = null)
 
 fun normalizedProfileName(name: String): String = name.trim().replace(Regex("\\s+"), " ")
 
-fun profileNameError(name: String): String? = when (normalizedProfileName(name).length) {
+fun profileNameError(name: String): UiText? = when (normalizedProfileName(name).length) {
     in 2..80 -> null
-    else -> "Use 2 to 80 characters for your display name."
+    else -> UiText(R.string.profile_use_2_to_80_characters_for_your_display)
 }
 
 internal fun avatarPath(reference: String?): String? = reference?.takeIf { it.startsWith(AVATAR_PREFIX) }
@@ -47,7 +49,7 @@ class ProfileUpdater(private val remote: ProfileRemote) {
             AvatarChange.Remove -> ""
             is AvatarChange.Replace -> {
                 if (avatar.bytes.isEmpty() || avatar.bytes.size > MAX_AVATAR_BYTES) {
-                    throw DataError.Validation("Choose a smaller photo and try again.")
+                    throw DataError.Validation(UiText(R.string.validation_choose_a_smaller_photo_and_try_again))
                 }
                 val path = "${user.id}/${UUID.randomUUID()}.jpg"
                 remote.uploadAvatar(path, avatar.bytes)

@@ -1,5 +1,10 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import au.edu.unimelb.campuscompanion.ui.text.textResources
+import au.edu.unimelb.campuscompanion.R
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ErrorOutline
@@ -21,25 +26,26 @@ fun NfcShareDialog(
     onTryAgain: () -> Unit,
     onOpenNfcSettings: () -> Unit
 ) {
+    val textResources = textResources()
     val isCreating = state is NfcShareUiState.CreatingInvite
     val title = when (state) {
         NfcShareUiState.Idle -> ""
-        NfcShareUiState.CreatingInvite -> "Creating invitation"
-        NfcShareUiState.Disabled -> "Turn on NFC"
-        NfcShareUiState.Unsupported -> "NFC sharing is not available"
-        is NfcShareUiState.Ready -> "Ready to share"
-        is NfcShareUiState.Shared -> "Invitation shared"
+        NfcShareUiState.CreatingInvite -> textResources.getString(R.string.nfc_share_creating_invitation)
+        NfcShareUiState.Disabled -> textResources.getString(R.string.groups_turn_on_nfc)
+        NfcShareUiState.Unsupported -> textResources.getString(R.string.presentation_nfc_sharing_is_not_available)
+        is NfcShareUiState.Ready -> textResources.getString(R.string.nfc_share_ready_to_share)
+        is NfcShareUiState.Shared -> textResources.getString(R.string.nfc_share_invitation_shared)
         is NfcShareUiState.Failed -> state.title
     }
     val message = when (state) {
         NfcShareUiState.Idle -> ""
-        NfcShareUiState.CreatingInvite -> "Preparing a secure group invitation."
-        NfcShareUiState.Disabled -> "NFC is switched off on this device. Turn it on, then return and try again."
-        NfcShareUiState.Unsupported -> "This phone cannot share invitations with NFC. Use the QR invitation instead."
+        NfcShareUiState.CreatingInvite -> textResources.getString(R.string.nfc_share_preparing_a_secure_group_invitation)
+        NfcShareUiState.Disabled -> textResources.getString(R.string.groups_nfc_is_switched_off_on_this_device_turn)
+        NfcShareUiState.Unsupported -> textResources.getString(R.string.nfc_share_this_phone_cannot_share_invitations_with_nfc_use)
         is NfcShareUiState.Ready -> {
-            "On the other phone, tap NFC join, then hold the backs of both phones together. The ${state.groupName} invitation expires in 10 minutes."
+            textResources.getString(R.string.nfc_share_on_the_other_phone_tap_nfc_join_then, state.groupName)
         }
-        is NfcShareUiState.Shared -> "The other phone received the ${state.groupName} invitation."
+        is NfcShareUiState.Shared -> textResources.getString(R.string.nfc_share_the_other_phone_received_the_invitation, state.groupName)
         is NfcShareUiState.Failed -> state.message
     }
 
@@ -65,28 +71,28 @@ fun NfcShareDialog(
             }
         },
         title = { Text(title) },
-        text = { Text(message) },
+        text = { Text(message, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) },
         confirmButton = {
             when (state) {
                 NfcShareUiState.Disabled -> TextButton(onClick = onOpenNfcSettings) {
-                    Text("Open NFC settings")
+                    Text(textResources.getString(R.string.groups_open_nfc_settings))
                 }
                 is NfcShareUiState.Failed -> TextButton(onClick = onTryAgain) {
-                    Text("Try again")
+                    Text(textResources.getString(R.string.groups_try_again))
                 }
                 NfcShareUiState.CreatingInvite -> Unit
                 is NfcShareUiState.Ready -> TextButton(onClick = onDismiss) {
-                    Text("Stop sharing")
+                    Text(textResources.getString(R.string.nfc_share_stop_sharing))
                 }
                 else -> TextButton(onClick = onDismiss) {
-                    Text("Done")
+                    Text(textResources.getString(R.string.course_reminder_settings_done))
                 }
             }
         },
         dismissButton = {
             if (state is NfcShareUiState.Disabled || state is NfcShareUiState.Failed) {
                 TextButton(onClick = onDismiss) {
-                    Text("Cancel")
+                    Text(textResources.getString(R.string.action_cancel))
                 }
             }
         }

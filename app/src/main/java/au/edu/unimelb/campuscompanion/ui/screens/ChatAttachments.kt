@@ -1,5 +1,12 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import au.edu.unimelb.campuscompanion.ui.text.UiText
+import au.edu.unimelb.campuscompanion.ui.text.textResources
+import au.edu.unimelb.campuscompanion.R
 import android.content.Intent
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -35,18 +42,19 @@ import java.time.format.DateTimeFormatter
 
 @Composable
 internal fun SharedAttachmentBubble(file: SharedFile, isMine: Boolean, onOpen: () -> Unit) {
+    val textResources = textResources()
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start) {
         Card(onClick = onOpen, modifier = Modifier.widthIn(max = 300.dp)) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(if (isMine) "You" else file.uploaderName, style = MaterialTheme.typography.labelMedium)
+                Text(if (isMine) textResources.getString(R.string.chat_attachments_you) else file.uploaderName, style = MaterialTheme.typography.labelMedium)
                 Text(file.fileName, style = MaterialTheme.typography.titleSmall)
                 val kind = when {
-                    file.mimeType.startsWith("image/") -> "Photo"
-                    file.mimeType.startsWith("video/") -> "Video"
-                    else -> "File"
+                    file.mimeType.startsWith("image/") -> textResources.getString(R.string.chat_attachments_photo)
+                    file.mimeType.startsWith("video/") -> textResources.getString(R.string.chat_attachments_video)
+                    else -> textResources.getString(R.string.chat_attachments_file)
                 }
-                Text("$kind · ${"%.1f".format(file.sizeBytes / 1024.0)} KB", style = MaterialTheme.typography.bodySmall)
-                Text(if (!file.allowDownloads && !isMine) "Tap to preview" else "Tap to view or download", color = MaterialTheme.colorScheme.primary)
+                Text(textResources.getString(R.string.attachment_kind_size, kind, formatFileSize(file.sizeBytes)), style = MaterialTheme.typography.bodySmall)
+                Text(if (!file.allowDownloads && !isMine) textResources.getString(R.string.chat_attachments_tap_to_preview) else textResources.getString(R.string.chat_attachments_tap_to_view_or_download), color = MaterialTheme.colorScheme.primary)
                 Text(file.createdAt.atZone(ZoneId.systemDefault())
                     .format(DateTimeFormatter.ofPattern("MMM d, h:mm a")), style = MaterialTheme.typography.labelSmall)
             }
@@ -56,20 +64,21 @@ internal fun SharedAttachmentBubble(file: SharedFile, isMine: Boolean, onOpen: (
 
 @Composable
 internal fun AttachmentUploadBubble(upload: AttachmentUpload, onRetry: () -> Unit, onDismiss: () -> Unit) {
+    val textResources = textResources()
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(upload.fileName)
             when (upload.phase) {
                 AttachmentPhase.Uploading -> {
-                    LinearProgressIndicator(progress = { upload.progress }, modifier = Modifier.fillMaxWidth())
-                    Text("Uploading ${(upload.progress * 100).toInt()}%", style = MaterialTheme.typography.labelSmall)
+                    LinearProgressIndicator(progress = { upload.progress }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = textResources.getString(R.string.a11y_uploading_file, upload.fileName) })
+                    Text(textResources.getString(R.string.chat_attachments_uploading, (upload.progress * 100).toInt()), style = MaterialTheme.typography.labelSmall)
                 }
-                AttachmentPhase.Completed -> Text("Uploaded · syncing…")
+                AttachmentPhase.Completed -> Text(textResources.getString(R.string.chat_attachments_uploaded_syncing), modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                 AttachmentPhase.Failed -> {
-                    Text(upload.error ?: "Upload failed", color = MaterialTheme.colorScheme.error)
+                    Text(upload.error ?: textResources.getString(R.string.chat_attachments_upload_failed), color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                     Row {
-                        TextButton(onClick = onRetry) { Text("Retry") }
-                        TextButton(onClick = onDismiss) { Text("Remove") }
+                        TextButton(onClick = onRetry, modifier = Modifier.semantics { contentDescription = textResources.getString(R.string.a11y_retry_upload, upload.fileName) }) { Text(textResources.getString(R.string.action_retry)) }
+                        TextButton(onClick = onDismiss, modifier = Modifier.semantics { contentDescription = textResources.getString(R.string.a11y_remove_file, upload.fileName) }) { Text(textResources.getString(R.string.chat_attachments_remove)) }
                     }
                 }
             }
@@ -80,10 +89,11 @@ internal fun AttachmentUploadBubble(upload: AttachmentUpload, onRetry: () -> Uni
 /** Retrieves protected bytes using a fresh signed URL, then previews or saves those bytes. */
 @Composable
 internal fun ChatAttachmentViewer(file: SharedFile, currentUserId: String, onDismiss: () -> Unit) {
+    val textResources = textResources()
     val context = LocalContext.current
     val canDownload = file.canDownloadBy(currentUserId)
     val canPreview = file.mimeType.startsWith("image/") || file.mimeType.startsWith("video/") ||
-        file.mimeType == "application/pdf" || file.mimeType.startsWith("text/")
+        file.mimeType == "application/pdf" || file.mimeType.startsWith("text/") || file.mimeType.startsWith("audio/")
     val scope = rememberCoroutineScope()
     var localFile by remember(file.id) { mutableStateOf<File?>(null) }
     var bitmap by remember(file.id) { mutableStateOf<ImageBitmap?>(null) }
@@ -102,11 +112,11 @@ internal fun ChatAttachmentViewer(file: SharedFile, currentUserId: String, onDis
                 withContext(Dispatchers.IO) {
                     context.contentResolver.openOutputStream(uri)?.use { output ->
                         source.inputStream().use { it.copyTo(output) }
-                    } ?: throw DataError.Validation("The selected location could not be written.")
+                    } ?: throw DataError.Validation(UiText(R.string.validation_the_selected_location_could_not_be_written))
                 }
                 saved = true
             } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { error = e.toUserMessage().body }
+            catch (e: Exception) { error = e.toUserMessage().body.resolve(textResources) }
             finally { saving = false }
         }
     }
@@ -125,10 +135,10 @@ internal fun ChatAttachmentViewer(file: SharedFile, currentUserId: String, onDis
                     while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 1600) sample *= 2
                     BitmapFactory.decodeFile(downloaded.path, BitmapFactory.Options().apply { inSampleSize = sample })?.asImageBitmap()
                 }
-                if (bitmap == null) error = "This image cannot be previewed. You can still download it."
+                if (bitmap == null) error = textResources.getString(R.string.chat_attachments_this_image_cannot_be_previewed_you_can_still)
             }
         } catch (e: CancellationException) { throw e }
-        catch (e: Exception) { error = e.toUserMessage().body }
+        catch (e: Exception) { error = e.toUserMessage().body.resolve(textResources) }
         finally { loading = false }
     }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -146,11 +156,12 @@ internal fun ChatAttachmentViewer(file: SharedFile, currentUserId: String, onDis
         text = {
             Column(Modifier.fillMaxWidth().heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (!file.allowDownloads) Text(if (canDownload) "Only you can download this attachment." else "Downloads disabled by the uploader.")
-                if (!canPreview) Text("In-app preview is not available for this file type.")
-                if (loading) CircularProgressIndicator()
+                if (!file.allowDownloads) Text(if (canDownload) textResources.getString(R.string.chat_attachments_only_you_can_download_this_attachment) else textResources.getString(R.string.chat_attachments_downloads_disabled_by_the_uploader))
+                if (!canPreview) Text(textResources.getString(R.string.chat_attachments_in_app_preview_is_not_available_for_this))
+                if (loading) CircularProgressIndicator(Modifier.semantics { contentDescription = textResources.getString(R.string.a11y_loading_file, file.fileName) })
                 bitmap?.let { Image(it, contentDescription = file.fileName, modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp)) }
                 localFile?.let { source ->
+                    if (file.mimeType.startsWith("audio/")) AudioAttachmentPlayer(source)
                     if (file.mimeType == "application/pdf") PdfAttachmentPreview(source) { error = it }
                     if (file.mimeType.startsWith("text/")) TextAttachmentPreview(source) { error = it }
                     if (file.mimeType.startsWith("video/")) {
@@ -160,7 +171,7 @@ internal fun ChatAttachmentViewer(file: SharedFile, currentUserId: String, onDis
                                 setMediaController(MediaController(viewContext).also { it.setAnchorView(this) })
                                 setVideoURI(Uri.fromFile(source))
                                 setOnPreparedListener { start() }
-                                setOnErrorListener { _, _, _ -> error = "This video cannot be played here. Try opening or downloading it."; true }
+                                setOnErrorListener { _, _, _ -> error = textResources.getString(R.string.chat_attachments_this_video_cannot_be_played_here_try_opening); true }
                             }
                         })
                     }
@@ -173,16 +184,17 @@ internal fun ChatAttachmentViewer(file: SharedFile, currentUserId: String, onDis
                                     .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
                             } catch (e: CancellationException) { throw e }
                             catch (_: android.content.ActivityNotFoundException) {
-                                error = "No app can open this file type. Use Download to save it."
-                            } catch (e: Exception) { error = e.toUserMessage().body }
+                                error = textResources.getString(R.string.chat_attachments_no_app_can_open_this_file_type_use)
+                            } catch (e: Exception) { error = e.toUserMessage().body.resolve(textResources) }
                         }
-                    }) { Text("Open in another app") }
+                    }) { Text(textResources.getString(R.string.chat_attachments_open_in_another_app)) }
                 }
-                error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                if (file.mimeType.startsWith("audio/")) TranscriptPanel(file, currentUserId)
+                error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
                 if (error != null && localFile == null && !loading) {
-                    TextButton(onClick = { attempt++ }) { Text("Retry") }
+                    TextButton(onClick = { attempt++ }) { Text(textResources.getString(R.string.action_retry)) }
                 }
-                if (saved) Text("Saved")
+                if (saved) Text(textResources.getString(R.string.chat_attachments_saved))
             }
         },
         confirmButton = {
@@ -192,10 +204,10 @@ internal fun ChatAttachmentViewer(file: SharedFile, currentUserId: String, onDis
                         AppRepositories.files.createDownloadUrl(file.id).getOrThrow()
                         saveDocument.launch(file.fileName.substringAfterLast('/').substringAfterLast('\\'))
                     } catch (e: CancellationException) { throw e }
-                    catch (e: Exception) { error = e.toUserMessage().body }
+                    catch (e: Exception) { error = e.toUserMessage().body.resolve(textResources) }
                 }
-            }) { Text(if (saving) "Saving…" else "Download") }
+            }) { Text(if (saving) textResources.getString(R.string.chat_attachments_saving) else textResources.getString(R.string.chat_attachments_download)) }
         },
-        dismissButton = { TextButton(enabled = !saving, onClick = onDismiss) { Text("Close") } }
+        dismissButton = { TextButton(enabled = !saving, onClick = onDismiss) { Text(textResources.getString(R.string.chat_attachments_close)) } }
     )
 }

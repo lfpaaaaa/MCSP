@@ -1,12 +1,14 @@
 package au.edu.unimelb.campuscompanion.data
 
+import au.edu.unimelb.campuscompanion.ui.text.UiText
+import au.edu.unimelb.campuscompanion.R
 import android.content.Context
 
 /** How the user travels to class; [displayName] is the label on screen. */
-enum class TravelMode(val displayName: String) {
-    Walking("Walking"),
-    PublicTransport("Public transport"),
-    Driving("Driving")
+enum class TravelMode(val displayName: UiText) {
+    Walking(UiText(R.string.navigation_walking)),
+    PublicTransport(UiText(R.string.navigation_public_transport)),
+    Driving(UiText(R.string.navigation_driving))
 }
 
 /**

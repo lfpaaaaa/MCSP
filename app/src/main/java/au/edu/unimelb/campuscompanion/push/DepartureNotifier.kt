@@ -83,9 +83,9 @@ object DepartureNotifier {
         )
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle(reminder.title)
-            .setContentText(reminder.text)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(reminder.text))
+            .setContentTitle(reminder.title.resolve(context.resources))
+            .setContentText(reminder.text.resolve(context.resources))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(reminder.text.resolve(context.resources)))
             .setContentIntent(tap)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -118,10 +118,10 @@ object DepartureNotifier {
     private fun createChannel(context: Context) {
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "Departure reminders",
+            context.getString(R.string.campus_companion_app_departure_reminders),
             NotificationManager.IMPORTANCE_HIGH
         ).apply {
-            description = "When it is time to leave for your next class"
+            description = context.getString(R.string.notification_when_it_is_time_to_leave_for_your)
             enableVibration(true)
         }
         manager(context).createNotificationChannel(channel)

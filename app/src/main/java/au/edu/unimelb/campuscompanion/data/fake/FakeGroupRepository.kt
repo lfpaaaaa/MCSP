@@ -1,7 +1,8 @@
 package au.edu.unimelb.campuscompanion.data.fake
 
+import au.edu.unimelb.campuscompanion.ui.text.UiText
+import au.edu.unimelb.campuscompanion.R
 import au.edu.unimelb.campuscompanion.data.model.TimetableGroupSpec
-
 import au.edu.unimelb.campuscompanion.data.slotLabel
 import au.edu.unimelb.campuscompanion.data.DataError
 import au.edu.unimelb.campuscompanion.data.model.Group
@@ -86,7 +87,7 @@ class FakeGroupRepository(
     override suspend fun setMyNickname(groupId: String, nickname: String): Result<String> {
         val name = nickname.trim()
         if (name.isEmpty() || name.length > 40)
-            return Result.failure(DataError.Validation("Group nicknames need 1 to 40 characters."))
+            return Result.failure(DataError.Validation(UiText(R.string.validation_group_nicknames_need_1_to_40_characters)))
         if (members.value[groupId].orEmpty().none { it.userId == currentUserId })
             return Result.failure(DataError.Forbidden())
         members.update { map -> map + (groupId to map[groupId].orEmpty().map {

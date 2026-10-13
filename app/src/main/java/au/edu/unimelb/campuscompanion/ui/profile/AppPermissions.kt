@@ -1,5 +1,7 @@
 package au.edu.unimelb.campuscompanion.ui.profile
 
+import au.edu.unimelb.campuscompanion.ui.text.UiText
+import au.edu.unimelb.campuscompanion.R
 import android.Manifest
 import android.app.Activity
 import android.content.ActivityNotFoundException
@@ -15,23 +17,23 @@ import androidx.core.content.ContextCompat
 import au.edu.unimelb.campuscompanion.push.Notifications
 
 /** A permission the app asks for, with the reason shown on the Profile screen. */
-enum class AppPermission(val title: String, val purpose: String) {
+enum class AppPermission(val title: UiText, val purpose: UiText) {
     Location(
-        title = "Location",
-        purpose = "How far you are from your next class and when you have arrived, read on this phone " +
-            "around class times."
+        title = UiText(R.string.permission_location),
+        purpose = UiText(R.string.permission_how_far_you_are_from_your_next_class_2)
     ),
     Notifications(
-        title = "Notifications",
-        purpose = "Departure reminders and new messages in your groups."
+        title = UiText(R.string.permission_notifications),
+        purpose = UiText(R.string.permission_departure_reminders_and_new_messages_in_your_groups)
     ),
     Camera(
-        title = "Camera",
-        purpose = "Photos for the group chat and scanning invitation QR codes."
+        title = UiText(R.string.group_chat_camera),
+        purpose = UiText(R.string.permission_photos_for_the_group_chat_and_scanning_invitation)
     ),
+    Microphone(title = UiText(R.string.permission_microphone), purpose = UiText(R.string.permission_record_audio_to_share_in_a_group_recording)),
     PhysicalActivity(
-        title = "Physical activity",
-        purpose = "Tells walking from riding, so travel times use the right mode."
+        title = UiText(R.string.permission_physical_activity),
+        purpose = UiText(R.string.permission_tells_walking_from_riding_so_travel_times_use)
     );
 
     /** The runtime permissions to request for this entry, or none when the system handles it. */
@@ -44,6 +46,7 @@ enum class AppPermission(val title: String, val purpose: String) {
                 emptyList()
             }
             Camera -> listOf(Manifest.permission.CAMERA)
+            Microphone -> listOf(Manifest.permission.RECORD_AUDIO)
             PhysicalActivity -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 listOf(Manifest.permission.ACTIVITY_RECOGNITION)
             } else {
@@ -57,7 +60,7 @@ data class PermissionStatus(
     val permission: AppPermission,
     val granted: Boolean,
     /** One line describing the state, such as "Precise location" or "Not allowed". */
-    val detail: String
+    val detail: UiText
 )
 
 /** Reads the real permission state and opens the system pages where it can be changed. */
@@ -70,6 +73,7 @@ object AppPermissions {
         ),
         notifications(allowed = Notifications.canNotify(context)),
         camera(granted = context.has(Manifest.permission.CAMERA)),
+        PermissionStatus(AppPermission.Microphone, context.has(Manifest.permission.RECORD_AUDIO), if (context.has(Manifest.permission.RECORD_AUDIO)) UiText(R.string.permissions_section_allowed) else UiText(R.string.permission_asked_for_when_you_start_a_recording)),
         physicalActivity(
             granted = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
                 context.has(Manifest.permission.ACTIVITY_RECOGNITION)
@@ -80,28 +84,28 @@ object AppPermissions {
         permission = AppPermission.Location,
         granted = fine || coarse,
         detail = when {
-            fine -> "Precise location"
-            coarse -> "Approximate location only; precise location makes arrival detection reliable"
-            else -> "Not allowed; the next-class card cannot show travel times"
+            fine -> UiText(R.string.permission_precise_location)
+            coarse -> UiText(R.string.permission_approximate_location_only_precise_location_makes_arrival_detection)
+            else -> UiText(R.string.permission_not_allowed_the_next_class_card_cannot_show)
         }
     )
 
     internal fun notifications(allowed: Boolean) = PermissionStatus(
         permission = AppPermission.Notifications,
         granted = allowed,
-        detail = if (allowed) "Allowed" else "Not allowed; reminders and message alerts stay silent"
+        detail = if (allowed) UiText(R.string.permissions_section_allowed) else UiText(R.string.permission_not_allowed_reminders_and_message_alerts_stay_silent)
     )
 
     internal fun camera(granted: Boolean) = PermissionStatus(
         permission = AppPermission.Camera,
         granted = granted,
-        detail = if (granted) "Allowed" else "Asked for when you first take a photo or scan a code"
+        detail = if (granted) UiText(R.string.permissions_section_allowed) else UiText(R.string.permission_asked_for_when_you_first_take_a_photo)
     )
 
     internal fun physicalActivity(granted: Boolean) = PermissionStatus(
         permission = AppPermission.PhysicalActivity,
         granted = granted,
-        detail = if (granted) "Allowed" else "Not allowed; travel times assume you are walking"
+        detail = if (granted) UiText(R.string.permissions_section_allowed) else UiText(R.string.permission_not_allowed_travel_times_assume_you_are_walking)
     )
 
     /** True when the system has granted [permission] (a `Manifest.permission` name) to this app. */

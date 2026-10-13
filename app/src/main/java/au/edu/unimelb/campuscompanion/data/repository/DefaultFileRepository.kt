@@ -1,5 +1,7 @@
 package au.edu.unimelb.campuscompanion.data.repository
 
+import au.edu.unimelb.campuscompanion.ui.text.UiText
+import au.edu.unimelb.campuscompanion.R
 import au.edu.unimelb.campuscompanion.data.DataError
 import au.edu.unimelb.campuscompanion.data.model.CurrentUser
 import au.edu.unimelb.campuscompanion.data.model.SharedFile
@@ -69,11 +71,11 @@ class DefaultFileRepository(
     ): Flow<UploadState> = flow {
         val name = fileName.trim()
         if (bytes.isEmpty() || bytes.size > FileRepository.MAX_FILE_SIZE_BYTES) {
-            emit(UploadState.Failed(DataError.Validation("Files must be between 1 byte and 20 MB.")))
+            emit(UploadState.Failed(DataError.Validation(UiText(R.string.validation_files_must_be_between_1_byte_and_20))))
             return@flow
         }
         if (name.isEmpty() || name.length > MAX_FILE_NAME_LENGTH) {
-            emit(UploadState.Failed(DataError.Validation("File names need 1 to $MAX_FILE_NAME_LENGTH characters.")))
+            emit(UploadState.Failed(DataError.Validation(UiText(R.string.validation_file_names_need_1_to_characters, MAX_FILE_NAME_LENGTH))))
             return@flow
         }
         val user = currentUser()
@@ -114,7 +116,7 @@ class DefaultFileRepository(
         val row = cachedRow(fileId) ?: return Result.failure(DataError.NotFound())
         val user = currentUser() ?: return Result.failure(DataError.Unauthenticated())
         if (!row.toModel().canDownloadBy(user.id)) {
-            return Result.failure(DataError.Validation("The uploader has disabled downloads for this attachment."))
+            return Result.failure(DataError.Validation(UiText(R.string.validation_the_uploader_has_disabled_downloads_for_this_attachment)))
         }
         // The server checks the current membership and saved permission again.
         return dataResult { remote.createAccessUrl(fileId, forDownload = true) }

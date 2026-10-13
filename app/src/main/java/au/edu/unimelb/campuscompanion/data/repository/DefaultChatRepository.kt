@@ -1,5 +1,7 @@
 package au.edu.unimelb.campuscompanion.data.repository
 
+import au.edu.unimelb.campuscompanion.ui.text.UiText
+import au.edu.unimelb.campuscompanion.R
 import au.edu.unimelb.campuscompanion.data.DataError
 import au.edu.unimelb.campuscompanion.data.local.MessageDao
 import au.edu.unimelb.campuscompanion.data.local.MessageEntity
@@ -83,7 +85,7 @@ class DefaultChatRepository(
         val text = body.trim()
         if (text.isEmpty() || text.length > ChatRepository.MAX_MESSAGE_LENGTH) {
             return Result.failure(
-                DataError.Validation("Messages need 1 to ${ChatRepository.MAX_MESSAGE_LENGTH} characters.")
+                DataError.Validation(UiText(R.string.validation_messages_need_1_to_characters, ChatRepository.MAX_MESSAGE_LENGTH))
             )
         }
         val user = currentUser() ?: return Result.failure(DataError.Unauthenticated())

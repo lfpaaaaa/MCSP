@@ -1,5 +1,10 @@
 package au.edu.unimelb.campuscompanion.context
 
+import au.edu.unimelb.campuscompanion.R
+import au.edu.unimelb.campuscompanion.ui.text.UiText
+import au.edu.unimelb.campuscompanion.sensing.location.DistanceTrend
+import au.edu.unimelb.campuscompanion.ui.model.trimTrailingCommas
+import java.time.Duration
 import au.edu.unimelb.campuscompanion.data.TravelMode
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
 import au.edu.unimelb.campuscompanion.ui.model.CourseReminderPreference
@@ -12,13 +17,16 @@ import java.time.Instant
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
+/** Reminder urgency is distinct from the student's current context state. */
+enum class DepartureReminderStage { Prepare, LeaveNow }
+
 /** A departure notification: what it says and which class it is about. */
 data class DepartureReminder(
     val sessionId: String,
     val courseKey: String,
-    val state: ContextState,
-    val title: String,
-    val text: String,
+    val stage: DepartureReminderStage,
+    val title: UiText,
+    val text: UiText,
     /**
      * The prompt this reminder belongs to ([CourseSession.departurePromptKey]): a late reminder
      * replaces the departure warning of the same class, and a class moved to a new start gets a new
@@ -70,7 +78,7 @@ interface DepartureShade {
  *   was removed, moved to another start or day, lost its venue or is no longer the next one; and
  *   when reminders are turned off for its course.
  * - Nothing changes while the engine works out a new result ([TravelSnapshot.pending]), and a result
- *   worked out with an earlier arrival buffer than the course's current one is skipped: the engine
+ *   worked out with an earlier preparation lead than the course's current one is skipped: the engine
  *   is already recomputing it.
  *
  * Each notification reads the saved preference of its own course, including in the background.
@@ -84,14 +92,14 @@ class DepartureReminders(
     private val preferenceChanges: Flow<Unit> = flowOf(Unit),
     private val shade: DepartureShade = DepartureShade.None,
     private val currentUserId: () -> String? = { "" },
-    private val wasSent: (String, CourseSession, ContextState) -> Boolean = { _, _, _ -> false },
-    private val rememberSent: (String, CourseSession, ContextState) -> Unit = { _, _, _ -> }
+    private val wasSent: (String, CourseSession, DepartureReminderStage) -> Boolean = { _, _, _ -> false },
+    private val rememberSent: (String, CourseSession, DepartureReminderStage) -> Unit = { _, _, _ -> }
 ) {
     private var remindedScope: ReminderScope? = null
-    private val remindedStates = mutableSetOf<ContextState>()
+    private val remindedStates = mutableSetOf<DepartureReminderStage>()
 
     /** The title and text of the prompts this instance posted or updated, to skip empty updates. */
-    private val shownContent = mutableMapOf<String, Pair<String, String>>()
+    private val shownContent = mutableMapOf<String, Pair<UiText, UiText>>()
 
     suspend fun run() {
         combine(snapshots, preferenceChanges) { snapshot, _ -> snapshot }
@@ -125,35 +133,50 @@ class DepartureReminders(
         }
 
         val key = session.departurePromptKey()
-        val state = snapshot.state
-        if (state in REMINDED_STATES && !delivered(userId, session, state)) {
-            withdrawAllExcept(key)
-            val reminder = reminder(snapshot, session, state, key)
-            if (!notify(reminder)) return null
-            remindedStates.add(state)
-            rememberSent(userId, session, state)
-            shownContent[key] = reminder.content
-            return reminder
-        }
-        if (state !in REMINDED_STATES && (state !in STILL_AHEAD || snapshot.building == null)) {
-            // On the way, arrived, in class or not today; or the venue is no longer known.
+        val notApproaching = snapshot.destinationProgress == DistanceTrend.STABLE ||
+            snapshot.destinationProgress == DistanceTrend.MOVING_AWAY
+        if (snapshot.building == null || snapshot.state in setOf(ContextState.ARRIVED, ContextState.IN_CLASS,
+                ContextState.NO_UPCOMING_CLASS) || snapshot.destinationProgress == DistanceTrend.APPROACHING ||
+            (snapshot.state == ContextState.EN_ROUTE && !notApproaching)) {
             withdrawAllExcept(null)
             return null
         }
-        // The class is still ahead and was already prompted: keep that prompt, with current details.
+        val now = snapshot.evaluatedAt ?: snapshot.minutesUntilClass?.let {
+            session.start.toInstant().minusSeconds(it * 60)
+        } ?: return null
+        if (!now.isBefore(session.end.toInstant())) {
+            withdrawAllExcept(null)
+            return null
+        }
         withdrawAllExcept(key)
+        // No ETA means no guessed warning. Keep an existing prompt until a fresh result is ready.
+        val secondsLeft = secondsToDeparture(snapshot, now) ?: return null
+        val urgent = snapshot.needsUrgentDeparture(now)
+        val stage = when {
+            urgent || secondsLeft <= 0 -> DepartureReminderStage.LeaveNow
+            secondsLeft <= preference.leadMinutes.coerceIn(0, MAX_COURSE_REMINDER_LEAD_MINUTES) * 60L ->
+                DepartureReminderStage.Prepare
+            else -> null
+        }
+        if (stage != null && !delivered(userId, session, stage)) {
+            val reminder = reminder(snapshot, session, stage, key)
+            if (!notify(reminder)) return null
+            remindedStates.add(stage)
+            rememberSent(userId, session, stage)
+            shownContent[key] = reminder.content
+            return reminder
+        }
+        // Keep a delivered prompt current without bringing back one the student dismissed.
         refreshShown(snapshot, session, key, userId)
         return null
     }
 
-    /** True when this reminder, or the stronger late one, was delivered for this class occurrence. */
-    private fun delivered(userId: String, session: CourseSession, state: ContextState): Boolean =
-        state in remindedStates || wasSent(userId, session, state) ||
-            // An improved ETA must not replace a delivered late reminder with a weaker departure warning.
-            (state == ContextState.LEAVE_SOON && lateDelivered(userId, session))
+    private fun delivered(userId: String, session: CourseSession, stage: DepartureReminderStage): Boolean =
+        stage in remindedStates || wasSent(userId, session, stage) ||
+            (stage == DepartureReminderStage.Prepare && urgentDelivered(userId, session))
 
-    private fun lateDelivered(userId: String, session: CourseSession): Boolean =
-        ContextState.RUNNING_LATE in remindedStates || wasSent(userId, session, ContextState.RUNNING_LATE)
+    private fun urgentDelivered(userId: String, session: CourseSession): Boolean =
+        DepartureReminderStage.LeaveNow in remindedStates || wasSent(userId, session, DepartureReminderStage.LeaveNow)
 
     /** Removes every shown prompt except [keep]'s; the others belong to other or earlier classes. */
     private fun withdrawAllExcept(keep: String?) {
@@ -164,54 +187,74 @@ class DepartureReminders(
     /** Updates the shown prompt silently when what it says has changed. A dismissed one stays away. */
     private fun refreshShown(snapshot: TravelSnapshot, session: CourseSession, key: String, userId: String) {
         if (key !in shade.shownKeys()) return
-        val state = if (lateDelivered(userId, session)) ContextState.RUNNING_LATE else ContextState.LEAVE_SOON
-        val reminder = reminder(snapshot, session, state, key)
+        val stage = if (urgentDelivered(userId, session)) DepartureReminderStage.LeaveNow else DepartureReminderStage.Prepare
+        val reminder = reminder(snapshot, session, stage, key)
         if (shownContent[key] == reminder.content) return
         shade.update(reminder)
         shownContent[key] = reminder.content
     }
 
-    private fun reminder(snapshot: TravelSnapshot, session: CourseSession, state: ContextState, key: String) =
-        DepartureReminder(
+    private fun secondsToDeparture(snapshot: TravelSnapshot, now: Instant): Long? =
+        snapshot.departureTime()?.let { Duration.between(now, it).seconds }
+
+    private fun reminder(snapshot: TravelSnapshot, session: CourseSession, stage: DepartureReminderStage, key: String): DepartureReminder {
+        val now = snapshot.evaluatedAt ?: session.start.toInstant().minusSeconds((snapshot.minutesUntilClass ?: 0) * 60)
+        val secondsLeft = secondsToDeparture(snapshot, now) ?: 0
+        val minutesLeft = ((secondsLeft.coerceAtLeast(0) + 59) / 60).toInt()
+        val leaveNow = stage == DepartureReminderStage.LeaveNow
+        return DepartureReminder(
             sessionId = session.id,
             courseKey = session.reminderSeriesKey(),
-            state = state,
-            title = when (state) {
-                ContextState.RUNNING_LATE -> "Running late for ${session.code}"
-                else -> "Time to leave for ${session.code}"
-            },
-            text = describe(snapshot, session),
+            stage = stage,
+            title = if (leaveNow) UiText(R.string.departure_leave_now, session.code)
+                else UiText(R.string.departure_leave_within, minutesLeft, session.code),
+            text = UiText.Joined(buildList {
+                add(snapshot.building?.let {
+                    UiText(R.string.departure_class_starts_at_building, session.title.trimTrailingCommas(), session.startTime.format(timeFormatter), it.name)
+                } ?: UiText(R.string.departure_class_starts, session.title.trimTrailingCommas(), session.startTime.format(timeFormatter)))
+                snapshot.estimate?.let { estimate ->
+                    add(UiText(if (estimate.isApproximate) R.string.departure_estimated_travel else R.string.departure_travel,
+                        estimate.durationMinutes, estimate.mode.asTravelPhrase()))
+                }
+                add(when {
+                    leaveNow && secondsLeft > 0 && snapshot.destinationProgress in setOf(DistanceTrend.STABLE, DistanceTrend.MOVING_AWAY) ->
+                        UiText(R.string.departure_not_approaching)
+                    leaveNow -> UiText(R.string.departure_avoid_delay)
+                    else -> UiText(R.string.departure_leave_by,
+                        snapshot.departureTime()?.atZone(session.start.zone)?.format(timeFormatter).orEmpty(), minutesLeft)
+                })
+                if (snapshot.weatherBufferMinutes > 0) add(UiText(R.string.departure_weather_buffer, snapshot.weatherBufferMinutes))
+            }),
             key = key
         )
-
-    private val DepartureReminder.content: Pair<String, String> get() = title to text
-
-    private fun describe(snapshot: TravelSnapshot, session: CourseSession): String {
-        val startsAt = session.startTime.format(timeFormatter)
-        val place = snapshot.building?.name?.let { " in $it" }.orEmpty()
-        val sentences = mutableListOf("${session.title} starts at $startsAt$place.")
-        snapshot.estimate?.let { estimate ->
-            sentences += "About ${estimate.durationMinutes} min ${estimate.mode.asTravelPhrase()}."
-        }
-        if (snapshot.weatherBufferMinutes > 0) {
-            sentences += "Allow ${snapshot.weatherBufferMinutes} min more for the weather."
-        }
-        return sentences.joinToString(" ")
     }
 
-    private fun TravelMode.asTravelPhrase(): String = when (this) {
-        TravelMode.Walking -> "on foot"
-        TravelMode.PublicTransport -> "by public transport"
-        TravelMode.Driving -> "by car"
+    private val DepartureReminder.content: Pair<UiText, UiText> get() = title to text
+
+    private fun TravelMode.asTravelPhrase(): UiText = when (this) {
+        TravelMode.Walking -> UiText(R.string.departure_on_foot)
+        TravelMode.PublicTransport -> UiText(R.string.departure_by_public_transport)
+        TravelMode.Driving -> UiText(R.string.departure_by_car)
     }
 
     private data class ReminderScope(val userId: String, val sessionId: String, val startsAt: Instant)
 
     private companion object {
-        val REMINDED_STATES = setOf(ContextState.LEAVE_SOON, ContextState.RUNNING_LATE)
-
-        /** The class is still ahead and the student has not set off: a prompt already shown stays. */
-        val STILL_AHEAD = setOf(ContextState.UPCOMING, ContextState.LONG_BREAK, ContextState.POST_CLASS)
         val timeFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH)
     }
+}
+
+/** Physical deadline: preparation time is only the lead for the first warning. */
+internal fun TravelSnapshot.departureTime(): Instant? = session?.let {
+    ContextEngine.leaveBy(it.start.toInstant(), estimate?.durationMinutes, weatherBufferMinutes, entryAllowanceMinutes)
+}
+
+/** The same five-minute urgency is shown on Home and delivered as a notification. */
+internal fun TravelSnapshot.needsUrgentDeparture(now: Instant): Boolean {
+    val course = session ?: return false
+    val deadline = departureTime() ?: return false
+    return !pending && building != null && now.isBefore(course.end.toInstant()) &&
+        state !in setOf(ContextState.ARRIVED, ContextState.IN_CLASS, ContextState.NO_UPCOMING_CLASS) &&
+        destinationProgress in setOf(DistanceTrend.STABLE, DistanceTrend.MOVING_AWAY) &&
+        !now.isBefore(deadline.minusSeconds(5 * 60L))
 }

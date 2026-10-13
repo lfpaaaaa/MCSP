@@ -1,5 +1,11 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
+import androidx.compose.runtime.setValue
+
+import androidx.compose.runtime.getValue
+
+import au.edu.unimelb.campuscompanion.ui.text.textResources
+import au.edu.unimelb.campuscompanion.R
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -38,13 +44,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
@@ -53,6 +57,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import au.edu.unimelb.campuscompanion.ui.components.TimetableSyncStatus
 import au.edu.unimelb.campuscompanion.ui.components.TimetableUrlDialog
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
@@ -70,7 +75,7 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlinx.coroutines.launch
 
-private enum class ScheduleView(val label: String) { List("List"), Week("Week") }
+private enum class ScheduleView(val label: Int) { List(R.string.schedule_view_list), Week(R.string.schedule_view_week) }
 private val scheduleDateFormat = DateTimeFormatter.ofPattern("MM.dd EEE", Locale.ENGLISH)
 private val scheduleTimeFormat = DateTimeFormatter.ofPattern("HH:mm", Locale.ENGLISH)
 private val weekRangeFormat = DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ENGLISH)
@@ -87,6 +92,7 @@ fun ScheduleScreen(
     onNavigate: (CourseSession) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val textResources = textResources()
     var showTimetableDialog by rememberSaveable { mutableStateOf(false) }
     var view by rememberSaveable { mutableStateOf(ScheduleView.List) }
     var pageIndex by rememberSaveable(timetableState.url) { mutableIntStateOf(0) }
@@ -128,16 +134,16 @@ fun ScheduleScreen(
         state = listState,
         modifier = modifier.fillMaxSize(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 20.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item(key = "title") {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("Timetable", style = MaterialTheme.typography.headlineSmall)
+                Text(textResources.getString(R.string.profile_timetable), style = MaterialTheme.typography.headlineSmall)
                 Text(
                     text = if (timetableState.isConnected) {
-                        timetableState.offlineNotice() ?: "Browse your upcoming classes by list or week."
+                        timetableState.offlineNotice()?.resolve(textResources) ?: textResources.getString(R.string.schedule_browse_your_upcoming_classes_by_list_or_week)
                     } else {
-                        "No classes are shown until a timetable URL is verified."
+                        textResources.getString(R.string.schedule_no_classes_are_shown_until_a_timetable_url)
                     },
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -162,13 +168,13 @@ fun ScheduleScreen(
                                 selected = view == option,
                                 onClick = { view = option },
                                 shape = SegmentedButtonDefaults.itemShape(index, ScheduleView.entries.size),
-                                label = { Text(option.label) }
+                                label = { Text(textResources.getString(option.label)) }
                             )
                         }
                     }
                 }
                 if (timetableState.sessions.isEmpty()) {
-                    item { NoScheduleClasses("No classes for now.") }
+                    item { NoScheduleClasses(textResources.getString(R.string.schedule_no_classes_for_now)) }
                 } else if (view == ScheduleView.List) {
                     item(key = "page-top") { SchedulePageControls(page, changePage) }
                     page.days.forEach { day ->
@@ -194,7 +200,7 @@ fun ScheduleScreen(
                     item(key = "selected-date") { ScheduleDateHeader(selectedDate, today) }
                     val daySessions = week.first { it.date == selectedDate }.sessions
                     if (daySessions.isEmpty()) {
-                        item { NoScheduleClasses("No classes on this day.") }
+                        item { NoScheduleClasses(textResources.getString(R.string.schedule_no_classes_on_this_day)) }
                     }
                     items(daySessions, key = { "session-${it.id}" }) { session ->
                         ScheduleSessionCard(session, onNavigate = { onNavigate(session) })
@@ -203,7 +209,7 @@ fun ScheduleScreen(
             }
             else -> item {
                 EmptyTimetableState(
-                    errorMessage = timetableState.errorMessage,
+                    errorMessage = timetableState.errorMessage?.resolve(textResources),
                     onConnect = { showTimetableDialog = true }
                 )
             }
@@ -213,21 +219,22 @@ fun ScheduleScreen(
 
 @Composable
 private fun SchedulePageControls(page: SchedulePage, onPageChange: (Int) -> Unit) {
+    val textResources = textResources()
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            TextButton(enabled = page.index > 0, onClick = { onPageChange(page.index - 1) }) { Text("Previous") }
+            TextButton(enabled = page.index > 0, onClick = { onPageChange(page.index - 1) }) { Text(textResources.getString(R.string.document_attachment_preview_previous)) }
             Text(
-                "Page ${page.index + 1} of ${page.pageCount}",
+                textResources.getString(R.string.schedule_page_of, page.index + 1, page.pageCount),
                 modifier = Modifier.weight(1f),
                 textAlign = TextAlign.Center,
                 style = MaterialTheme.typography.titleMedium
             )
             TextButton(enabled = page.index < page.pageCount - 1, onClick = { onPageChange(page.index + 1) }) {
-                Text("Next")
+                Text(textResources.getString(R.string.document_attachment_preview_next))
             }
         }
         Text(
-            "Classes ${page.firstSessionNumber}–${page.lastSessionNumber} of ${page.totalSessions}",
+            textResources.getString(R.string.schedule_classes_of, page.firstSessionNumber, page.lastSessionNumber, page.totalSessions),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -253,24 +260,25 @@ private fun ScheduleWeekSelector(
     today: LocalDate,
     onSelectDate: (LocalDate) -> Unit
 ) {
+    val textResources = textResources()
     val start = days.first().date
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             IconButton(enabled = start > firstWeek, onClick = { onSelectDate(selectedDate.minusWeeks(1)) }) {
-                Icon(Icons.Outlined.ChevronLeft, contentDescription = "Previous week")
+                Icon(Icons.Outlined.ChevronLeft, contentDescription = textResources.getString(R.string.schedule_previous_week))
             }
             Text(
-                "${start.format(weekRangeFormat)} – ${days.last().date.format(weekRangeFormat)}",
+                textResources.getString(R.string.schedule_week_date_range, start.format(weekRangeFormat), days.last().date.format(weekRangeFormat)),
                 modifier = Modifier.weight(1f),
                 textAlign = TextAlign.Center,
                 style = MaterialTheme.typography.titleMedium
             )
             IconButton(enabled = start < lastWeek, onClick = { onSelectDate(selectedDate.plusWeeks(1)) }) {
-                Icon(Icons.Outlined.ChevronRight, contentDescription = "Next week")
+                Icon(Icons.Outlined.ChevronRight, contentDescription = textResources.getString(R.string.schedule_next_week))
             }
         }
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-            val dayWidth = ((maxWidth - 24.dp) / 7).coerceAtLeast(44.dp)
+            val dayWidth = ((maxWidth - 24.dp) / 7).coerceAtLeast(48.dp)
             Row(
                 modifier = Modifier.horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -284,7 +292,7 @@ private fun ScheduleWeekSelector(
                         modifier = Modifier.width(dayWidth)
                             .selectable(selected = selected, role = Role.Tab, onClick = { onSelectDate(day.date) })
                             .semantics {
-                                contentDescription = "${day.date.format(weekRangeFormat)}, ${day.date.format(weekdayFormat)}, ${day.sessions.size} classes"
+                                contentDescription = textResources.getQuantityString(R.plurals.day_class_count, day.sessions.size, day.date.format(weekRangeFormat), day.date.format(weekdayFormat), day.sessions.size)
                             }
                     ) {
                         Column(
@@ -305,28 +313,29 @@ private fun ScheduleWeekSelector(
         }
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Text(
-                "${days.sumOf { it.sessions.size }} classes this week",
+                textResources.getQuantityString(R.plurals.week_class_count, days.sumOf { it.sessions.size }, days.sumOf { it.sessions.size }),
                 modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            TextButton(onClick = { onSelectDate(today) }) { Text("Today") }
+            TextButton(onClick = { onSelectDate(today) }) { Text(textResources.getString(R.string.campus_components_today)) }
         }
     }
 }
 
 @Composable
 private fun ScheduleSessionCard(session: CourseSession, onNavigate: () -> Unit) {
+    val textResources = textResources()
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
                 text = "${session.startTime.format(scheduleTimeFormat)}–${session.endTime.format(scheduleTimeFormat)}" +
                     if (session.end.toLocalDate() != session.startDate) " (${session.end.format(scheduleDateFormat)})" else "",
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleMedium.copy(fontSize = 15.sp),
                 color = MaterialTheme.colorScheme.primary
             )
             Text(
@@ -334,11 +343,11 @@ private fun ScheduleSessionCard(session: CourseSession, onNavigate: () -> Unit) 
                     session.code,
                     session.reminderActivity()?.replaceFirstChar { it.titlecase(Locale.ENGLISH) }
                 ).joinToString(" · "),
-                style = MaterialTheme.typography.titleLarge
+                style = MaterialTheme.typography.titleLarge.copy(fontSize = 18.sp)
             )
             Text(
                 session.title.trimTrailingCommas(),
-                style = MaterialTheme.typography.bodyLarge,
+                style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             val location = listOf(session.location, session.room).filter(String::isNotBlank).joinToString(" - ")
@@ -348,7 +357,7 @@ private fun ScheduleSessionCard(session: CourseSession, onNavigate: () -> Unit) 
                     Text(location, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            TextButton(onClick = onNavigate) { Text("Navigate with Google Maps") }
+            TextButton(onClick = onNavigate) { Text(textResources.getString(R.string.campus_components_navigate_with_google_maps)) }
         }
     }
 }
@@ -366,6 +375,7 @@ private fun NoScheduleClasses(message: String) {
 
 @Composable
 private fun LoadingTimetableState(modifier: Modifier = Modifier) {
+    val textResources = textResources()
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
@@ -378,7 +388,7 @@ private fun LoadingTimetableState(modifier: Modifier = Modifier) {
         ) {
             CircularProgressIndicator(modifier = Modifier.size(28.dp))
             Text(
-                text = "Downloading and checking calendar events...",
+                text = textResources.getString(R.string.schedule_downloading_and_checking_calendar_events),
                 style = MaterialTheme.typography.bodyLarge
             )
         }
@@ -391,6 +401,7 @@ private fun EmptyTimetableState(
     onConnect: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val textResources = textResources()
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
@@ -408,19 +419,19 @@ private fun EmptyTimetableState(
                 modifier = Modifier.size(40.dp)
             )
             Text(
-                text = "No timetable connected",
+                text = textResources.getString(R.string.profile_no_timetable_connected),
                 style = MaterialTheme.typography.titleLarge
             )
             Text(
                 text = errorMessage
-                    ?: "Add your timetable subscription URL to load real calendar events.",
+                    ?: textResources.getString(R.string.schedule_add_your_timetable_subscription_url_to_load_real),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             TextButton(onClick = onConnect) {
                 Icon(Icons.Outlined.Link, contentDescription = null)
                 Text(
-                    text = if (errorMessage == null) "Connect URL" else "Check URL",
+                    text = if (errorMessage == null) textResources.getString(R.string.schedule_connect_url) else textResources.getString(R.string.schedule_check_url),
                     modifier = Modifier.padding(start = 8.dp)
                 )
             }
@@ -435,10 +446,11 @@ private fun DepartureReminderSettingRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val textResources = textResources()
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .clickable(role = Role.Button, onClickLabel = textResources.getString(R.string.schedule_open_departure_reminder_settings), onClick = onClick),
         shape = RoundedCornerShape(8.dp),
         color = MaterialTheme.colorScheme.surfaceContainer
     ) {
@@ -459,14 +471,14 @@ private fun DepartureReminderSettingRow(
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 Text(
-                    text = "Departure reminders",
+                    text = textResources.getString(R.string.campus_companion_app_departure_reminders),
                     style = MaterialTheme.typography.titleMedium
                 )
                 Text(
                     text = if (courseCount == 0) {
-                        "No courses available"
+                        textResources.getString(R.string.course_reminder_settings_no_courses_available)
                     } else {
-                        "$enabledCount of $courseCount class reminders enabled"
+                        textResources.getQuantityString(R.plurals.enabled_reminder_count, courseCount, enabledCount, courseCount)
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -474,7 +486,7 @@ private fun DepartureReminderSettingRow(
             }
             Icon(
                 imageVector = Icons.Outlined.ChevronRight,
-                contentDescription = "Open departure reminder settings",
+                contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }

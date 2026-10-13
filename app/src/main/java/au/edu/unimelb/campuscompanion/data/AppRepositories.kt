@@ -100,8 +100,8 @@ object AppRepositories {
                 preferenceChanges = CourseReminderPreferencesStore.changes.map { Unit },
                 shade = DepartureNotifier.shade(appContext),
                 currentUserId = { SupabaseProvider.client?.auth?.currentUserOrNull()?.id },
-                wasSent = { userId, session, state -> departureHistory.wasSent(userId, session, state) },
-                rememberSent = { userId, session, state -> departureHistory.record(userId, session, state) }
+                wasSent = { userId, session, stage -> departureHistory.wasSent(userId, session, stage) },
+                rememberSent = { userId, session, stage -> departureHistory.record(userId, session, stage) }
             ).run()
         }
         SupabaseProvider.client?.let { client ->
@@ -213,10 +213,12 @@ object AppRepositories {
         val json = Json { ignoreUnknownKeys = true }
         val restored = runCatching { json.decodeFromString(serializer, preferences.getString("queue", "[]")!!) }.getOrDefault(emptyList())
         AttachmentUploadQueue(files, applicationScope,
+            resolveText = { it.resolve(appContext.resources) },
             currentUserId = { SupabaseProvider.client?.auth?.currentUserOrNull()?.id },
             readBytes = { readAttachment(appContext, it) }, restored = restored,
             persist = { preferences.edit().putString("queue", json.encodeToString(serializer, it)).apply() },
-            onCompleted = { groups.refresh() })
+            onCompleted = { groups.refresh() },
+            releaseSource = { discardLocalRecording(appContext, it) })
     }
 
     val buildings by lazy { BuildingLocationRepository(appContext) }

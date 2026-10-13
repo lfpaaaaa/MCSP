@@ -1,5 +1,6 @@
 package au.edu.unimelb.campuscompanion.navigation
 
+import au.edu.unimelb.campuscompanion.R
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -24,6 +25,6 @@ private fun openMapsUri(context: Context, uri: Uri) {
         context.startActivity(Intent(Intent.ACTION_VIEW, uri).setPackage("com.google.android.apps.maps"))
     } catch (_: ActivityNotFoundException) {
         try { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
-        catch (_: ActivityNotFoundException) { Toast.makeText(context, "Install Google Maps or a web browser to continue.", Toast.LENGTH_LONG).show() }
+        catch (_: ActivityNotFoundException) { Toast.makeText(context, context.getString(R.string.notification_install_google_maps_or_a_web_browser_to), Toast.LENGTH_LONG).show() }
     }
 }

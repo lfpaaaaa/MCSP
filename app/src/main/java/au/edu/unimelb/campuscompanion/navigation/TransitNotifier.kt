@@ -24,9 +24,9 @@ object TransitNotifier {
     fun show(context: Context, leg: TransitLeg) {
         if (!Notifications.canNotify(context)) return
         channels(context)
-        val text = "${leg.line}: approaching ${leg.arrivalName}. Get ready to get off."
+        val text = context.getString(R.string.notification_approaching_get_ready_to_get_off, leg.line, leg.arrivalName)
         context.getSystemService(NotificationManager::class.java).notify(ALERT_ID,
-            base(context, ALERT_CHANNEL).setContentTitle("Your stop is approaching")
+            base(context, ALERT_CHANNEL).setContentTitle(context.getString(R.string.notification_your_stop_is_approaching))
                 .setContentText(text).setStyle(NotificationCompat.BigTextStyle().bigText(text))
                 .setPriority(NotificationCompat.PRIORITY_HIGH).setAutoCancel(true).build())
     }
@@ -39,9 +39,9 @@ object TransitNotifier {
         val stop = PendingIntent.getBroadcast(context, STATUS_ID, Intent(context, StopTransitReceiver::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         manager.notify(STATUS_ID, base(context, STATUS_CHANNEL)
-            .setContentTitle("Get-off reminder is on")
-            .setContentText("Tracking your selected route. Tap to see your stop.")
-            .setOngoing(true).addAction(0, "End trip", stop).build())
+            .setContentTitle(context.getString(R.string.notification_get_off_reminder_is_on))
+            .setContentText(context.getString(R.string.notification_tracking_your_selected_route_tap_to_see_your))
+            .setOngoing(true).addAction(0, context.getString(R.string.class_navigation_end_trip), stop).build())
     }
     fun cancelAlert(context: Context) { context.getSystemService(NotificationManager::class.java).cancel(ALERT_ID) }
     private fun base(context: Context, channel: String): NotificationCompat.Builder {
@@ -52,8 +52,8 @@ object TransitNotifier {
     }
     private fun channels(context: Context) {
         context.getSystemService(NotificationManager::class.java).apply {
-            createNotificationChannel(NotificationChannel(ALERT_CHANNEL, "Get-off reminders", NotificationManager.IMPORTANCE_HIGH).apply { enableVibration(true) })
-            createNotificationChannel(NotificationChannel(STATUS_CHANNEL, "Transit tracking", NotificationManager.IMPORTANCE_LOW))
+            createNotificationChannel(NotificationChannel(ALERT_CHANNEL, context.getString(R.string.notification_get_off_reminders), NotificationManager.IMPORTANCE_HIGH).apply { enableVibration(true) })
+            createNotificationChannel(NotificationChannel(STATUS_CHANNEL, context.getString(R.string.notification_transit_tracking), NotificationManager.IMPORTANCE_LOW))
         }
     }
 }

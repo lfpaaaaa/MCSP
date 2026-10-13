@@ -1,5 +1,7 @@
 package au.edu.unimelb.campuscompanion.navigation
 
+import au.edu.unimelb.campuscompanion.ui.text.UiText
+import au.edu.unimelb.campuscompanion.R
 import au.edu.unimelb.campuscompanion.data.TravelMode
 import au.edu.unimelb.campuscompanion.data.model.GeoPoint
 import io.github.jan.supabase.SupabaseClient
@@ -23,7 +25,7 @@ fun interface GoogleRouteSource {
 
 class GoogleRouteRepository(private val client: SupabaseClient?) : GoogleRouteSource {
     override suspend fun routes(origin: GeoPoint, destination: GeoPoint, mode: TravelMode): List<GoogleRoute> {
-        checkNotNull(client) { "Sign in to load Google Maps routes." }
+        if (client == null) throw RouteException(UiText(R.string.route_sign_in_to_load_google_maps_routes))
         fun GeoPoint.json() = buildJsonObject { put("latitude", latitude); put("longitude", longitude) }
         val response = try {
             client.functions.invoke("google-routes", buildJsonObject {
@@ -35,12 +37,12 @@ class GoogleRouteRepository(private val client: SupabaseClient?) : GoogleRouteSo
                 })
             })
         } catch (e: RestException) {
-            throw IllegalStateException(when (e.statusCode) {
-                503 -> "Google Maps routes are not configured yet. You can still open Google Maps."
-                404 -> "No route is available. Try another travel mode or open Google Maps."
-                429 -> "Too many route requests. Please try again in a few minutes."
-                401 -> "Please sign in again to load routes."
-                else -> "Google Maps routes are unavailable. Please try again."
+            throw RouteException(when (e.statusCode) {
+                503 -> UiText(R.string.route_google_maps_routes_are_not_configured_yet_you)
+                404 -> UiText(R.string.route_no_route_is_available_try_another_travel_mode)
+                429 -> UiText(R.string.route_too_many_route_requests_please_try_again_in)
+                401 -> UiText(R.string.route_please_sign_in_again_to_load_routes)
+                else -> UiText(R.string.route_google_maps_routes_are_unavailable_please_try_again)
             })
         }
         return parseGoogleRoutes(response.bodyAsText())
@@ -80,3 +82,5 @@ internal fun parseGoogleRoutes(raw: String): List<GoogleRoute> {
         )
     }
 }
+
+class RouteException(val userMessage: UiText) : Exception("Route request failed")

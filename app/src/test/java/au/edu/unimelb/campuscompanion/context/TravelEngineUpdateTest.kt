@@ -31,7 +31,7 @@ class TravelEngineUpdateTest {
         val before = engine.snapshot.value
         assertEquals(15, before.estimate?.durationMinutes)
         assertEquals(5, before.weatherBufferMinutes)
-        assertEquals(fixture.lecture.start.minusMinutes(30), before.leaveBy)
+        assertEquals(fixture.lecture.start.minusMinutes(20), before.leaveBy)
 
         val edited = fixture.lecture.copy(location = "Alan Gilbert", room = "PAR-104-G01")
         engine.updateSessions(listOf(edited))
@@ -48,7 +48,7 @@ class TravelEngineUpdateTest {
         assertEquals(7, after.estimate?.durationMinutes)
         assertEquals(2.6, after.weather!!.precipitationMillimetres, 0.0)
         assertEquals(10, after.weatherBufferMinutes)
-        assertEquals(edited.start.minusMinutes(27), after.leaveBy)
+        assertEquals(edited.start.minusMinutes(17), after.leaveBy)
     }
 
     @Test
@@ -99,7 +99,7 @@ class TravelEngineUpdateTest {
         val after = engine.snapshot.value
         assertEquals(FakeBuildingLookup.PETER_HALL, after.building)
         assertEquals(15, after.estimate?.durationMinutes)
-        assertEquals(fixture.lecture.start.minusMinutes(30), after.leaveBy)
+        assertEquals(fixture.lecture.start.minusMinutes(20), after.leaveBy)
         assertEquals(listOf(PETER_HALL), fixture.weather.requests)
     }
 
@@ -145,7 +145,7 @@ class TravelEngineUpdateTest {
 
         assertEquals(edited, engine.snapshot.value.session)
         assertEquals(40L, engine.snapshot.value.minutesUntilClass)
-        assertEquals(edited.start.minusMinutes(30), engine.snapshot.value.leaveBy)
+        assertEquals(edited.start.minusMinutes(20), engine.snapshot.value.leaveBy)
         assertEquals(ContextState.UPCOMING, engine.snapshot.value.state)
     }
 
@@ -174,7 +174,7 @@ class TravelEngineUpdateTest {
         assertEquals(tutorial, after.session)
         assertEquals(finished, after.finishedSession)
         assertEquals(FakeBuildingLookup.ALAN_GILBERT, after.building)
-        assertEquals(tutorial.start.minusMinutes(27), after.leaveBy)
+        assertEquals(tutorial.start.minusMinutes(17), after.leaveBy)
         assertEquals(ContextState.LEAVE_SOON, after.state)
     }
 
@@ -197,7 +197,7 @@ class TravelEngineUpdateTest {
 
         engine.updateOrigin(HOME)
         engine.refresh()
-        assertEquals(ContextState.LEAVE_SOON, engine.snapshot.value.state)
+        assertEquals(ContextState.UPCOMING, engine.snapshot.value.state)
     }
 
     @Test
@@ -234,7 +234,7 @@ class TravelEngineUpdateTest {
 
         engine.updateSessions(listOf(fixture.lecture.copy(room = "PAR-104-G01")))
         engine.refresh()
-        assertEquals(ContextState.LEAVE_SOON, engine.snapshot.value.state)
+        assertEquals(ContextState.UPCOMING, engine.snapshot.value.state)
 
         // A fresh measurement closer to Alan Gilbert uses the existing global moving signal.
         engine.updateOrigin(GeoPoint(-37.8090, 144.9630))

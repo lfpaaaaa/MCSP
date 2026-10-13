@@ -9,6 +9,7 @@ import au.edu.unimelb.campuscompanion.data.model.TravelEstimate
 import au.edu.unimelb.campuscompanion.data.model.WeatherSnapshot
 import au.edu.unimelb.campuscompanion.data.repository.EtaRepository
 import au.edu.unimelb.campuscompanion.data.repository.WeatherRepository
+import au.edu.unimelb.campuscompanion.sensing.location.DistanceTrend
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
 import au.edu.unimelb.campuscompanion.ui.model.CourseReminderPreference
 import au.edu.unimelb.campuscompanion.ui.model.MAX_COURSE_REMINDER_LEAD_MINUTES
@@ -39,8 +40,8 @@ import kotlin.math.roundToInt
  *   chosen by the user's [TravelPreferences];
  * - the context state (upcoming, leave soon, en route, arrived, in class, ...) and the leave-by
  *   time come from [ContextEngine], fed with the timetable, the travel time, the distance and the
- *   motion signals. The lead time set on the schedule screen is the buffer before departure, and
- *   rain or heat at the class's building ([WeatherBuffer]) adds to it.
+ *   motion signals. The lead time set on the schedule screen controls the preparation warning, and
+ *   rain or heat at the class's building ([WeatherBuffer]) advances the departure deadline.
  *
  * Inputs arrive through the update functions; [run] keeps the snapshot current.
  */
@@ -53,7 +54,8 @@ class TravelEngine(
     private val tickInterval: Duration = TICK_INTERVAL,
     private val reminderPreference: ((CourseSession) -> CourseReminderPreference)? = null,
     private val reminderChanges: Flow<Unit> = emptyFlow(),
-    private val config: ContextConfig = ContextConfig()
+    private val config: ContextConfig = ContextConfig(),
+    private val maxLocationAge: Duration = Duration.ofMinutes(2)
 ) {
     private val inputs = MutableStateFlow(Inputs())
 
@@ -68,6 +70,7 @@ class TravelEngine(
     private val refreshLock = Mutex()
     private var motionTarget: MotionTarget? = null
     private var decision: ContextDecision? = null
+    private val progressTracker = DestinationProgressTracker()
 
     /** The timetable sessions; [reset] also starts a new account scope, even with identical classes. */
     fun updateSessions(value: List<CourseSession>, reset: Boolean = false) = synchronized(inputLock) {
@@ -86,6 +89,7 @@ class TravelEngine(
         if (trackingChanged) {
             decision = null
             motionTarget = null
+            progressTracker.reset()
         }
         val snapshot = _snapshot.value
         val finishedChanged = snapshot.finishedSession?.let { finished ->
@@ -104,8 +108,8 @@ class TravelEngine(
     }
 
     /** The current position, or null when it is unknown. */
-    fun updateOrigin(value: GeoPoint?) = synchronized(inputLock) {
-        inputs.value = inputs.value.copy(origin = value)
+    fun updateOrigin(value: GeoPoint?, recordedAt: Instant = clock(), accuracyMeters: Float = 50f) = synchronized(inputLock) {
+        inputs.value = inputs.value.copy(origin = value?.let { OriginFix(it, recordedAt, accuracyMeters) })
     }
 
     /** Whether the motion sensors detect walking or other movement. */
@@ -173,6 +177,7 @@ class TravelEngine(
             // building. If evidence ever comes from elsewhere, keep a geofenceCode that matches it.
             val targetChanged = motionTarget?.let { it != target } == true
             if (targetChanged) {
+                progressTracker.reset()
                 decision = null
                 _snapshot.value = TravelSnapshot.PENDING
                 this.inputs.value = this.inputs.value.copy(
@@ -192,7 +197,8 @@ class TravelEngine(
         val lead = courseReminder?.let {
             if (it.enabled) it.leadMinutes.coerceIn(0, MAX_COURSE_REMINDER_LEAD_MINUTES) else 0
         } ?: inputs.leadMinutes
-        val from = inputs.origin
+        val fix = inputs.origin?.takeIf { it.isFreshAt(now) }
+        val from = fix?.point
         var distance: Double? = null
         var estimate: TravelEstimate? = null
         var weatherNow: WeatherSnapshot? = null
@@ -216,6 +222,17 @@ class TravelEngine(
         synchronized(inputLock) {
             if (inputs.timetableGeneration != this.inputs.value.timetableGeneration) return@synchronized
             val publishedAt = clock()
+            // Routing may suspend long enough for a location to expire.
+            if (fix?.isFreshAt(publishedAt) != true) {
+                estimate = null
+                distance = null
+            }
+            val progress = if (distance != null && fix != null) {
+                progressTracker.observe(distance!!, fix.accuracyMeters, fix.recordedAt, publishedAt)
+            } else {
+                progressTracker.reset()
+                DistanceTrend.UNKNOWN
+            }
             if (!sameSession(tracked, ContextEngine.trackedSession(this.inputs.value.sessions, publishedAt))) {
                 // A class boundary crossed while routing: the next tick will compute the new target.
                 _snapshot.value = TravelSnapshot.PENDING
@@ -226,15 +243,23 @@ class TravelEngine(
                     now = publishedAt,
                     sessions = inputs.sessions,
                     travelMinutes = estimate?.durationMinutes,
-                    bufferMinutes = lead + weatherBuffer,
+                    bufferMinutes = weatherBuffer,
                     distanceMeters = distance,
-                    isMoving = motion.moving,
-                    enRouteSignal = motion.enRoute,
+                    isMoving = when (progress) {
+                        DistanceTrend.APPROACHING -> true
+                        DistanceTrend.STABLE, DistanceTrend.MOVING_AWAY -> false
+                        DistanceTrend.UNKNOWN -> motion.moving
+                    },
+                    enRouteSignal = when (progress) {
+                        DistanceTrend.APPROACHING -> true
+                        DistanceTrend.STABLE, DistanceTrend.MOVING_AWAY -> false
+                        DistanceTrend.UNKNOWN -> motion.enRoute
+                    },
                     insideGeofence = destination != null && motion.geofenceCode == destination.locCode,
                     buildingCode = destination?.locCode
                 ),
                 previous = decision,
-                config = config
+                config = config.copy(leaveSoonWindowMinutes = lead)
             )
             decision = next
 
@@ -259,7 +284,9 @@ class TravelEngine(
                 leadMinutes = lead,
                 entryAllowanceMinutes = config.entryAllowanceMinutes,
                 leaveBy = next.leaveBy?.atZone(tracked.start.zone),
-                finishedSession = next.finishedSession
+                finishedSession = next.finishedSession,
+                evaluatedAt = publishedAt,
+                destinationProgress = progress
             )
         }
     }
@@ -280,10 +307,17 @@ class TravelEngine(
     /** What arrival and movement evidence is measured against: one class at one building. */
     private data class MotionTarget(val sessionId: String?, val destination: BuildingLocation?)
 
+    private data class OriginFix(val point: GeoPoint, val recordedAt: Instant, val accuracyMeters: Float)
+
+    private fun OriginFix.isFreshAt(now: Instant): Boolean {
+        val age = Duration.between(recordedAt, now)
+        return !age.isNegative && age <= maxLocationAge
+    }
+
     private data class Inputs(
         val sessions: List<CourseSession> = emptyList(),
         val sessionsInitialized: Boolean = false,
-        val origin: GeoPoint? = null,
+        val origin: OriginFix? = null,
         val signals: MotionSignals = MotionSignals(),
         val leadMinutes: Int = DEFAULT_LEAD_MINUTES,
         val timetableGeneration: Long = 0

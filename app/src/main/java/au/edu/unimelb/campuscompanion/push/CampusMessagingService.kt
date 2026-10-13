@@ -56,9 +56,9 @@ class CampusMessagingService : FirebaseMessagingService() {
 
             val notification = NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(R.mipmap.ic_launcher)
-                .setContentTitle(push.title)
-                .setContentText(push.text)
-                .setStyle(NotificationCompat.BigTextStyle().bigText(push.text))
+                .setContentTitle(push.title.resolve(context.resources))
+                .setContentText(push.text.resolve(context.resources))
+                .setStyle(NotificationCompat.BigTextStyle().bigText(push.text.resolve(context.resources)))
                 .setContentIntent(tap)
                 .setAutoCancel(true)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -73,8 +73,8 @@ class CampusMessagingService : FirebaseMessagingService() {
         }
 
         private fun createChannel(context: Context) {
-            val channel = NotificationChannel(CHANNEL_ID, "Group messages", NotificationManager.IMPORTANCE_HIGH).apply {
-                description = "New messages in your groups"
+            val channel = NotificationChannel(CHANNEL_ID, context.getString(R.string.notification_group_messages), NotificationManager.IMPORTANCE_HIGH).apply {
+                description = context.getString(R.string.notification_new_messages_in_your_groups)
             }
             context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }

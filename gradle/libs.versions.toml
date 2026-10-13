@@ -5,6 +5,7 @@ ksp = "2.0.21-1.0.28"
 coreKtx = "1.15.0"
 lifecycleRuntimeKtx = "2.8.7"
 activityCompose = "1.9.3"
+fragment = "1.8.5"
 composeBom = "2024.12.01"
 navigationCompose = "2.8.5"
 supabase = "3.0.1"
@@ -23,6 +24,7 @@ zxingCore = "3.5.3"
 
 
 [libraries]
+androidx-fragment = { group = "androidx.fragment", name = "fragment", version.ref = "fragment" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycleRuntimeKtx" }
 androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }

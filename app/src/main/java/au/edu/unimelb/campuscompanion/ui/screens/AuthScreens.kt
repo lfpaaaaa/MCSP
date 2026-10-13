@@ -1,5 +1,14 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.runtime.setValue
+
+import androidx.compose.runtime.getValue
+
+import au.edu.unimelb.campuscompanion.ui.text.textResources
+import au.edu.unimelb.campuscompanion.R
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,10 +43,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -71,6 +78,7 @@ fun LoginScreen(
     onClearMessage: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val textResources = textResources()
     var email by rememberSaveable { mutableStateOf("") }
     var code by rememberSaveable { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
@@ -101,12 +109,12 @@ fun LoginScreen(
                     modifier = Modifier.size(36.dp)
                 )
                 Text(
-                    text = "Campus Companion",
+                    text = textResources.getString(R.string.app_name),
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    text = "Sign in to continue",
+                    text = textResources.getString(R.string.auths_sign_in_to_continue),
                     style = MaterialTheme.typography.bodyLarge
                 )
             }
@@ -122,23 +130,23 @@ fun LoginScreen(
         ) {
             if (!state.isConfigured) {
                 MessageSurface(
-                    message = state.infoMessage
-                        ?: "Authentication is not configured on this device.",
+                    message = state.infoMessage?.resolve(textResources)
+                        ?: textResources.getString(R.string.auths_authentication_is_not_configured_on_this_device),
                     isError = false
                 )
             }
 
             state.errorMessage?.let { message ->
-                MessageSurface(message = message, isError = true)
+                MessageSurface(message = message.resolve(textResources), isError = true)
             }
             if (state.errorMessage == null && state.isConfigured) {
                 state.infoMessage?.let { message ->
-                    MessageSurface(message = message, isError = false)
+                    MessageSurface(message = message.resolve(textResources), isError = false)
                 }
             }
 
             ProviderButton(
-                label = "Continue with Google",
+                label = textResources.getString(R.string.auths_continue_with_google),
                 icon = Icons.Outlined.Language,
                 enabled = controlsEnabled,
                 onClick = {
@@ -147,7 +155,7 @@ fun LoginScreen(
                 }
             )
             ProviderButton(
-                label = "Continue with Apple",
+                label = textResources.getString(R.string.auths_continue_with_apple),
                 icon = Icons.Outlined.PhoneIphone,
                 enabled = controlsEnabled,
                 onClick = {
@@ -168,7 +176,7 @@ fun LoginScreen(
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !state.isSubmitting,
                     singleLine = true,
-                    label = { Text("Email address") },
+                    label = { Text(textResources.getString(R.string.auths_email_address)) },
                     leadingIcon = {
                         Icon(Icons.Outlined.Email, contentDescription = null)
                     },
@@ -194,12 +202,12 @@ fun LoginScreen(
                     enabled = controlsEnabled
                 ) {
                     ButtonLabel(
-                        text = "Send email code",
+                        text = textResources.getString(R.string.auths_send_email_code),
                         showProgress = state.isSubmitting
                     )
                 }
                 Text(
-                    text = "You can use any valid email address.",
+                    text = textResources.getString(R.string.auths_you_can_use_any_valid_email_address),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -217,7 +225,7 @@ fun LoginScreen(
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !state.isSubmitting,
                     singleLine = true,
-                    label = { Text("6-digit code") },
+                    label = { Text(textResources.getString(R.string.label_6_digit_code)) },
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.NumberPassword,
                         imeAction = ImeAction.Done
@@ -240,7 +248,7 @@ fun LoginScreen(
                     enabled = controlsEnabled && code.length == 6
                 ) {
                     ButtonLabel(
-                        text = "Verify and sign in",
+                        text = textResources.getString(R.string.auths_verify_and_sign_in),
                         showProgress = state.isSubmitting
                     )
                 }
@@ -252,13 +260,13 @@ fun LoginScreen(
                         onClick = onChangeEmail,
                         enabled = !state.isSubmitting
                     ) {
-                        Text("Change email")
+                        Text(textResources.getString(R.string.auths_change_email))
                     }
                     TextButton(
                         onClick = onResendEmailCode,
                         enabled = controlsEnabled
                     ) {
-                        Text("Resend code")
+                        Text(textResources.getString(R.string.auths_resend_code))
                     }
                 }
             }
@@ -275,6 +283,7 @@ fun CompleteProfileScreen(
     onClearMessage: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val textResources = textResources()
     var name by rememberSaveable { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
 
@@ -292,21 +301,21 @@ fun CompleteProfileScreen(
             modifier = Modifier.size(48.dp)
         )
         Text(
-            text = "Complete your profile",
+            text = textResources.getString(R.string.auths_complete_your_profile),
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.SemiBold
         )
         Text(
-            text = user.email ?: "Signed in with ${user.provider.displayName}",
+            text = user.email ?: textResources.getString(R.string.auths_signed_in_with, user.provider.displayName.resolve(textResources)),
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Text(
-            text = "Enter the name that should appear in Campus Companion.",
+            text = textResources.getString(R.string.auths_enter_the_name_that_should_appear_in_campus),
             style = MaterialTheme.typography.bodyLarge
         )
 
-        state.errorMessage?.let { MessageSurface(message = it, isError = true) }
+        state.errorMessage?.let { MessageSurface(message = it.resolve(textResources), isError = true) }
 
         OutlinedTextField(
             value = name,
@@ -317,7 +326,7 @@ fun CompleteProfileScreen(
             modifier = Modifier.fillMaxWidth(),
             enabled = !state.isSubmitting,
             singleLine = true,
-            label = { Text("Display name") },
+            label = { Text(textResources.getString(R.string.auths_display_name)) },
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
             keyboardActions = KeyboardActions(
                 onDone = {
@@ -336,14 +345,14 @@ fun CompleteProfileScreen(
                 .height(52.dp),
             enabled = !state.isSubmitting
         ) {
-            ButtonLabel(text = "Continue", showProgress = state.isSubmitting)
+            ButtonLabel(text = textResources.getString(R.string.auths_continue), showProgress = state.isSubmitting)
         }
         OutlinedButton(
             onClick = onSignOut,
             modifier = Modifier.fillMaxWidth(),
             enabled = !state.isSubmitting
         ) {
-            Text("Use a different account")
+            Text(textResources.getString(R.string.auths_use_a_different_account))
         }
     }
 }
@@ -388,6 +397,7 @@ private fun ButtonLabel(text: String, showProgress: Boolean) {
 
 @Composable
 private fun OrDivider() {
+    val textResources = textResources()
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -395,7 +405,7 @@ private fun OrDivider() {
     ) {
         HorizontalDivider(modifier = Modifier.weight(1f))
         Text(
-            text = "OR",
+            text = textResources.getString(R.string.auths_or),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -406,7 +416,7 @@ private fun OrDivider() {
 @Composable
 private fun MessageSurface(message: String, isError: Boolean) {
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
         shape = RoundedCornerShape(8.dp),
         color = if (isError) {
             MaterialTheme.colorScheme.errorContainer
