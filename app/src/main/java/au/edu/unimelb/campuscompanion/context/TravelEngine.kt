@@ -74,6 +74,9 @@ class TravelEngine(
     private val _sensingTarget = MutableStateFlow(SensingTarget(0, elapsedNanos(), false, null, null))
     /** Published before network work; Home's temporary PENDING result does not change this target. */
     val sensingTarget: StateFlow<SensingTarget> = _sensingTarget.asStateFlow()
+    private val _sensingSession = MutableStateFlow<CourseSession?>(null)
+    /** Timetable timing for the sensing policy, available even while Home/ETA is pending. */
+    val sensingSession: StateFlow<CourseSession?> = _sensingSession.asStateFlow()
     private var decision: ContextDecision? = null
 
     /** The timetable sessions; [reset] also starts a new account scope, even with identical classes. */
@@ -137,6 +140,26 @@ class TravelEngine(
         }
     }
 
+    /** NORMAL keeps guidance and physical arrival, but no high-rate trip classification/history. */
+    fun clearSensingEvidence() = synchronized(inputLock) {
+        val before = inputs.value
+        if (!before.sensingManaged) return@synchronized
+        inputs.value = before.copy(
+            evidence = before.evidence?.copy(movement = null, activity = null, enRoute = null, progressConfirmed = false),
+            signals = MotionSignals(), resetProgress = true
+        )
+        decision = decision?.let {
+            it.copy(memory = it.memory.copy(enRoute = false, farthestMeters = null, closestMeters = null))
+        }
+        val now = clock()
+        val tracked = ContextEngine.trackedSession(before.sessions, now)
+        val current = _snapshot.value
+        if (!current.pending && sameSession(current.session, tracked)) {
+            publishLocked(tracked, _sensingTarget.value.building, current.estimate, current.weather,
+                current.leadMinutes, current.weatherBufferMinutes, current.estimateOrigin, now)
+        }
+    }
+
     /** Atomically accepts a measured position and its target-scoped classification. */
     fun updateEvidence(value: SensingEvidence): Boolean = synchronized(inputLock) {
         val now = clock()
@@ -186,6 +209,7 @@ class TravelEngine(
 
     private fun reconcileTargetLocked(now: Instant, force: Boolean = false) {
         val tracked = ContextEngine.trackedSession(inputs.value.sessions, now)
+        _sensingSession.value = tracked
         val building = tracked?.let { BuildingResolver.resolve(it, buildings) }
         val before = _sensingTarget.value
         if (force || before.sessionId != tracked?.id || before.building != building) {

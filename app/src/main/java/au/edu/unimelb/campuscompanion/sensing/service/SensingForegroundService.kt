@@ -17,6 +17,7 @@ import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import au.edu.unimelb.campuscompanion.BuildConfig
 import au.edu.unimelb.campuscompanion.R
+import au.edu.unimelb.campuscompanion.context.TravelSnapshot
 import au.edu.unimelb.campuscompanion.data.AppRepositories
 import au.edu.unimelb.campuscompanion.data.geo.GeoMath
 import au.edu.unimelb.campuscompanion.data.model.GeoPoint
@@ -40,7 +41,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import java.time.Instant
 import kotlin.math.abs
 
 class SensingForegroundService : Service() {
@@ -49,9 +52,12 @@ class SensingForegroundService : Service() {
         private const val CHANNEL_ID = "campus_companion_sensing"
         private const val NOTIFICATION_ID = 1001
         const val ACTION_START = "au.edu.unimelb.campuscompanion.action.START_SENSING"
+        const val ACTION_RECONCILE = "au.edu.unimelb.campuscompanion.action.RECONCILE_SENSING"
         const val ACTION_STOP = "au.edu.unimelb.campuscompanion.action.STOP_SENSING"
         const val ACTION_NORMAL_MODE = "au.edu.unimelb.campuscompanion.action.NORMAL_MODE"
         const val ACTION_PRE_CLASS_MODE = "au.edu.unimelb.campuscompanion.action.PRE_CLASS_MODE"
+        private const val NAVIGATION_REQUEST_NANOS = 2 * 60 * 1_000_000_000L
+        private const val NAVIGATION_TRIP_NANOS = 4 * 60 * 60 * 1_000_000_000L
     }
 
     // Service commands, sensor registrations and both collectors share the main dispatcher.
@@ -68,7 +74,16 @@ class SensingForegroundService : Service() {
 
     private var target: SensingTarget? = null
     private var sensingRunning = false
+    private var launchAuthorized = false
+    private var activationRequested = false
+    private var foregroundPromoted = false
     private var currentMode = LocationTrackingMode.NORMAL
+    private var navigationRequestUntilNanos = 0L
+    private var navigationTripStartedAtNanos = 0L
+    private var policySnapshot = TravelSnapshot.PENDING
+    private var observedAccount = false
+    private var observedAccountId: String? = null
+    private var skipModeResetLocation = false
     private var sensorActivatedAtNanos = 0L
     private var lastLocationNanos = 0L
 
@@ -83,21 +98,20 @@ class SensingForegroundService : Service() {
         geofenceManager = GeofenceManager(this)
 
         serviceScope.launch {
-            travel.sensingTarget.collect { synchronizeTarget(it) }
+            // PENDING network results do not remove the independently published class target.
+            combine(travel.sensingTarget, travel.sensingSession, travel.snapshot,
+                AppRepositories.sensingAccountEligible, AppRepositories.navigation.state
+            ) { _, _, _, _, _ -> Unit }
+                .combine(AppRepositories.sensingAccountReady) { _, _ -> Unit }
+                .collect { reconcilePolicy() }
         }
         observeLocation()
         observeActivity()
-        // Revocation may stop location callbacks altogether, so check while the service is active.
+        // Clock boundaries, expired navigation requests and revocation need no location callback.
         serviceScope.launch {
             while (true) {
                 delay(5_000L)
-                if (sensingRunning && !hasPreciseLocationPermission()) {
-                    stopForPermissionLoss()
-                } else if (sensingRunning && !hasActivityPermission()) {
-                    runCatching { activityRecognitionManager.stop() }
-                        .onFailure { Log.w("SensingService", "Activity cleanup failed after revocation", it) }
-                }
-                if (sensingRunning) registerArrivalGeofenceIfAllowed()
+                reconcilePolicy()
             }
         }
     }
@@ -107,60 +121,122 @@ class SensingForegroundService : Service() {
             // A foreground launch must be promoted even if permissions change before delivery.
             // Coarse access permits location promotion, but this demo samples only precise fixes.
             // With all location access revoked, shortService permits terminal cleanup on API 34+.
-            val foregroundType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
-                !hasAnyLocationPermission()) ServiceInfo.FOREGROUND_SERVICE_TYPE_SHORT_SERVICE
-            else ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
-            ServiceCompat.startForeground(this, NOTIFICATION_ID,
-                buildNotification("Preparing sensing..."), foregroundType)
+            if (!foregroundPromoted) {
+                val foregroundType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
+                    !hasAnyLocationPermission()) ServiceInfo.FOREGROUND_SERVICE_TYPE_SHORT_SERVICE
+                else ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+                ServiceCompat.startForeground(this, NOTIFICATION_ID,
+                    buildNotification("Preparing sensing..."), foregroundType)
+                foregroundPromoted = true
+            }
             if (intent?.action == ACTION_STOP) {
-                stopSensing()
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
+                stopServiceRun()
                 return START_NOT_STICKY
             }
-            if (!hasPreciseLocationPermission()) {
-                stopForPermissionLoss()
-                return START_NOT_STICKY
+            // Existing directions callers get a renewable, bounded acquisition request. A sticky
+            // restart has no old command/override and selects the timetable policy afresh.
+            when (intent?.action) {
+                ACTION_PRE_CLASS_MODE -> navigationRequestUntilNanos =
+                    SystemClock.elapsedRealtimeNanos() + NAVIGATION_REQUEST_NANOS
+                ACTION_NORMAL_MODE -> navigationRequestUntilNanos = 0L
             }
-            val mode = if (intent?.action == ACTION_PRE_CLASS_MODE) {
-                LocationTrackingMode.PRE_CLASS
-            } else {
-                LocationTrackingMode.NORMAL
-            }
-            startMode(mode)
-            startActivityRecognitionIfAllowed()
-            registerArrivalGeofenceIfAllowed()
+            launchAuthorized = true
+            activationRequested = true
+            reconcilePolicy()
         } catch (exception: SecurityException) {
             Log.w("SensingService", "Sensing permission unavailable", exception)
             stopForPermissionLoss()
             return START_NOT_STICKY
         }
-        return START_STICKY
+        return if (launchAuthorized) START_STICKY else START_NOT_STICKY
+    }
+
+    private fun reconcilePolicy() {
+        // Only an already delivered visible-activity launch (or Android's sticky restart) can
+        // authorize this instance. Observers never start another foreground service.
+        if (!launchAuthorized) return
+        try {
+            if (!hasPreciseLocationPermission()) {
+                stopForPermissionLoss()
+                return
+            }
+            // Cached authentication/timetable restoration may finish after onStartCommand.
+            if (!AppRepositories.sensingAccountReady.value) return
+            if (!AppRepositories.sensingAccountEligible.value) {
+                stopServiceRun()
+                return
+            }
+            val accountId = AppRepositories.sensingAccounts.currentAccountId
+            if (observedAccount && accountId != observedAccountId) {
+                navigationRequestUntilNanos = 0L
+                navigationTripStartedAtNanos = 0L
+            }
+            observedAccount = true
+            observedAccountId = accountId
+            val nextTarget = if (activationRequested) travel.startSensing() else travel.sensingTarget.value
+            activationRequested = false
+            synchronizeTarget(nextTarget)
+            if (!nextTarget.active) {
+                stopServiceRun()
+                return
+            }
+            val nowNanos = SystemClock.elapsedRealtimeNanos()
+            val navigating = AppRepositories.navigation.state.value.active
+            if (!navigating) navigationTripStartedAtNanos = 0L
+            else if (navigationTripStartedAtNanos == 0L) navigationTripStartedAtNanos = nowNanos
+            val navigationOverride = nowNanos < navigationRequestUntilNanos ||
+                (navigating && nowNanos - navigationTripStartedAtNanos < NAVIGATION_TRIP_NANOS)
+            // A temporary PENDING result while routing refreshes cannot erase a resolved policy
+            // for this generation. The pure policy also checks occurrence times and destination.
+            val snapshot = travel.snapshot.value
+            if (!snapshot.pending) policySnapshot = snapshot
+            when (SensingPolicy.mode(
+                accountEligible = AppRepositories.sensingAccountEligible.value,
+                precisePermission = hasPreciseLocationPermission(),
+                session = travel.sensingSession.value,
+                target = nextTarget,
+                snapshot = policySnapshot,
+                now = Instant.now(),
+                highRateOverride = navigationOverride
+            )) {
+                SensingMode.STOP -> stopServiceRun()
+                SensingMode.NORMAL -> startMode(LocationTrackingMode.NORMAL)
+                SensingMode.PRE_CLASS -> startMode(LocationTrackingMode.PRE_CLASS)
+            }
+        } catch (exception: SecurityException) {
+            Log.w("SensingService", "Permission changed during sensing reconciliation", exception)
+            stopForPermissionLoss()
+        }
     }
 
     private fun startMode(mode: LocationTrackingMode) {
-        synchronizeTarget(travel.startSensing())
         if (sensingRunning && currentMode == mode) {
-            // The adapter is idempotent while registered, and retries an interrupted registration.
+            // Adapters preserve live windows/subscriptions and can retry a failed registration.
             locationTracker.startTracking(mode)
-            updateModeNotification()
+            startHighRateSensorsIfNeeded()
+            startActivityRecognitionIfAllowed()
+            registerArrivalGeofenceIfAllowed()
             return
         }
+        sensingRunning = false
+        skipModeResetLocation = true
         locationTracker.stopTracking()
         resetSensorHistories()
+        activityRecognitionManager.stop()
         currentMode = mode
         sensingRunning = true
-        // A mode change makes the old raw verdict unavailable while preserving advisory guidance.
-        target?.takeIf { it.active }?.let {
-            travel.updateEvidence(SensingEvidence(generation = it.generation, location = null))
-        }
+        // Clear full fusion and departure memory, keeping current position/guidance and arrival.
+        travel.clearSensingEvidence()
         locationTracker.startTracking(mode)
         startHighRateSensorsIfNeeded()
+        startActivityRecognitionIfAllowed()
+        registerArrivalGeofenceIfAllowed()
         updateModeNotification()
+        if (BuildConfig.DEBUG) Log.d("SensingService", "mode=$mode, generation=${target?.generation}")
     }
 
     private fun startHighRateSensorsIfNeeded() {
-        if (sensingRunning && currentMode == LocationTrackingMode.PRE_CLASS) {
+        if (sensingRunning && currentMode == LocationTrackingMode.PRE_CLASS && sensorActivatedAtNanos == 0L) {
             sensorActivatedAtNanos = SystemClock.elapsedRealtimeNanos()
             motionDetector.start()
             gyroscopeDetector.start()
@@ -187,6 +263,7 @@ class SensingForegroundService : Service() {
             )
         }
         target = next
+        policySnapshot = TravelSnapshot.PENDING
         lastLocationNanos = 0L
         resetSensorHistories()
         activityRecognitionManager.stop()
@@ -195,16 +272,14 @@ class SensingForegroundService : Service() {
             stopComponents()
             return
         }
-        startHighRateSensorsIfNeeded()
-        startActivityRecognitionIfAllowed()
-        registerArrivalGeofenceIfAllowed()
     }
 
     private fun observeActivity() {
         serviceScope.launch {
             activityRecognitionManager.observations.collect {
-                if (!sensingRunning) return@collect
-                synchronizeTarget(travel.sensingTarget.value)
+                if (!sensingRunning || currentMode != LocationTrackingMode.PRE_CLASS) return@collect
+                reconcilePolicy()
+                if (!sensingRunning || currentMode != LocationTrackingMode.PRE_CLASS) return@collect
                 val currentTarget = target?.takeIf { it.active } ?: return@collect
                 // EXIT, STILL and registration interruption must invalidate the old bundle even
                 // between GPS callbacks. Confirmed trips and last-known guidance survive this.
@@ -223,9 +298,14 @@ class SensingForegroundService : Service() {
                     return@collect
                 }
                 // The target is independent of PENDING snapshots and network request completion.
-                synchronizeTarget(travel.sensingTarget.value)
+                reconcilePolicy()
+                if (!sensingRunning) return@collect
                 val currentTarget = target ?: return@collect
                 if (location == null) {
+                    if (skipModeResetLocation) {
+                        skipModeResetLocation = false
+                        return@collect
+                    }
                     distanceTrendDetector.reset()
                     enRouteFusionDetector.reset()
                     if (currentTarget.active) {
@@ -233,6 +313,7 @@ class SensingForegroundService : Service() {
                     }
                     return@collect
                 }
+                skipModeResetLocation = false
                 val now = SystemClock.elapsedRealtimeNanos()
                 if (!EvidenceFreshness.accepts(location, currentTarget, now, lastLocationNanos)) {
                     if (BuildConfig.DEBUG) {
@@ -351,13 +432,17 @@ class SensingForegroundService : Service() {
             PackageManager.PERMISSION_GRANTED
 
     private fun startActivityRecognitionIfAllowed() {
-        val currentTarget = target?.takeIf { it.active && sensingRunning } ?: return
+        val currentTarget = target?.takeIf {
+            it.active && sensingRunning && currentMode == LocationTrackingMode.PRE_CLASS
+        } ?: return
         if (hasActivityPermission()) {
             try {
-                activityRecognitionManager.start(currentTarget.activatedAtNanos)
+                activityRecognitionManager.start(maxOf(currentTarget.activatedAtNanos, sensorActivatedAtNanos))
             } catch (exception: SecurityException) {
                 Log.w("SensingService", "Activity recognition unavailable; retaining walking sensors", exception)
             }
+        } else {
+            activityRecognitionManager.stop()
         }
     }
 
@@ -394,8 +479,18 @@ class SensingForegroundService : Service() {
 
     private fun stopForPermissionLoss() {
         Log.w("SensingService", "Precise location unavailable; stopping sensing")
+        stopServiceRun()
+    }
+
+    private fun stopServiceRun() {
+        launchAuthorized = false
+        activationRequested = false
+        navigationRequestUntilNanos = 0L
+        navigationTripStartedAtNanos = 0L
+        AppRepositories.navigation.stop()
         stopSensing()
         stopForeground(STOP_FOREGROUND_REMOVE)
+        foregroundPromoted = false
         stopSelf()
     }
 
@@ -428,6 +523,8 @@ class SensingForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        launchAuthorized = false
+        activationRequested = false
         AppRepositories.navigation.stop()
         stopSensing()
         serviceScope.cancel()
