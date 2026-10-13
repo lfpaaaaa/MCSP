@@ -10,6 +10,7 @@ import au.edu.unimelb.campuscompanion.data.model.WeatherSnapshot
 import au.edu.unimelb.campuscompanion.data.repository.EtaRepository
 import au.edu.unimelb.campuscompanion.data.repository.WeatherRepository
 import au.edu.unimelb.campuscompanion.sensing.location.EvidenceFreshness
+import au.edu.unimelb.campuscompanion.sensing.location.GeofenceEntryEvent
 import au.edu.unimelb.campuscompanion.sensing.location.SensingEvidence
 import au.edu.unimelb.campuscompanion.sensing.location.SensingTarget
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
@@ -178,6 +179,7 @@ class TravelEngine(
         _sensingTarget.value = SensingTarget(target.generation + 1, elapsedNanos(), active, sessionId, building)
         val before = inputs.value
         inputs.value = before.copy(evidence = null, lastObservedNanos = 0, resetProgress = true,
+            consumedGeofenceEntries = emptyMap(),
             origin = if (clearGuidance && before.sensingManaged) null else before.origin,
             signals = if (before.sensingManaged) MotionSignals() else MotionSignals(moving = before.signals.moving))
     }
@@ -217,10 +219,59 @@ class TravelEngine(
         inputs.value = inputs.value.copy(signals = inputs.value.signals.copy(enRoute = value))
     }
 
-    /** Fixture geofence adapter; scoped receiver events are implemented in Step 3. */
+    /** Fixture geofence adapter; production uses the scoped event overload. */
     internal fun reportGeofenceEntered(buildingCode: String) = synchronized(inputLock) {
         check(!inputs.value.sensingManaged) { "Active sensing requires scoped geofence events" }
         inputs.value = inputs.value.copy(signals = inputs.value.signals.copy(geofenceCode = buildingCode))
+    }
+
+    /** The receiver has already checked the ID against the current successful registration. */
+    fun reportGeofenceEntered(event: GeofenceEntryEvent): Boolean = synchronized(inputLock) {
+        val now = clock()
+        reconcileTargetLocked(now)
+        val target = _sensingTarget.value
+        val building = target.building ?: return@synchronized false
+        val before = inputs.value
+        val observedNow = elapsedNanos()
+        if (!target.active || !before.sensingManaged || event.generation != target.generation ||
+            event.buildingCode != building.locCode || event.requestId.isBlank() ||
+            event.receivedAtNanos < target.activatedAtNanos ||
+            !EvidenceFreshness.isFresh(event.receivedAtNanos, observedNow, EvidenceFreshness.LOCATION_MAX_AGE_NANOS)
+        ) return@synchronized false
+
+        val trigger = event.triggerLocation
+        val eventObserved = trigger?.elapsedRealtimeNanos ?: event.receivedAtNanos
+        val consumed = before.consumedGeofenceEntries[event.requestId]
+        // A supplied measured fix distinguishes a later real re-entry from a duplicate delivery.
+        // Without one, only the first entry per registration can be identified safely.
+        if (consumed != null && (trigger == null || eventObserved <= consumed)) return@synchronized false
+        if (trigger != null) {
+            if (eventObserved < target.activatedAtNanos || eventObserved > event.receivedAtNanos ||
+                !EvidenceFreshness.isFresh(eventObserved, observedNow, GEOFENCE_TRIGGER_MAX_AGE_NANOS) ||
+                !trigger.latitude.isFinite() || trigger.latitude !in -90.0..90.0 ||
+                !trigger.longitude.isFinite() || trigger.longitude !in -180.0..180.0 ||
+                !trigger.accuracyMeters.isFinite() || trigger.accuracyMeters < 0f ||
+                GeoMath.distanceMeters(GeoPoint(trigger.latitude, trigger.longitude), building.location) > config.leftBuildingMeters
+            ) return@synchronized false
+        }
+        // A delayed entry cannot override a newer accepted far-away fix, even once that GPS fix
+        // expires. The origin remains scoped and timestamped for this contradiction check.
+        val lastAway = before.origin?.let { GeoMath.distanceMeters(it, building.location) > config.leftBuildingMeters } == true
+        if (lastAway && (trigger == null || before.lastObservedNanos >= eventObserved)) return@synchronized false
+
+        inputs.value = before.copy(
+            evidence = null, resetProgress = true,
+            lastObservedNanos = maxOf(before.lastObservedNanos, eventObserved),
+            consumedGeofenceEntries = before.consumedGeofenceEntries + (event.requestId to eventObserved)
+        )
+        val tracked = ContextEngine.trackedSession(before.sessions, now) ?: return@synchronized false
+        val previous = _snapshot.value.takeIf { sameSession(it.session, tracked) && it.building == building }
+        // Consume the entry in this decision only. Older GPS cannot immediately undo it on a tick;
+        // subsequent fresh fixes still apply the normal 200 m exit hysteresis.
+        publishLocked(tracked, building, previous?.estimate, previous?.weather,
+            previous?.leadMinutes ?: leadMinutes(tracked, before), previous?.weatherBufferMinutes ?: 0,
+            previous?.estimateOrigin, now, geofenceEntry = true)
+        true
     }
 
     /** Minutes the user wants in hand on top of the travel time; set on the schedule screen. */
@@ -306,7 +357,8 @@ class TravelEngine(
     /** Must run under inputLock: decision position and verdict always come from one current bundle. */
     private fun publishLocked(
         tracked: CourseSession?, destination: BuildingLocation?, estimate: TravelEstimate?,
-        weatherNow: WeatherSnapshot?, lead: Int, weatherBuffer: Int, estimateOrigin: GeoPoint?, now: Instant
+        weatherNow: WeatherSnapshot?, lead: Int, weatherBuffer: Int, estimateOrigin: GeoPoint?, now: Instant,
+        geofenceEntry: Boolean = false
     ) {
         val current = inputs.value
         val target = _sensingTarget.value
@@ -331,16 +383,21 @@ class TravelEngine(
         }
         val position = if (current.sensingManaged) measured?.let { GeoPoint(it.latitude, it.longitude) } else current.origin
         val distance = if (position != null && destination != null) GeoMath.distanceMeters(position, destination.location) else null
+        // Expiry removes physical evidence, not the same-target last-known late guidance.
+        // The routing origin is cleared on target/account replacement and explicit stop.
+        val lastKnownAway = current.sensingManaged && current.origin != null && destination != null &&
+            GeoMath.distanceMeters(current.origin, destination.location) > config.arrivalRadiusMeters
         val next = ContextEngine.decide(
             inputs = ContextInputs(
                 now = now, sessions = current.sessions, travelMinutes = estimate?.durationMinutes,
                 bufferMinutes = lead + weatherBuffer, distanceMeters = distance,
                 isMoving = if (current.sensingManaged) measured != null && isMoving == true else current.signals.moving,
                 enRouteSignal = if (current.sensingManaged) enRoute else current.signals.enRoute,
-                insideGeofence = !current.sensingManaged && destination != null && current.signals.geofenceCode == destination.locCode,
+                insideGeofence = geofenceEntry || (!current.sensingManaged && destination != null && current.signals.geofenceCode == destination.locCode),
                 buildingCode = destination?.locCode,
                 progressConfirmed = !current.sensingManaged || evidence?.progressConfirmed == true,
-                resetProgress = current.sensingManaged && (current.resetProgress || measured == null)
+                resetProgress = current.sensingManaged && (current.resetProgress || measured == null),
+                lastKnownAway = lastKnownAway
             ), previous = decision, config = config
         )
         decision = next
@@ -379,7 +436,8 @@ class TravelEngine(
         val sensingManaged: Boolean = false,
         val evidence: SensingEvidence? = null,
         val lastObservedNanos: Long = 0,
-        val resetProgress: Boolean = false
+        val resetProgress: Boolean = false,
+        val consumedGeofenceEntries: Map<String, Long> = emptyMap()
     )
 
     companion object {
@@ -389,5 +447,6 @@ class TravelEngine(
         /** Beyond this straight-line distance no travel time is requested or shown. */
         const val MAX_ROUTED_DISTANCE_METERS = 150_000.0
         val TICK_INTERVAL: Duration = Duration.ofSeconds(30)
+        const val GEOFENCE_TRIGGER_MAX_AGE_NANOS = 180_000_000_000L
     }
 }

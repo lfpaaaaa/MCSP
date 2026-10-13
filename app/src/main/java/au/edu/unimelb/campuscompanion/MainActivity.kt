@@ -1,6 +1,7 @@
 package au.edu.unimelb.campuscompanion
 
 import android.Manifest
+import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -12,16 +13,29 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
 import au.edu.unimelb.campuscompanion.auth.AuthViewModel
 import au.edu.unimelb.campuscompanion.auth.SupabaseProvider
 import au.edu.unimelb.campuscompanion.data.AppRepositories
 import au.edu.unimelb.campuscompanion.push.NotificationTaps
 import au.edu.unimelb.campuscompanion.sensing.service.SensingForegroundService
+import au.edu.unimelb.campuscompanion.sensing.location.BackgroundLocationRequest
+import au.edu.unimelb.campuscompanion.sensing.location.locationPermissionState
 import au.edu.unimelb.campuscompanion.ui.CampusCompanionApp
+import au.edu.unimelb.campuscompanion.ui.profile.AppPermission
+import au.edu.unimelb.campuscompanion.ui.profile.AppPermissions
 
 class MainActivity : ComponentActivity() {
 
     private val authViewModel: AuthViewModel by viewModels()
+    private val permissionPreferences by lazy { getSharedPreferences("permission_prompts", MODE_PRIVATE) }
+
+    private val backgroundLocationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        Log.d("LocationPermission", "Optional background location granted=$granted")
+        startSensingForegroundService()
+    }
 
     // ---------------------------------------------------------
     // Notification permission
@@ -70,14 +84,11 @@ class MainActivity : ComponentActivity() {
                     Manifest.permission.ACCESS_COARSE_LOCATION
                 ] == true
 
-            if (
-                fineGranted ||
-                coarseGranted
-            ) {
+            if (fineGranted) {
 
                 Log.d(
                     "LocationPermission",
-                    "Location permission granted"
+                    "Precise location permission granted"
                 )
 
                 /*
@@ -92,8 +103,9 @@ class MainActivity : ComponentActivity() {
 
                 Log.w(
                     "LocationPermission",
-                    "Location permission not granted"
+                    if (coarseGranted) "Approximate location: timetable-only guidance" else "Location permission not granted"
                 )
+                stopSensingForPermissionLoss()
             }
 
             /*
@@ -132,6 +144,7 @@ class MainActivity : ComponentActivity() {
                     "Activity recognition permission not granted"
                 )
             }
+            explainBackgroundArrivalIfNeeded()
         }
 
     // ---------------------------------------------------------
@@ -194,6 +207,16 @@ class MainActivity : ComponentActivity() {
                 authViewModel =
                     authViewModel
             )
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // A grant or revocation in Settings is not delivered to a runtime-permission launcher.
+        if (locationPermissionState(this).canStartSensing) {
+            startSensingForegroundService()
+        } else {
+            stopSensingForPermissionLoss()
         }
     }
 
@@ -277,14 +300,18 @@ class MainActivity : ComponentActivity() {
              */
             requestActivityRecognitionPermissionIfNeeded()
 
-        } else {
+        } else if (!permissionPreferences.getBoolean("location_permission_requested", false)) {
 
+            permissionPreferences.edit().putBoolean("location_permission_requested", true).apply()
             locationPermissionLauncher.launch(
                 arrayOf(
                     Manifest.permission.ACCESS_FINE_LOCATION,
                     Manifest.permission.ACCESS_COARSE_LOCATION
                 )
             )
+        } else {
+            // A declined request remains optional; Profile can request it again or open Settings.
+            requestActivityRecognitionPermissionIfNeeded()
         }
     }
 
@@ -304,6 +331,7 @@ class MainActivity : ComponentActivity() {
         ) {
 
             startSensingForegroundService()
+            explainBackgroundArrivalIfNeeded()
 
             return
         }
@@ -323,6 +351,7 @@ class MainActivity : ComponentActivity() {
             )
 
             startSensingForegroundService()
+            explainBackgroundArrivalIfNeeded()
 
         } else {
 
@@ -337,37 +366,17 @@ class MainActivity : ComponentActivity() {
     // ---------------------------------------------------------
 
     private fun startSensingForegroundService() {
-
-        val fineGranted =
-            ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            ) ==
-                    PackageManager.PERMISSION_GRANTED
-
-        val coarseGranted =
-            ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_COARSE_LOCATION
-            ) ==
-                    PackageManager.PERMISSION_GRANTED
-
-        /*
-         * Do not attempt to start a location foreground
-         * service until a location permission exists.
-         */
-        if (
-            !fineGranted &&
-            !coarseGranted
-        ) {
+        if (!locationPermissionState(this).canStartSensing) {
 
             Log.w(
                 "SensingService",
-                "Cannot start sensing service without location permission"
+                "Precise location unavailable; using timetable-only guidance"
             )
 
             return
         }
+        // Permission callbacks can finish as the activity leaves the foreground.
+        if (!lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return
 
         val serviceIntent =
             Intent(
@@ -391,15 +400,48 @@ class MainActivity : ComponentActivity() {
                     SensingForegroundService.ACTION_PRE_CLASS_MODE
             }
 
-        ContextCompat.startForegroundService(
-            this,
-            serviceIntent
-        )
+        try {
+            ContextCompat.startForegroundService(this, serviceIntent)
+        } catch (exception: SecurityException) {
+            Log.w("SensingService", "Location permission changed before service start", exception)
+            stopSensingForPermissionLoss()
+            return
+        } catch (exception: IllegalStateException) {
+            Log.w("SensingService", "Foreground sensing start unavailable", exception)
+            return
+        }
 
         Log.d(
             "SensingService",
             "Requested PRE_CLASS foreground sensing mode"
         )
+    }
+
+    private fun stopSensingForPermissionLoss() {
+        stopService(Intent(this, SensingForegroundService::class.java))
+        // Do not leave an old precise ETA looking like approximate-location support.
+        AppRepositories.travel.stopSensing()
+    }
+
+    private fun explainBackgroundArrivalIfNeeded() {
+        val location = locationPermissionState(this)
+        if (!location.fine || location.canMonitorBackgroundArrival ||
+            permissionPreferences.getBoolean("background_arrival_explained", false) || isFinishing) return
+        permissionPreferences.edit().putBoolean("background_arrival_explained", true).apply()
+        AlertDialog.Builder(this)
+            .setTitle("Optional background arrival")
+            .setMessage(AppPermissions.backgroundExplanation(this))
+            .setNegativeButton("Not now") { _, _ -> }
+            .setPositiveButton(if (location.backgroundRequest == BackgroundLocationRequest.Settings) "Open Settings" else "Continue") { _, _ ->
+                when (locationPermissionState(this).backgroundRequest) {
+                    BackgroundLocationRequest.RuntimePermission ->
+                        backgroundLocationPermissionLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+                    BackgroundLocationRequest.Settings ->
+                        AppPermissions.openSettings(this, AppPermission.BackgroundArrival)
+                    else -> Unit
+                }
+            }
+            .show()
     }
 
     // ---------------------------------------------------------

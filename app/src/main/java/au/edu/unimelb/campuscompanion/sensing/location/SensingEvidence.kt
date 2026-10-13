@@ -34,10 +34,19 @@ object EvidenceFreshness {
         observedAt > 0 && observedAt <= now && now - observedAt <= maxAge
 
     fun accepts(location: LocationSample, target: SensingTarget, now: Long, previous: Long = 0): Boolean =
-        target.active && location.elapsedRealtimeNanos >= target.activatedAtNanos &&
-            location.elapsedRealtimeNanos > previous &&
-            isFresh(location.elapsedRealtimeNanos, now, LOCATION_MAX_AGE_NANOS) &&
-            location.accuracyMeters.isFinite() && location.accuracyMeters in 0f..50f &&
-            location.latitude.isFinite() && location.latitude in -90.0..90.0 &&
-            location.longitude.isFinite() && location.longitude in -180.0..180.0
+        target.active && rejectionReason(location, now, previous, target.activatedAtNanos) == null
+
+    /** Bounded diagnostics shared by the Android adapter and engine, with no raw coordinates. */
+    fun rejectionReason(location: LocationSample, now: Long, previous: Long = 0, activatedAt: Long = 0): String? = when {
+        location.elapsedRealtimeNanos <= 0 -> "missing_time"
+        location.elapsedRealtimeNanos > now -> "future"
+        location.elapsedRealtimeNanos < activatedAt -> "before_activation"
+        location.elapsedRealtimeNanos <= previous -> "out_of_order"
+        now - location.elapsedRealtimeNanos > LOCATION_MAX_AGE_NANOS -> "expired"
+        !location.accuracyMeters.isFinite() || location.accuracyMeters < 0f -> "invalid_accuracy"
+        location.accuracyMeters > 50f -> "inaccurate"
+        !location.latitude.isFinite() || location.latitude !in -90.0..90.0 ||
+            !location.longitude.isFinite() || location.longitude !in -180.0..180.0 -> "invalid_position"
+        else -> null
+    }
 }

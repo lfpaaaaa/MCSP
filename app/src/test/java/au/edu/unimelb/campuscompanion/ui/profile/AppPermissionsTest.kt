@@ -1,5 +1,6 @@
 package au.edu.unimelb.campuscompanion.ui.profile
 
+import au.edu.unimelb.campuscompanion.sensing.location.LocationPermissionState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -16,6 +17,8 @@ class AppPermissionsTest {
         assertEquals("Precise location", precise.detail)
         assertTrue(approximate.granted)
         assertTrue(approximate.detail.startsWith("Approximate location only"))
+        assertTrue(approximate.detail.contains("timetable-only"))
+        assertTrue(approximate.detail.contains("without fresh travel times or arrival detection"))
         assertFalse(none.granted)
         assertTrue(none.detail.startsWith("Not allowed"))
         assertEquals(AppPermission.Location, none.permission)
@@ -31,7 +34,38 @@ class AppPermissionsTest {
         assertTrue(AppPermissions.camera(granted = false).detail.contains("take a photo"))
 
         assertEquals("Allowed", AppPermissions.physicalActivity(granted = true).detail)
-        assertTrue(AppPermissions.physicalActivity(granted = false).detail.contains("walking"))
+        assertTrue(AppPermissions.physicalActivity(granted = false).detail.contains("walking fallback"))
+    }
+
+    @Test
+    fun backgroundAccessNeedsPreciseLocationEvenWhenAndroidGrantedBackgroundPermission() {
+        val state = AppPermissions.backgroundArrival(LocationPermissionState(false, true, true, 35))
+        assertFalse(state.granted)
+        assertTrue(state.detail.contains("Background access allowed"))
+        assertTrue(state.detail.contains("precise location is needed"))
+    }
+
+    @Test
+    fun foregroundOnlyPreciseAccessExplainsThatGpsArrivalStillWorks() {
+        val state = AppPermissions.backgroundArrival(LocationPermissionState(true, true, false, 35))
+        assertFalse(state.granted)
+        assertTrue(state.detail.contains("GPS arrival stays available"))
+    }
+
+    @Test
+    fun backgroundProfileStatusReflectsGrantAndRevocation() {
+        val allowed = AppPermissions.backgroundArrival(LocationPermissionState(true, true, true, 35))
+        val revoked = AppPermissions.backgroundArrival(LocationPermissionState(true, true, false, 35))
+        assertTrue(allowed.granted)
+        assertEquals("Allowed all the time with precise location", allowed.detail)
+        assertFalse(revoked.granted)
+    }
+
+    @Test
+    fun legacyAndroidDoesNotNeedASeparateBackgroundGrant() {
+        val state = AppPermissions.backgroundArrival(LocationPermissionState(true, true, false, 28))
+        assertTrue(state.granted)
+        assertTrue(state.detail.contains("this Android version"))
     }
 
     @Test

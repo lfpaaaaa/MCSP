@@ -61,7 +61,9 @@ data class ContextInputs(
     /** Production fallback needs sustained distinct observations, not a single GPS jump. */
     val progressConfirmed: Boolean = true,
     /** A stale sampling gap clears unconfirmed history without ending an established trip. */
-    val resetProgress: Boolean = false
+    val resetProgress: Boolean = false,
+    /** Same-target advisory only; never used for physical arrival, travel or retreat decisions. */
+    val lastKnownAway: Boolean = false
 )
 
 /**
@@ -219,7 +221,7 @@ object ContextEngine {
             memory.arrived -> ContextState.IN_CLASS
             withinGrace && memory.enRoute -> ContextState.EN_ROUTE
             // Known to be away from the building (otherwise memory.arrived would be set).
-            withinGrace && inputs.distanceMeters != null -> ContextState.RUNNING_LATE
+            withinGrace && (inputs.distanceMeters != null || inputs.lastKnownAway) -> ContextState.RUNNING_LATE
             // Position unknown, or long past the start: assume the student is in class.
             else -> ContextState.IN_CLASS
         }

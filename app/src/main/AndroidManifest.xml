@@ -106,7 +106,7 @@
         <service
             android:name=".sensing.service.SensingForegroundService"
             android:exported="false"
-            android:foregroundServiceType="location" />
+            android:foregroundServiceType="location|shortService" />
 
         <service
             android:name=".push.CampusMessagingService"

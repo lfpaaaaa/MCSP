@@ -13,13 +13,18 @@ import android.provider.Settings
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import au.edu.unimelb.campuscompanion.push.Notifications
+import au.edu.unimelb.campuscompanion.sensing.location.LocationPermissionState
+import au.edu.unimelb.campuscompanion.sensing.location.locationPermissionState
 
 /** A permission the app asks for, with the reason shown on the Profile screen. */
 enum class AppPermission(val title: String, val purpose: String) {
     Location(
         title = "Location",
-        purpose = "How far you are from your next class and when you have arrived, read on this phone " +
-            "around class times."
+        purpose = "Precise location provides travel times, departure guidance and GPS arrival around class times."
+    ),
+    BackgroundArrival(
+        title = "Background arrival",
+        purpose = "Optional location access lets Android detect arrival near your class building while the app is closed."
     ),
     Notifications(
         title = "Notifications",
@@ -31,13 +36,18 @@ enum class AppPermission(val title: String, val purpose: String) {
     ),
     PhysicalActivity(
         title = "Physical activity",
-        purpose = "Tells walking from riding, so travel times use the right mode."
+        purpose = "Helps confirm walking, running or riding toward class so departure prompts can be withdrawn."
     );
 
     /** The runtime permissions to request for this entry, or none when the system handles it. */
     val runtimePermissions: List<String>
         get() = when (this) {
             Location -> listOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+            BackgroundArrival -> if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) {
+                listOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+            } else {
+                emptyList()
+            }
             Notifications -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 listOf(Manifest.permission.POST_NOTIFICATIONS)
             } else {
@@ -63,26 +73,40 @@ data class PermissionStatus(
 /** Reads the real permission state and opens the system pages where it can be changed. */
 object AppPermissions {
 
-    fun read(context: Context): List<PermissionStatus> = listOf(
-        location(
-            fine = context.has(Manifest.permission.ACCESS_FINE_LOCATION),
-            coarse = context.has(Manifest.permission.ACCESS_COARSE_LOCATION)
-        ),
-        notifications(allowed = Notifications.canNotify(context)),
-        camera(granted = context.has(Manifest.permission.CAMERA)),
-        physicalActivity(
-            granted = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
-                context.has(Manifest.permission.ACTIVITY_RECOGNITION)
+    fun read(context: Context): List<PermissionStatus> {
+        val locationState = locationPermissionState(context)
+        return listOf(
+            location(fine = locationState.fine, coarse = locationState.coarse),
+            backgroundArrival(locationState),
+            notifications(allowed = Notifications.canNotify(context)),
+            camera(granted = context.has(Manifest.permission.CAMERA)),
+            physicalActivity(
+                granted = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
+                    context.has(Manifest.permission.ACTIVITY_RECOGNITION)
+            )
         )
-    )
+    }
 
     internal fun location(fine: Boolean, coarse: Boolean) = PermissionStatus(
         permission = AppPermission.Location,
         granted = fine || coarse,
         detail = when {
             fine -> "Precise location"
-            coarse -> "Approximate location only; precise location makes arrival detection reliable"
-            else -> "Not allowed; the next-class card cannot show travel times"
+            coarse -> "Approximate location only; timetable-only guidance, without fresh travel times or arrival detection"
+            else -> "Not allowed; timetable-only guidance, without travel times or arrival detection"
+        }
+    )
+
+    internal fun backgroundArrival(location: LocationPermissionState) = PermissionStatus(
+        permission = AppPermission.BackgroundArrival,
+        granted = location.canMonitorBackgroundArrival,
+        detail = when {
+            !location.fine && location.background && location.sdkInt >= 29 ->
+                "Background access allowed; precise location is needed for arrival monitoring"
+            !location.fine -> "Precise foreground location is needed first"
+            location.sdkInt < 29 -> "Allowed with precise location on this Android version"
+            location.background -> "Allowed all the time with precise location"
+            else -> "Not allowed; GPS arrival stays available while foreground sensing is running"
         }
     )
 
@@ -101,8 +125,26 @@ object AppPermissions {
     internal fun physicalActivity(granted: Boolean) = PermissionStatus(
         permission = AppPermission.PhysicalActivity,
         granted = granted,
-        detail = if (granted) "Allowed" else "Not allowed; travel times assume you are walking"
+        detail = if (granted) "Allowed" else "Not allowed; motion sensors provide the walking fallback"
     )
+
+    /** Separate education before the optional background request; foreground access comes first. */
+    fun backgroundExplanation(context: Context): String {
+        val state = locationPermissionState(context)
+        if (!state.fine) {
+            return "Background arrival monitoring needs precise location. Allow precise location first. " +
+                "With approximate location, Campus Companion provides timetable-only guidance."
+        }
+        val settingsInstruction = if (state.sdkInt >= 30) {
+            val option = context.packageManager.backgroundPermissionOptionLabel
+            "In Settings, open Permissions, then Location, and choose “$option”. "
+        } else {
+            "Choose “Allow all the time” in the next Android permission dialog. "
+        }
+        return "Campus Companion uses background location to detect arrival near your class building " +
+            "while the app is closed. $settingsInstruction" +
+            "This is optional. You can keep using timetable guidance and GPS arrival while foreground sensing is running."
+    }
 
     /** True when the system has granted [permission] (a `Manifest.permission` name) to this app. */
     fun isGranted(context: Context, permission: String): Boolean = context.has(permission)

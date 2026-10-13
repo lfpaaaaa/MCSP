@@ -7,16 +7,17 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import au.edu.unimelb.campuscompanion.BuildConfig
 import au.edu.unimelb.campuscompanion.R
 import au.edu.unimelb.campuscompanion.data.AppRepositories
-import au.edu.unimelb.campuscompanion.data.building.BuildingLocation
 import au.edu.unimelb.campuscompanion.data.geo.GeoMath
 import au.edu.unimelb.campuscompanion.data.model.GeoPoint
 import au.edu.unimelb.campuscompanion.sensing.activity.ActivityRecognitionManager
@@ -66,8 +67,6 @@ class SensingForegroundService : Service() {
     private val enRouteFusionDetector = EnRouteFusionDetector()
 
     private var target: SensingTarget? = null
-    private var geofenceBuilding: BuildingLocation? = null
-    private var geofenceRequested = false
     private var sensingRunning = false
     private var currentMode = LocationTrackingMode.NORMAL
     private var sensorActivatedAtNanos = 0L
@@ -98,23 +97,31 @@ class SensingForegroundService : Service() {
                     runCatching { activityRecognitionManager.stop() }
                         .onFailure { Log.w("SensingService", "Activity cleanup failed after revocation", it) }
                 }
+                if (sensingRunning) registerArrivalGeofenceIfAllowed()
             }
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP) {
-            stopSensing()
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
-            return START_NOT_STICKY
-        }
-        if (!hasPreciseLocationPermission()) {
-            stopForPermissionLoss()
-            return START_NOT_STICKY
-        }
         try {
-            startForeground(NOTIFICATION_ID, buildNotification("Preparing sensing..."))
+            // A foreground launch must be promoted even if permissions change before delivery.
+            // Coarse access permits location promotion, but this demo samples only precise fixes.
+            // With all location access revoked, shortService permits terminal cleanup on API 34+.
+            val foregroundType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
+                !hasAnyLocationPermission()) ServiceInfo.FOREGROUND_SERVICE_TYPE_SHORT_SERVICE
+            else ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+            ServiceCompat.startForeground(this, NOTIFICATION_ID,
+                buildNotification("Preparing sensing..."), foregroundType)
+            if (intent?.action == ACTION_STOP) {
+                stopSensing()
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            if (!hasPreciseLocationPermission()) {
+                stopForPermissionLoss()
+                return START_NOT_STICKY
+            }
             val mode = if (intent?.action == ACTION_PRE_CLASS_MODE) {
                 LocationTrackingMode.PRE_CLASS
             } else {
@@ -184,7 +191,6 @@ class SensingForegroundService : Service() {
         resetSensorHistories()
         activityRecognitionManager.stop()
         removeArrivalGeofence()
-        geofenceBuilding = next.building.takeIf { next.active }
         if (!next.active) {
             stopComponents()
             return
@@ -230,7 +236,10 @@ class SensingForegroundService : Service() {
                 val now = SystemClock.elapsedRealtimeNanos()
                 if (!EvidenceFreshness.accepts(location, currentTarget, now, lastLocationNanos)) {
                     if (BuildConfig.DEBUG) {
-                        Log.d("SensingFusion", "Rejected location for generation=${currentTarget.generation}")
+                        val reason = if (!currentTarget.active) "inactive" else
+                            EvidenceFreshness.rejectionReason(location, now, lastLocationNanos, currentTarget.activatedAtNanos)
+                        Log.d("SensingFusion", "rejected reason=$reason, generation=${currentTarget.generation}, " +
+                            "ageMs=${(now - location.elapsedRealtimeNanos) / 1_000_000L}, accuracyM=${location.accuracyMeters}")
                     }
                     return@collect
                 }
@@ -256,6 +265,7 @@ class SensingForegroundService : Service() {
                 var progressConfirmed = false
                 var distanceMeters: Int? = null
                 var trendName = "unavailable"
+                var headingDifference: Double? = null
                 currentTarget.building?.takeIf { highRate }?.let { building ->
                     val distance = GeoMath.distanceMeters(point, building.location)
                     val trend = distanceTrendDetector.update(distance, location.elapsedRealtimeNanos)
@@ -266,7 +276,7 @@ class SensingForegroundService : Service() {
                         location.latitude, location.longitude,
                         building.location.latitude, building.location.longitude
                     )
-                    val headingDifference = heading?.let {
+                    headingDifference = heading?.let {
                         calculateHeadingDifference(it.toDouble(), bearing)
                     }
                     verdict = enRouteFusionDetector.update(
@@ -310,6 +320,7 @@ class SensingForegroundService : Service() {
                                 "target=${currentTarget.sessionId}/${currentTarget.building?.locCode}, " +
                                 "distanceM=$distanceMeters, trend=$trendName, moving=${movement?.isMoving}, " +
                                 "activity=${activity?.state}, activityAvailable=${activityRecognitionManager.isAvailable}, " +
+                                "headingDelta=$headingDifference, headingFresh=${heading != null}, rotating=${rotation?.isRotating}, " +
                                 "verdict=$verdict, progressConfirmed=$progressConfirmed, " +
                                 "state=$stateBefore->$stateAfter"
                         )
@@ -335,6 +346,10 @@ class SensingForegroundService : Service() {
         ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) ==
             PackageManager.PERMISSION_GRANTED
 
+    private fun hasAnyLocationPermission(): Boolean = hasPreciseLocationPermission() ||
+        ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED
+
     private fun startActivityRecognitionIfAllowed() {
         val currentTarget = target?.takeIf { it.active && sensingRunning } ?: return
         if (hasActivityPermission()) {
@@ -351,29 +366,12 @@ class SensingForegroundService : Service() {
             ContextCompat.checkSelfPermission(this, Manifest.permission.ACTIVITY_RECOGNITION) ==
             PackageManager.PERMISSION_GRANTED
 
-    // Registration identity and receiver-driven arrival are completed in Step 3.
     private fun registerArrivalGeofenceIfAllowed() {
-        if (!sensingRunning || geofenceRequested || !hasPreciseLocationPermission()) return
-        val building = geofenceBuilding ?: return
-        try {
-            geofenceManager.addArrivalGeofence(
-                id = building.locCode,
-                latitude = building.location.latitude,
-                longitude = building.location.longitude
-            )
-            geofenceRequested = true
-        } catch (exception: SecurityException) {
-            Log.w("SensingService", "Geofence unavailable; retaining foreground GPS", exception)
-        }
+        geofenceManager.setTarget(target?.takeIf { sensingRunning && it.active })
     }
 
     private fun removeArrivalGeofence() {
-        if (geofenceRequested) geofenceBuilding?.let { building ->
-            runCatching { geofenceManager.removeArrivalGeofence(building.locCode) }
-                .onFailure { Log.w("SensingService", "Geofence cleanup failed", it) }
-        }
-        geofenceRequested = false
-        geofenceBuilding = null
+        geofenceManager.setTarget(null)
     }
 
     private fun stopComponents() {

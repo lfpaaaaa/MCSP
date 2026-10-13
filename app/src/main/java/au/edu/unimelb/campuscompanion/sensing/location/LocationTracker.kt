@@ -6,6 +6,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
+import au.edu.unimelb.campuscompanion.BuildConfig
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
@@ -29,6 +30,7 @@ class LocationTracker(context: Context) {
     private var activeCallback: LocationCallback? = null
     private var activeMode: LocationTrackingMode? = null
     private var lastObservationNanos = 0L
+    private var lastRejectionLogNanos = 0L
 
     private val _location = MutableStateFlow<LocationSample?>(null)
     val location: StateFlow<LocationSample?> = _location.asStateFlow()
@@ -56,22 +58,23 @@ class LocationTracker(context: Context) {
                 val nowNanos = SystemClock.elapsedRealtimeNanos()
                 result.locations.forEach { fix ->
                     val measuredNanos = fix.elapsedRealtimeNanos
-                    if (!fix.hasAccuracy() || !fix.accuracy.isFinite() ||
-                        fix.accuracy !in 0f..50f || measuredNanos <= lastObservationNanos ||
-                        measuredNanos <= 0L || measuredNanos > nowNanos ||
-                        nowNanos - measuredNanos > MAX_FIX_AGE_NANOS ||
-                        !fix.latitude.isFinite() || fix.latitude !in -90.0..90.0 ||
-                        !fix.longitude.isFinite() || fix.longitude !in -180.0..180.0
-                    ) return@forEach
-
-                    lastObservationNanos = measuredNanos
-                    _location.value = LocationSample(
+                    val sample = LocationSample(
                         latitude = fix.latitude,
                         longitude = fix.longitude,
-                        accuracyMeters = fix.accuracy,
+                        accuracyMeters = if (fix.hasAccuracy()) fix.accuracy else Float.NaN,
                         timestampMillis = fix.time,
                         elapsedRealtimeNanos = measuredNanos
                     )
+                    val reason = EvidenceFreshness.rejectionReason(sample, nowNanos, lastObservationNanos)
+                    if (reason != null) {
+                        if (BuildConfig.DEBUG && nowNanos - lastRejectionLogNanos >= 5_000_000_000L) {
+                            lastRejectionLogNanos = nowNanos
+                            Log.d("LocationTracker", "rejected reason=$reason, ageMs=${(nowNanos - measuredNanos) / 1_000_000L}, accuracyM=${sample.accuracyMeters}")
+                        }
+                        return@forEach
+                    }
+                    lastObservationNanos = measuredNanos
+                    _location.value = sample
                 }
             }
         }
@@ -128,7 +131,4 @@ class LocationTracker(context: Context) {
         if (Looper.myLooper() == mainHandler.looper) action() else mainHandler.post(action)
     }
 
-    private companion object {
-        const val MAX_FIX_AGE_NANOS = 30_000_000_000L
-    }
 }

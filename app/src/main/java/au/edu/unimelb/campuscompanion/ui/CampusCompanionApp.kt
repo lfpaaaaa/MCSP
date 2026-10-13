@@ -95,7 +95,6 @@ import au.edu.unimelb.campuscompanion.ui.model.mergePendingDocuments
 import au.edu.unimelb.campuscompanion.push.DepartureNotifier
 import au.edu.unimelb.campuscompanion.ui.model.legacyReminderSeriesKey
 import au.edu.unimelb.campuscompanion.ui.navigation.CampusDestination
-import au.edu.unimelb.campuscompanion.ui.components.RequestLocationPermissionOnFirstUse
 import au.edu.unimelb.campuscompanion.ui.screens.AuthLoadingScreen
 import au.edu.unimelb.campuscompanion.ui.screens.CompleteProfileScreen
 import au.edu.unimelb.campuscompanion.ui.screens.CourseReminderSettingsScreen
@@ -348,8 +347,6 @@ private fun AuthenticatedCampusApp(
     onGroupClosed: () -> Unit,
     onSignOut: () -> Unit
 ) {
-    RequestLocationPermissionOnFirstUse()
-
     val context = LocalContext.current
     val timetableStore = remember(context) { TimetableSubscriptionStore(context) }
     val timetableImporter = remember { TimetableImporter() }

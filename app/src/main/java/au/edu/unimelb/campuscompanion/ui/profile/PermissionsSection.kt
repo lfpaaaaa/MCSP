@@ -15,14 +15,17 @@ import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.LocationOn
+import androidx.compose.material.icons.outlined.MyLocation
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material3.Card
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -37,6 +40,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import au.edu.unimelb.campuscompanion.sensing.location.BackgroundLocationRequest
+import au.edu.unimelb.campuscompanion.sensing.location.locationPermissionState
 
 /**
  * The app's permissions as the system reports them, re-read whenever the screen comes back to the
@@ -49,6 +54,8 @@ fun PermissionsSection(modifier: Modifier = Modifier) {
     val lifecycleOwner = LocalLifecycleOwner.current
     var statuses by remember(context) { mutableStateOf(AppPermissions.read(context)) }
     var requested by remember { mutableStateOf<AppPermission?>(null) }
+    var showBackgroundExplanation by remember { mutableStateOf(false) }
+    var continueBackgroundAfterForeground by remember { mutableStateOf(false) }
 
     val requestLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -56,8 +63,13 @@ fun PermissionsSection(modifier: Modifier = Modifier) {
         statuses = AppPermissions.read(context)
         val permission = requested ?: return@rememberLauncherForActivityResult
         requested = null
+        if (continueBackgroundAfterForeground && locationPermissionState(context).fine) {
+            continueBackgroundAfterForeground = false
+            showBackgroundExplanation = true
+        }
         val nothingGranted = results.isNotEmpty() && results.values.none { it }
-        if (nothingGranted && results.keys.all { AppPermissions.isDeniedForGood(context, it) }) {
+        if (permission != AppPermission.BackgroundArrival && nothingGranted &&
+            results.keys.all { AppPermissions.isDeniedForGood(context, it) }) {
             AppPermissions.openSettings(context, permission)
         }
     }
@@ -66,10 +78,54 @@ fun PermissionsSection(modifier: Modifier = Modifier) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 statuses = AppPermissions.read(context)
+                if (continueBackgroundAfterForeground && locationPermissionState(context).fine) {
+                    continueBackgroundAfterForeground = false
+                    showBackgroundExplanation = true
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    if (showBackgroundExplanation) {
+        val location = locationPermissionState(context)
+        AlertDialog(
+            onDismissRequest = { showBackgroundExplanation = false },
+            title = { Text("Optional background arrival") },
+            text = { Text(AppPermissions.backgroundExplanation(context)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showBackgroundExplanation = false
+                    when (location.backgroundRequest) {
+                        BackgroundLocationRequest.PreciseForegroundRequired -> {
+                            continueBackgroundAfterForeground = true
+                            if (location.foregroundGranted) {
+                                AppPermissions.openSettings(context, AppPermission.Location)
+                            } else {
+                                requested = AppPermission.Location
+                                requestLauncher.launch(AppPermission.Location.runtimePermissions.toTypedArray())
+                            }
+                        }
+                        BackgroundLocationRequest.RuntimePermission -> {
+                            requested = AppPermission.BackgroundArrival
+                            requestLauncher.launch(AppPermission.BackgroundArrival.runtimePermissions.toTypedArray())
+                        }
+                        BackgroundLocationRequest.Settings, BackgroundLocationRequest.AlreadyAllowed ->
+                            AppPermissions.openSettings(context, AppPermission.BackgroundArrival)
+                    }
+                }) {
+                    Text(when (location.backgroundRequest) {
+                        BackgroundLocationRequest.PreciseForegroundRequired -> "Allow precise location"
+                        BackgroundLocationRequest.RuntimePermission -> "Continue"
+                        else -> "Open Settings"
+                    })
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBackgroundExplanation = false }) { Text("Not now") }
+            }
+        )
     }
 
     Column(
@@ -80,6 +136,10 @@ fun PermissionsSection(modifier: Modifier = Modifier) {
             PermissionRow(
                 status = status,
                 onClick = {
+                    if (status.permission == AppPermission.BackgroundArrival && !status.granted) {
+                        showBackgroundExplanation = true
+                        return@PermissionRow
+                    }
                     val missing = status.permission.runtimePermissions
                         .filterNot { AppPermissions.isGranted(context, it) }
                     if (status.granted || missing.isEmpty()) {
@@ -190,6 +250,7 @@ private fun PrivacyNote(modifier: Modifier = Modifier) {
 
 private fun AppPermission.icon(): ImageVector = when (this) {
     AppPermission.Location -> Icons.Outlined.LocationOn
+    AppPermission.BackgroundArrival -> Icons.Outlined.MyLocation
     AppPermission.Notifications -> Icons.Outlined.Notifications
     AppPermission.Camera -> Icons.Outlined.PhotoCamera
     AppPermission.PhysicalActivity -> Icons.AutoMirrored.Outlined.DirectionsWalk
