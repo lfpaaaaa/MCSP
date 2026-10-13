@@ -25,6 +25,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -195,16 +196,70 @@ class SensingStartupInstrumentedTest {
         assumeTrue("Mode probe reads the foreground notification", notificationsEnabled())
         withVisibleActivity {
             withFixtureAccount {
-                command(SensingForegroundService.ACTION_PRE_CLASS_MODE)
-                awaitNotification("Monitoring your trip to class")
-                val generation = AppRepositories.travel.sensingTarget.value.generation
-                command(SensingForegroundService.ACTION_STOP)
-                awaitStopped()
-                assertFalse(AppRepositories.travel.sensingTarget.value.active)
-                // An empty action is also the policy path used by a START_STICKY recreation.
-                command(null)
+                repeat(3) { cycle ->
+                    command(SensingForegroundService.ACTION_PRE_CLASS_MODE)
+                    awaitNotification("Monitoring your trip to class")
+                    val generation = AppRepositories.travel.sensingTarget.value.generation
+                    assertTrue("Cycle ${cycle + 1}: override requires active sensing",
+                        AppRepositories.travel.sensingTarget.value.active)
+                    assertTrue("Cycle ${cycle + 1}: override requires a foreground service",
+                        serviceRunning(foregroundOnly = true))
+                    command(SensingForegroundService.ACTION_STOP)
+                    awaitStopped()
+                    assertFalse(AppRepositories.travel.sensingTarget.value.active)
+                    // An empty action is also the policy path used by a START_STICKY recreation.
+                    command(null)
+                    await("Cycle ${cycle + 1}: fresh launch must activate a new sensing generation") {
+                        val target = AppRepositories.travel.sensingTarget.value
+                        target.active && target.generation > generation
+                    }
+                    val newGeneration = AppRepositories.travel.sensingTarget.value.generation
+                    await("Cycle ${cycle + 1}: fresh launch must become a foreground service") {
+                        serviceRunning(foregroundOnly = true)
+                    }
+                    awaitNotification("Background sensing — battery saving mode")
+                    assertEquals("Cycle ${cycle + 1}: NORMAL must belong to the fresh sensing run",
+                        newGeneration, AppRepositories.travel.sensingTarget.value.generation)
+                    assertTrue(AppRepositories.travel.sensingTarget.value.active)
+                    assertTrue(serviceRunning(foregroundOnly = true))
+                }
+            }
+        }
+    }
+
+    @Test
+    fun stoppingDuringRapidModeChangeDoesNotRepostForegroundNotification() {
+        assumeTrue("Requires precise access", locationPermissionState(context).fine)
+        assumeTrue("Mode probe reads the foreground notification", notificationsEnabled())
+        withVisibleActivity {
+            withFixtureAccount {
                 awaitNotification("Background sensing — battery saving mode")
-                assertTrue(AppRepositories.travel.sensingTarget.value.generation > generation)
+                // Queue both commands in one main-thread batch, leaving a mode publication
+                // pending when STOP is delivered rather than waiting for the PRE_CLASS shade.
+                instrumentation.runOnMainSync {
+                    ContextCompat.startForegroundService(context,
+                        Intent(context, SensingForegroundService::class.java)
+                            .setAction(SensingForegroundService.ACTION_PRE_CLASS_MODE))
+                    ContextCompat.startForegroundService(context,
+                        Intent(context, SensingForegroundService::class.java)
+                            .setAction(SensingForegroundService.ACTION_STOP))
+                }
+                instrumentation.waitForIdleSync()
+                awaitStopped()
+                fun assertRemainsStopped() {
+                    assertFalse("Delayed mode publication must not restart the foreground service", serviceRunning())
+                    assertNull("Delayed mode publication must not repost the foreground notification", notificationText())
+                    assertFalse("Delayed mode publication must not reactivate the sensing target",
+                        AppRepositories.travel.sensingTarget.value.active)
+                }
+                // Observe twice the production 500 ms publication interval, checking throughout
+                // the pending-callback window instead of accepting only an immediate removal.
+                val deadline = SystemClock.elapsedRealtime() + 1_000L
+                while (SystemClock.elapsedRealtime() < deadline) {
+                    assertRemainsStopped()
+                    SystemClock.sleep(50L)
+                }
+                assertRemainsStopped()
             }
         }
     }
@@ -308,8 +363,15 @@ class SensingStartupInstrumentedTest {
         .activeNotifications.firstOrNull { it.id == 1001 }?.notification?.extras
         ?.getCharSequence(Notification.EXTRA_TEXT)?.toString()
 
-    private fun awaitNotification(text: String) = await("Foreground service should report: $text", 15_000L) {
-        notificationText() == text
+    private fun awaitNotification(text: String) {
+        try {
+            await("Foreground service should report: $text", 15_000L) { notificationText() == text }
+        } catch (failure: AssertionError) {
+            val target = AppRepositories.travel.sensingTarget.value
+            throw AssertionError("${failure.message}; actualText=${notificationText()} " +
+                "serviceActive=${serviceRunning()} foreground=${serviceRunning(foregroundOnly = true)} " +
+                "targetActive=${target.active} generation=${target.generation}", failure)
+        }
     }
 
     private fun stopAndAwaitDestroyed() {

@@ -120,6 +120,8 @@ For the engine's 15-minute post-class window, Home uses the finished occurrence 
 
 A matching repository membership can appear on Home even if it folded automatically after its final class; explicit user folds are honoured and the Groups screen keeps its normal folding rules. Home shows at most two distinct groups, retaining ordinary order when there is no validated finished occurrence or no match. Empty matching groups still open normally and show the repository's empty-message summary. Removing or editing the finished occurrence clears its context, and expiry comes from the engine rather than a second Home timer.
 
+The ICS parser and account-scoped timetable cache retain finished occurrences for this same 15-minute window, including refreshes and session reconstruction after recreation or offline restart. Retained history does not consume the 500 upcoming-class import slots or create new tutorial/workshop memberships. Schedule marks these rows finished; the engine removes the post-class selection at the exclusive expiry boundary on reevaluation.
+
 Deploy the function after pushing the migrations:
 
 ```bash
@@ -260,11 +262,13 @@ This setup does not switch the context engine's ETA provider to Google.
 
 ### Live Home travel time and departure notifications
 
-Home shows **Travel time** (duration and mode), without a distance metric. Current GPS fixes feed the
-application-owned travel engine about every 10 seconds while its location foreground service runs;
-the engine also reevaluates the clock every 30 seconds. The context engine retains the last supplied
-location when sensing stops, matching the feature branch's current policy. Movement input remains
-the motion detector's raw verdict; the engine combines it with progress toward the classroom.
+Home shows **Travel time** (duration and mode), without a distance metric. The location foreground
+service requests fixes every 10 seconds during active class/navigation sensing and every 60 seconds
+in battery-saving NORMAL mode; the engine also reevaluates the clock every 30 seconds. Fresh,
+target-scoped GPS, motion/activity and nullable fusion evidence arrive together. New physical
+decisions require usable measurements; a temporary signal outage can preserve an established trip
+and last-known guidance. Explicit stop, permission loss or account replacement clears sensing
+evidence and guidance. Walking, running and vehicle activity require progress toward the classroom.
 Routing requests are limited to once per destination every three minutes. Walking/driving estimates
 are cached for one day, transit estimates for ten minutes, and a recent routed estimate can be reused
 for ten minutes while the user moves. Otherwise the offline straight-line estimate is used.
@@ -286,6 +290,12 @@ Running late alert also prevents a later Leave soon warning from replacing it. F
 attempts remain eligible on the next travel snapshot or reminder preference update, while the
 context still calls for a reminder. Saved records expire when the class ends and are pruned on the
 next successful delivery. The notification links to Schedule.
+
+Step 6 adds journey and emulator acceptance tests, plus a disposable ICS fixture generator at
+`scripts/create-context-rehearsal-ics.py`. Debug `DeparturePrompt` logs identify
+notification post/update/withdraw API submissions without logging account IDs or reminder text.
+Physical recognition, actual geofence delivery, battery measurement and live-backend rehearsal
+remain separate acceptance work. The fixture Home recreation host exists only in debug builds.
 
 ## Editing a profile
 

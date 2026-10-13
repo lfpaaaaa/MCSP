@@ -37,6 +37,7 @@ import au.edu.unimelb.campuscompanion.sensing.motion.MotionDetector
 import au.edu.unimelb.campuscompanion.sensing.orientation.CompassHeadingDetector
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -58,6 +59,7 @@ class SensingForegroundService : Service() {
         const val ACTION_PRE_CLASS_MODE = "au.edu.unimelb.campuscompanion.action.PRE_CLASS_MODE"
         private const val NAVIGATION_REQUEST_NANOS = 2 * 60 * 1_000_000_000L
         private const val NAVIGATION_TRIP_NANOS = 4 * 60 * 60 * 1_000_000_000L
+        private const val MODE_NOTIFICATION_INTERVAL_NANOS = 500_000_000L
     }
 
     // Service commands, sensor registrations and both collectors share the main dispatcher.
@@ -86,6 +88,9 @@ class SensingForegroundService : Service() {
     private var skipModeResetLocation = false
     private var sensorActivatedAtNanos = 0L
     private var lastLocationNanos = 0L
+    private var lastNotificationPublishedAtNanos = 0L
+    private var pendingModeNotificationText: String? = null
+    private var modeNotificationJob: Job? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -128,6 +133,7 @@ class SensingForegroundService : Service() {
                 ServiceCompat.startForeground(this, NOTIFICATION_ID,
                     buildNotification("Preparing sensing..."), foregroundType)
                 foregroundPromoted = true
+                lastNotificationPublishedAtNanos = SystemClock.elapsedRealtimeNanos()
             }
             if (intent?.action == ACTION_STOP) {
                 stopServiceRun()
@@ -485,6 +491,7 @@ class SensingForegroundService : Service() {
     private fun stopServiceRun() {
         launchAuthorized = false
         activationRequested = false
+        cancelPendingModeNotification()
         navigationRequestUntilNanos = 0L
         navigationTripStartedAtNanos = 0L
         AppRepositories.navigation.stop()
@@ -506,11 +513,46 @@ class SensingForegroundService : Service() {
             .setSmallIcon(R.mipmap.ic_launcher)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
+            // Monitoring should be visible immediately, including the resolved sampling mode.
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
 
     private fun updateNotification(text: String) {
-        getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(text))
+        // Android can shed burst notification updates. Keep one pending latest mode, separate
+        // from the mandatory immediate promotion, and publish at most once per 500 ms.
+        pendingModeNotificationText = text
+        if (modeNotificationJob?.isActive == true) return
+        modeNotificationJob = serviceScope.launch {
+            val remainingNanos = (MODE_NOTIFICATION_INTERVAL_NANOS -
+                (SystemClock.elapsedRealtimeNanos() - lastNotificationPublishedAtNanos)).coerceAtLeast(0L)
+            if (remainingNanos > 0L) delay((remainingNanos + 999_999L) / 1_000_000L)
+            val latest = pendingModeNotificationText ?: return@launch
+            pendingModeNotificationText = null
+            modeNotificationJob = null
+            // A stopped/replaced service must never publish a queued mode or promote itself again.
+            if (!launchAuthorized || !sensingRunning || !foregroundPromoted ||
+                !travel.sensingTarget.value.active || !AppRepositories.sensingAccountEligible.value) return@launch
+            try {
+                if (!hasPreciseLocationPermission()) {
+                    stopForPermissionLoss()
+                    return@launch
+                }
+                // Keep mode updates on the same service notification path and owner.
+                ServiceCompat.startForeground(this@SensingForegroundService, NOTIFICATION_ID,
+                    buildNotification(latest), ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+                lastNotificationPublishedAtNanos = SystemClock.elapsedRealtimeNanos()
+            } catch (exception: SecurityException) {
+                Log.w("SensingService", "Permission changed during notification publication", exception)
+                stopForPermissionLoss()
+            }
+        }
+    }
+
+    private fun cancelPendingModeNotification() {
+        pendingModeNotificationText = null
+        modeNotificationJob?.cancel()
+        modeNotificationJob = null
     }
 
     private fun createNotificationChannel() {
@@ -525,6 +567,7 @@ class SensingForegroundService : Service() {
     override fun onDestroy() {
         launchAuthorized = false
         activationRequested = false
+        cancelPendingModeNotification()
         AppRepositories.navigation.stop()
         stopSensing()
         serviceScope.cancel()
