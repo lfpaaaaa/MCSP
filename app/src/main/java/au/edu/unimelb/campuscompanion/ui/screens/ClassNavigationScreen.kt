@@ -25,9 +25,11 @@ import au.edu.unimelb.campuscompanion.sensing.service.SensingForegroundService
 import kotlinx.coroutines.delay
 
 @Composable
-fun ClassNavigationScreen(modifier: Modifier = Modifier) {
+fun ClassNavigationScreen(
+    modifier: Modifier = Modifier,
+    navigation: NavigationSession = AppRepositories.navigation
+) {
     val context = LocalContext.current
-    val navigation = AppRepositories.navigation
     val state by navigation.state.collectAsState()
     val location by navigation.location.collectAsState()
     var now by remember { mutableStateOf(System.currentTimeMillis()) }
@@ -58,7 +60,8 @@ fun ClassNavigationScreen(modifier: Modifier = Modifier) {
     }
     val destination = state.destination
     if (destination == null) {
-        Text("No reminder journey is selected. Open Home or Schedule to navigate with Google Maps.", modifier.padding(20.dp))
+        // The error says why a selected class's directions were closed, for example after it was removed.
+        Text(state.error ?: "No reminder journey is selected. Open Home or Schedule to navigate with Google Maps.", modifier.padding(20.dp))
         return
     }
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -124,13 +127,14 @@ fun ClassNavigationScreen(modifier: Modifier = Modifier) {
             }
             OutlinedButton(onClick = { navigation.stop() }, Modifier.fillMaxWidth()) { Text("End trip") }
         } else if (state.route?.transitLegs?.isNotEmpty() == true) {
+            // Routes being reloaded will replace the one on screen, so it cannot be started meanwhile.
             Button(onClick = {
                 permissions.launch(buildList {
                     add(Manifest.permission.ACCESS_FINE_LOCATION); add(Manifest.permission.ACCESS_COARSE_LOCATION)
                     if (Build.VERSION.SDK_INT >= 29) add(Manifest.permission.ACTIVITY_RECOGNITION)
                     if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
                 }.toTypedArray())
-            }, Modifier.fillMaxWidth()) { Text("Start trip & get-off reminders") }
+            }, Modifier.fillMaxWidth(), enabled = !state.loading) { Text("Start trip & get-off reminders") }
             Text("Confirm the line before boarding. Movement can suggest that you're riding, but cannot identify a specific vehicle.", style = MaterialTheme.typography.bodySmall)
         }
         permissionMessage?.let {

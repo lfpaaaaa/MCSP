@@ -114,6 +114,7 @@ object AppRepositories {
                                 if (timetableUserId != null) {
                                     // Another account signed in without signing out first.
                                     DepartureNotifier.cancelAll(appContext)
+                                    navigation.clear()
                                 }
                                 timetableUserId = userId
                                 travel.updateSessions(

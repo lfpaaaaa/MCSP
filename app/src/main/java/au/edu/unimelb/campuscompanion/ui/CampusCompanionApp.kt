@@ -375,6 +375,11 @@ private fun AuthenticatedCampusApp(
     val travelSnapshot by travel.snapshot.collectAsState()
     LaunchedEffect(timetableState.sessions) {
         travel.updateSessions(timetableState.sessions)
+        // Directions chosen for a class must follow it when it is edited, moved or removed.
+        AppRepositories.navigation.followTimetable(timetableState.sessions) { session ->
+            au.edu.unimelb.campuscompanion.context.BuildingResolver.resolve(session, AppRepositories.buildings)
+                ?.let { building -> session.toClassDestination(building) }
+        }
     }
     // The application owns reminders; leaving/destroying this screen must not clear the timetable.
     // The screens see the next class with its travel time filled in.
