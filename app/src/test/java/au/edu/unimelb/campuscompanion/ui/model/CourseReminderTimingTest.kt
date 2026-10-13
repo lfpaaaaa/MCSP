@@ -123,6 +123,39 @@ class CourseReminderTimingTest {
     }
 
     @Test
+    fun sameIdVenueTimeCourseAndActivityEditsCannotPreviewAnOldDeadline() {
+        val snapshot = liveSnapshot()
+        val changed = listOf(
+            lecture.copy(code = "SWEN90014"),
+            lecture.copy(activity = "workshop"),
+            lecture.copy(location = "Southbank"),
+            lecture.copy(room = "PAR-200"),
+            lecture.copy(start = start.plusMinutes(5)),
+            lecture.copy(end = lecture.end.plusMinutes(5))
+        )
+
+        for (updated in changed) {
+            assertEquals(
+                "An edited class must wait for a matching snapshot",
+                CourseReminderTiming.NotTracked,
+                updated.reminderTiming(snapshot, 10)
+            )
+        }
+    }
+
+    @Test
+    fun displayTitleAndRouteEnrichmentStillAllowTheMatchingLiveDeadline() {
+        val snapshot = liveSnapshot()
+        val enriched = lecture.copy(
+            title = "Updated course display name",
+            etaMinutes = 45,
+            routeEstimate = RouteEstimate(distanceMeters = 9_999, walkingMinutes = 45)
+        )
+
+        assertEquals(lecture.reminderTiming(snapshot, 10), enriched.reminderTiming(snapshot, 10))
+    }
+
+    @Test
     fun aTimetableEtaCannotReplaceMissingLiveTravelInformation() {
         val snapshot = liveSnapshot()
 

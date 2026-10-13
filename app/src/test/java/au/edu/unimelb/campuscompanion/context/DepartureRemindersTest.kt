@@ -5,6 +5,7 @@ import au.edu.unimelb.campuscompanion.ui.model.CourseReminderPreference
 import au.edu.unimelb.campuscompanion.data.model.EstimateSource
 import au.edu.unimelb.campuscompanion.data.model.TravelEstimate
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
+import au.edu.unimelb.campuscompanion.ui.model.DEFAULT_COURSE_REMINDER_LEAD_MINUTES
 import au.edu.unimelb.campuscompanion.ui.model.reminderSeriesKey
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
@@ -93,7 +94,10 @@ class DepartureRemindersTest {
     @Test
     fun withoutATravelTimeTheReminderStillNamesTheClass() {
         val reminder = reminders.consider(
-            TravelSnapshot(session = lecture, building = null, state = ContextState.LEAVE_SOON)
+            TravelSnapshot(
+                session = lecture, building = null, state = ContextState.LEAVE_SOON,
+                leadMinutes = DEFAULT_COURSE_REMINDER_LEAD_MINUTES
+            )
         )
 
         assertEquals("Mobile Computing Systems Programming starts at 11:00 AM.", reminder?.text)
@@ -140,31 +144,34 @@ class DepartureRemindersTest {
         val current = lecture.copy(activity = "lecture")
         val snapshots = MutableStateFlow(snapshot(current, ContextState.LEAVE_SOON))
         val changes = MutableStateFlow(0)
-        val cancelled = mutableListOf<String>()
+        val shade = FakeDepartureShade()
+        shade.showOther("earlier-class")
         preferences = CourseReminderPreference(enabled = false)
         val reactive = DepartureReminders(
             snapshots = snapshots,
             preferences = { preferences },
-            notify = sent::add,
+            notify = shade::post,
             preferenceChanges = changes.map { Unit },
-            cancelCourse = cancelled::add
+            shade = shade
         )
         val job = launch { reactive.run() }
         try {
-            withTimeout(2_000) { while (cancelled.isEmpty()) delay(1) }
-            assertTrue(sent.isEmpty())
+            // Turned off: no reminder for this course, and nothing else is left in the shade.
+            withTimeout(2_000) { while (shade.withdrawn.isEmpty()) delay(1) }
+            assertTrue(shade.alerts.isEmpty())
             preferences = CourseReminderPreference(enabled = true)
             changes.value++
-            withTimeout(2_000) { while (sent.isEmpty()) delay(1) }
-            assertEquals(current.reminderSeriesKey(), sent.single().courseKey)
+            withTimeout(2_000) { while (shade.alerts.isEmpty()) delay(1) }
+            assertEquals(current.reminderSeriesKey(), shade.alerts.single().courseKey)
 
-            cancelled.clear()
+            shade.withdrawn.clear()
             preferences = CourseReminderPreference(enabled = false)
             changes.value++
-            withTimeout(2_000) { while (cancelled.isEmpty()) delay(1) }
-            assertEquals(listOf(current.reminderSeriesKey()), cancelled)
+            withTimeout(2_000) { while (shade.withdrawn.isEmpty()) delay(1) }
+            assertEquals(listOf(current.departurePromptKey()), shade.withdrawn)
+            assertTrue(shade.shown.isEmpty())
             assertNull(reactive.consider(snapshot(current, ContextState.RUNNING_LATE)))
-            assertEquals(1, sent.size)
+            assertEquals(1, shade.alerts.size)
         } finally {
             job.cancel()
             job.join()
@@ -471,7 +478,9 @@ class DepartureRemindersTest {
         ),
         distanceMeters = 1_200.0,
         minutesUntilClass = 25,
-        weatherBufferMinutes = 5
+        weatherBufferMinutes = 5,
+        // Worked out with the arrival buffer the course has by default, as the engine does.
+        leadMinutes = DEFAULT_COURSE_REMINDER_LEAD_MINUTES
     )
 
     private fun session(id: String, code: String, title: String): CourseSession {
