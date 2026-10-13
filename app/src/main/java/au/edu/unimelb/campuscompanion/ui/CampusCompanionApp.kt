@@ -63,9 +63,7 @@ import au.edu.unimelb.campuscompanion.auth.AuthViewModel
 import au.edu.unimelb.campuscompanion.auth.AuthenticatedUser
 import au.edu.unimelb.campuscompanion.auth.SupabaseProvider
 import au.edu.unimelb.campuscompanion.data.AppRepositories
-import au.edu.unimelb.campuscompanion.data.TimetableImporter
-import au.edu.unimelb.campuscompanion.data.TimetableSession
-import au.edu.unimelb.campuscompanion.data.TimetableSubscriptionStore
+import au.edu.unimelb.campuscompanion.data.TimetableGroupSyncKey
 import au.edu.unimelb.campuscompanion.data.TravelPreferences
 import au.edu.unimelb.campuscompanion.data.TravelPreferencesStore
 import au.edu.unimelb.campuscompanion.data.toUserMessage
@@ -351,36 +349,22 @@ private fun AuthenticatedCampusApp(
     RequestLocationPermissionOnFirstUse()
 
     val context = LocalContext.current
-    val timetableStore = remember(context) { TimetableSubscriptionStore(context) }
-    val timetableImporter = remember { TimetableImporter() }
     val travelPreferencesStore = remember(context) { TravelPreferencesStore(context) }
     var travelPreferences by remember(user.id) {
         mutableStateOf(travelPreferencesStore.load())
     }
-    val timetableSession = remember(user.id, timetableStore, timetableImporter) {
-        TimetableSession(user.id, timetableStore, timetableImporter::importFromUrl)
-    }
-    val importedTimetable by timetableSession.state.collectAsState()
-    var isSyncingTimetableGroups by remember(user.id) { mutableStateOf(false) }
-    var timetableGroupSyncError by remember(user.id) { mutableStateOf<String?>(null) }
+    val activeTimetableSession by AppRepositories.timetableSession.collectAsState()
+    val timetableSession = activeTimetableSession?.takeIf { it.ownerId == user.id && it.isActive }
+    val importedTimetable = timetableSession?.state?.collectAsState()?.value
+        ?: TimetableState(isLoading = true, isLoaded = false)
+    var isSyncingTimetableGroups by remember(user.id, timetableSession) { mutableStateOf(false) }
+    var timetableGroupSyncError by remember(user.id, timetableSession) { mutableStateOf<String?>(null) }
     val timetableState = importedTimetable.copy(
         isSyncingGroups = isSyncingTimetableGroups, groupSyncError = timetableGroupSyncError
     )
 
-    DisposableEffect(timetableImporter) {
-        onDispose(timetableImporter::close)
-    }
-
     val travel = AppRepositories.travel
     val travelSnapshot by travel.snapshot.collectAsState()
-    LaunchedEffect(timetableState.sessions) {
-        travel.updateSessions(timetableState.sessions)
-        // Directions chosen for a class must follow it when it is edited, moved or removed.
-        AppRepositories.navigation.followTimetable(timetableState.sessions) { session ->
-            au.edu.unimelb.campuscompanion.context.BuildingResolver.resolve(session, AppRepositories.buildings)
-                ?.let { building -> session.toClassDestination(building) }
-        }
-    }
     // The application owns reminders; leaving/destroying this screen must not clear the timetable.
     // The screens see the next class with its travel time filled in.
     val displayedTimetable = remember(timetableState, travelSnapshot) {
@@ -495,16 +479,13 @@ private fun AuthenticatedCampusApp(
         groupPreferences.filterValues(GroupChatPreferences::muted).keys
     }
 
-    LaunchedEffect(timetableSession) { timetableSession.refresh() }
-
-    LaunchedEffect(user.id, timetableState.groups, timetableState.isConnected,
-        timetableState.isCached, timetableState.isLoading) {
+    val timetableGroupSyncKey = TimetableGroupSyncKey.from(user.id, timetableSession, timetableState)
+    LaunchedEffect(timetableGroupSyncKey) {
         isSyncingTimetableGroups = false
         timetableGroupSyncError = null
         // Cached classes are readable offline, but must not change server memberships.
-        if (!SupabaseProvider.isConfigured || !timetableState.isConnected ||
-            timetableState.isCached || timetableState.isLoading) return@LaunchedEffect
-        val specs = timetableState.groups.mapNotNull { it.timetableSpec }
+        if (!SupabaseProvider.isConfigured || !timetableGroupSyncKey.eligible) return@LaunchedEffect
+        val specs = timetableGroupSyncKey.specs
         isSyncingTimetableGroups = true
         while (true) {
             val result = groupRepository.syncTimetableGroups(specs)
@@ -520,12 +501,17 @@ private fun AuthenticatedCampusApp(
         }
     }
 
-    val connectTimetable: suspend (String) -> Result<Unit> = timetableSession::connect
-    val refreshTimetable: () -> Unit = { scope.launch { timetableSession.refresh() } }
-    val removeTimetable = {
-        timetableSession.clear()
-        courseReminderStore.clear()
-        courseReminderVersion += 1
+    val connectTimetable: suspend (String) -> Result<Unit> = { url ->
+        timetableSession?.connect(url) ?: Result.failure(IllegalStateException("Your timetable is still loading."))
+    }
+    val refreshTimetable: () -> Unit = { scope.launch {
+        timetableSession?.let {
+            if (it.state.value.isLoaded) it.refresh()
+            else if (it.retryLoad().isSuccess) it.refresh()
+        }
+    } }
+    val removeTimetable: suspend () -> Result<Unit> = {
+        timetableSession?.clear() ?: Result.failure(IllegalStateException("Your timetable is still loading."))
     }
     val updateTravelPreferences: (TravelPreferences) -> Unit = { updatedPreferences ->
         travelPreferencesStore.save(updatedPreferences)

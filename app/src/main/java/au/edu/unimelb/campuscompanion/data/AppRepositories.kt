@@ -13,6 +13,7 @@ import au.edu.unimelb.campuscompanion.data.fake.FakeGroupRepository
 import au.edu.unimelb.campuscompanion.data.fake.FakeInviteRepository
 import au.edu.unimelb.campuscompanion.data.invite.JoinLinkInbox
 import au.edu.unimelb.campuscompanion.data.local.CampusDatabase
+import au.edu.unimelb.campuscompanion.data.local.TimetableDatabase
 import au.edu.unimelb.campuscompanion.data.local.FileGroupListCache
 import au.edu.unimelb.campuscompanion.data.local.FileSharedFileListCache
 import au.edu.unimelb.campuscompanion.data.model.CurrentUser
@@ -53,6 +54,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import au.edu.unimelb.campuscompanion.navigation.toClassDestination
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.builtins.ListSerializer
@@ -72,9 +74,36 @@ object AppRepositories {
     val joinLinks = JoinLinkInbox()
 
     private lateinit var appContext: Context
-    private var timetableUserId: String? = null
     private val departureHistory by lazy { au.edu.unimelb.campuscompanion.push.DepartureReminderHistory(appContext) }
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val lifecycleScope = CoroutineScope(SupervisorJob(applicationScope.coroutineContext[kotlinx.coroutines.Job]) + Dispatchers.Main.immediate)
+    private val timetableDatabase by lazy { TimetableDatabase.create(appContext) }
+    private val timetableRepository by lazy { RoomTimetableRepository(timetableDatabase, TimetableSubscriptionStore(appContext)) }
+    private val timetableImporter by lazy { TimetableImporter() }
+    private val timetableCoordinator by lazy {
+        TimetableSessionCoordinator(
+            scope = lifecycleScope,
+            createSession = { ownerId ->
+                TimetableSession(ownerId, timetableRepository, lifecycleScope,
+                    timetableImporter::download, timetableImporter::parse)
+            },
+            onReset = {
+                DepartureNotifier.cancelAll(appContext)
+                navigation.clear()
+                travel.updateSessions(emptyList(), reset = true)
+            },
+            onFeed = { sessions, reset ->
+                travel.updateSessions(sessions, reset = reset)
+                navigation.followTimetable(sessions) { session ->
+                    au.edu.unimelb.campuscompanion.context.BuildingResolver.resolve(session, buildings)
+                        ?.let { session.toClassDestination(it) }
+                }
+            }
+        )
+    }
+
+    /** Screens observe the app-owned session; disposing a screen leaves its work running. */
+    val timetableSession get() = timetableCoordinator.current
 
     /** Work that should finish even when the screen that started it goes away, such as file uploads. */
     val backgroundScope: CoroutineScope
@@ -105,34 +134,22 @@ object AppRepositories {
             ).run()
         }
         SupabaseProvider.client?.let { client ->
-            applicationScope.launch {
+            lifecycleScope.launch {
                 client.auth.sessionStatus.collect { status ->
                     when (status) {
                         is SessionStatus.Authenticated -> {
                             val userId = client.auth.currentUserOrNull()?.id
-                            if (userId != timetableUserId) {
-                                if (timetableUserId != null) {
-                                    // Another account signed in without signing out first.
-                                    DepartureNotifier.cancelAll(appContext)
-                                    navigation.clear()
-                                }
-                                timetableUserId = userId
-                                travel.updateSessions(
-                                    userId?.let { TimetableSubscriptionStore(appContext).load(it).timetable?.sessions }.orEmpty(),
-                                    reset = true
-                                )
-                            }
+                            timetableCoordinator.replaceOwner(userId)
                             push.onSignedIn()
                         }
                         // Cached group data belongs to the user who was signed in.
                         is SessionStatus.NotAuthenticated -> {
+                            timetableCoordinator.replaceOwner(null)
                             groups.clearSession()
                             database.messageDao().deleteAll()
                             navigation.clear()
                             // Reminders name the previous account's classes and buildings.
                             DepartureNotifier.cancelAll(appContext)
-                            timetableUserId = null
-                            travel.updateSessions(emptyList(), reset = true)
                         }
                         else -> Unit
                     }

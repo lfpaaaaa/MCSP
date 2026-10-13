@@ -116,7 +116,7 @@ fun ScheduleScreen(
         if (selectedDayEpoch != null) selectedDayEpoch = selectedDate.toEpochDay()
     }
 
-    if (showTimetableDialog) {
+    if (showTimetableDialog && timetableState.isLoaded) {
         TimetableUrlDialog(
             initialUrl = timetableState.url,
             onDismiss = { showTimetableDialog = false },
@@ -147,6 +147,7 @@ fun ScheduleScreen(
         item(key = "sync") { TimetableSyncStatus(timetableState, onRefresh = onTimetableRefresh) }
         when {
             timetableState.isLoading && !timetableState.isConnected -> item { LoadingTimetableState() }
+            !timetableState.isLoaded -> Unit
             timetableState.isConnected -> {
                 item(key = "reminders") {
                     DepartureReminderSettingRow(

@@ -97,11 +97,11 @@ fun HomeScreen(
             }
         }
     }
-    LaunchedEffect(timetableState.isConnected, timetableState.isLoading) {
-        if (!timetableState.isConnected && !timetableState.isLoading) showTimetableDialog = true
+    LaunchedEffect(timetableState.isConnected, timetableState.isLoading, timetableState.isLoaded) {
+        if (timetableState.isLoaded && !timetableState.isConnected && !timetableState.isLoading) showTimetableDialog = true
     }
 
-    if (showTimetableDialog) {
+    if (showTimetableDialog && timetableState.isLoaded) {
         TimetableUrlDialog(
             initialUrl = timetableState.url,
             onDismiss = { showTimetableDialog = false },
@@ -123,6 +123,8 @@ fun HomeScreen(
             )
             Text(
                 text = when {
+                    !timetableState.isLoaded && !timetableState.isLoading -> "Your saved timetable could not be loaded."
+                    !timetableState.isLoaded -> "Loading your saved timetable."
                     timetableState.isCached -> "Classes below are from your saved timetable."
                     timetableState.isLoading && !timetableState.isConnected -> "Checking your saved timetable URL."
                     timetableState.isConnected -> {
@@ -139,6 +141,7 @@ fun HomeScreen(
 
         when {
             timetableState.isLoading && !timetableState.isConnected -> TimetableLoadingCard()
+            !timetableState.isLoaded -> Unit
             !timetableState.isConnected -> TimetableSetupPrompt(
                 errorMessage = timetableState.errorMessage,
                 onConnect = { showTimetableDialog = true }

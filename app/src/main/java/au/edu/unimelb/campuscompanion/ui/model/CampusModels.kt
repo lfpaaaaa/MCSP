@@ -110,7 +110,9 @@ data class TimetableState(
     val groupSyncError: String? = null,
     val isSyncingGroups: Boolean = false,
     val isCached: Boolean = false,
-    val lastSyncedAt: Instant? = null
+    val lastSyncedAt: Instant? = null,
+    /** True only after a complete local read, including a successfully loaded empty timetable. */
+    val isLoaded: Boolean = true
 ) {
     fun offlineNotice(zone: ZoneId = ZoneId.systemDefault()): String? {
         val saved = lastSyncedAt ?: return null

@@ -19,6 +19,7 @@ import au.edu.unimelb.campuscompanion.ui.model.reminderSeriesKey
 import kotlinx.coroutines.flow.flowOf
 import org.junit.Assert.*
 import org.junit.Test
+import org.junit.Before
 import org.junit.runner.RunWith
 import java.time.ZonedDateTime
 import java.util.UUID
@@ -31,6 +32,13 @@ import java.util.UUID
 class DepartureNotificationTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
     private val manager = context.getSystemService(NotificationManager::class.java)
+
+    @Before fun grantNotificationPermission() {
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            InstrumentationRegistry.getInstrumentation().uiAutomation.grantRuntimePermission(
+                context.packageName, android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
 
     @Test fun leaveSoonReminderAppearsInSystemNotificationsAndDoesNotRepeat() {
         val now = ZonedDateTime.now()

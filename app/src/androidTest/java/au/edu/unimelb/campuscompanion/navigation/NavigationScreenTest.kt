@@ -27,14 +27,15 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.Before
 import org.junit.runner.RunWith
 import java.time.ZonedDateTime
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * Tests the real Compose screen with an isolated session and gated, local routes. Run with adb am
- * instrument on a device with the app's startup permissions granted. These tests never edit the
+ * Tests the real Compose screen with an isolated session and gated, local routes. Setup grants
+ * the app's startup permissions so fresh installs show no permission dialogs. These tests never edit the
  * persisted timetable/account or start get-off notifications or the sensing service from the UI.
  */
 @RunWith(AndroidJUnit4::class)
@@ -53,6 +54,19 @@ class NavigationScreenTest {
         listOf(GeoPoint(-37.8183, 144.9671), GeoPoint(-37.7983, 144.9614))
     )
     private val route = GoogleRoute(1_200, 2_500, leg.path, emptyList(), listOf(leg))
+
+    @Before
+    fun grantStartupPermissions() {
+        val packageName = instrumentation.targetContext.packageName
+        val permissions = mutableListOf(android.Manifest.permission.ACCESS_COARSE_LOCATION,
+            android.Manifest.permission.ACCESS_FINE_LOCATION)
+        if (android.os.Build.VERSION.SDK_INT >= 29) permissions += android.Manifest.permission.ACTIVITY_RECOGNITION
+        if (android.os.Build.VERSION.SDK_INT >= 33) permissions += android.Manifest.permission.POST_NOTIFICATIONS
+        permissions.forEach { permission ->
+            if (android.os.Build.VERSION.SDK_INT >= 28) automation.grantRuntimePermission(packageName, permission)
+            else automation.executeShellCommand("pm grant $packageName $permission").close()
+        }
+    }
 
     @Test
     fun startButtonIsDisabledDuringReloadAndEnabledAfterRoutesReturn() = withFixture { fixture ->
