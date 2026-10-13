@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import androidx.annotation.MainThread
 import com.google.android.gms.common.ConnectionResult
@@ -59,6 +60,7 @@ class GeofenceManager(context: Context) {
     private var unavailable: GeofenceRegistrationState? = null
     private var addFailure: Pair<String, GeofenceRegistrationState>? = null
     private var cleanupFailure: GeofenceRegistrationState? = null
+    private var addRetryAtNanos = 0L
 
     /** Repeated calls preserve a working registration and recheck revocation or a later grant. */
     fun setTarget(target: SensingTarget?) = onMain {
@@ -66,6 +68,9 @@ class GeofenceManager(context: Context) {
         refreshPermissions()
         controller.retryCleanup()
         cleanupFailure = null
+        if (SystemClock.elapsedRealtimeNanos() >= addRetryAtNanos && controller.retryFailedAdd()) {
+            addFailure = null
+        }
         publishState()
         drain()
     }
@@ -85,6 +90,21 @@ class GeofenceManager(context: Context) {
         return GeofenceEntryEvent(
             current.requestId, current.generation, current.buildingCode, receivedAtNanos, location
         )
+    }
+
+    /** Android requires re-registration after NOT_AVAILABLE; never keep trusting the old ID. */
+    @MainThread
+    internal fun deliveryFailed(errorCode: Int) {
+        if (errorCode != GeofenceStatusCodes.GEOFENCE_NOT_AVAILABLE) return
+        refreshPermissions()
+        if (controller.invalidateRegistration()) {
+            addFailure = requireNotNull(controller.desired).requestId to targetState(
+                GeofenceRegistrationStatus.UNAVAILABLE, "Geofence delivery is unavailable; awaiting retry"
+            )
+            addRetryAtNanos = SystemClock.elapsedRealtimeNanos() + ADD_RETRY_COOLDOWN_NANOS
+        }
+        publishState()
+        drain()
     }
 
     private fun refreshPermissions() {
@@ -155,10 +175,16 @@ class GeofenceManager(context: Context) {
         mutableOutcomes.tryEmit(GeofenceOperationOutcome(operation, status, current, detail))
         if (error == null) {
             when (operation) {
-                is GeofenceRegistrationOperation.Add -> Log.d(
-                    TAG, "Geofence registration succeeded id=${operation.registration.requestId} " +
-                        "generation=${operation.registration.generation} current=$current"
-                )
+                is GeofenceRegistrationOperation.Add -> {
+                    if (current) {
+                        addFailure = null
+                        addRetryAtNanos = 0L
+                    }
+                    Log.d(
+                        TAG, "Geofence registration succeeded id=${operation.registration.requestId} " +
+                            "generation=${operation.registration.generation} current=$current"
+                    )
+                }
                 is GeofenceRegistrationOperation.Remove ->
                     Log.d(TAG, "Geofence removal succeeded id=${operation.registration.requestId}")
                 GeofenceRegistrationOperation.RemoveOrphans -> Log.d(TAG, "Orphan geofences removed")
@@ -166,7 +192,11 @@ class GeofenceManager(context: Context) {
         } else {
             val failed = targetState(status, detail)
             if (operation is GeofenceRegistrationOperation.Add) {
-                addFailure = operation.registration.requestId to failed
+                // A superseded failure must not postpone the new target's independent add.
+                if (operation.registration == controller.desired) {
+                    addFailure = operation.registration.requestId to failed
+                    addRetryAtNanos = SystemClock.elapsedRealtimeNanos() + ADD_RETRY_COOLDOWN_NANOS
+                }
             } else {
                 cleanupFailure = failed
             }
@@ -211,6 +241,7 @@ class GeofenceManager(context: Context) {
 
     companion object {
         const val ARRIVAL_RADIUS_METERS = 75f
+        private const val ADD_RETRY_COOLDOWN_NANOS = 60_000_000_000L
         private const val TAG = "Geofence"
         private var orphanRemovalTask: Task<Void>? = null
 

@@ -25,6 +25,38 @@ data class SensingEvidence(
     val activity: ActivityObservation? = null
 )
 
+/** Closed diagnostic vocabulary: geofence rejection logs never contain positions. */
+enum class GeofenceRejectionReason(val logValue: String) {
+    NO_ACTIVE_TARGET("no_active_target"),
+    WRONG_GENERATION("wrong_generation"),
+    WRONG_BUILDING("wrong_building"),
+    INVALID_REQUEST_ID("invalid_request_id"),
+    RECEIPT_BEFORE_ACTIVATION("receipt_before_activation"),
+    INVALID_RECEIPT_TIME("invalid_receipt_time"),
+    RECEIPT_EXPIRED("receipt_expired"),
+    DUPLICATE("duplicate"),
+    PRE_ACTIVATION_REENTRY("pre_activation_reentry"),
+    MISSING_TRIGGER_TIME("missing_trigger_time"),
+    TRIGGER_AFTER_RECEIPT("trigger_after_receipt"),
+    TRIGGER_EXPIRED("trigger_expired"),
+    INVALID_POSITION("invalid_position"),
+    INVALID_ACCURACY("invalid_accuracy"),
+    OUTSIDE_EXIT_RADIUS("outside_exit_radius"),
+    NEWER_AWAY_FIX("newer_away_fix"),
+    NO_TRACKED_SESSION("no_tracked_session")
+}
+
+/** Ages use elapsed realtime so an already-inside delivery can be calibrated on a phone. */
+data class GeofenceEntryResult(
+    val rejectionReason: GeofenceRejectionReason?,
+    val triggerAgeMillis: Long?,
+    val triggerAgeAtReceiptMillis: Long?,
+    val triggerAccuracyMeters: Float?,
+    val triggerBeforeActivation: Boolean
+) {
+    val accepted: Boolean get() = rejectionReason == null
+}
+
 /** Shared Android adapter / engine checks, measured against elapsed realtime, not receipt time. */
 object EvidenceFreshness {
     const val LOCATION_MAX_AGE_NANOS = 30_000_000_000L

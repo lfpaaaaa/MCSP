@@ -76,6 +76,25 @@ class GeofenceRegistrationController(
         failedRemovals.clear()
     }
 
+    /** The owner applies a cooldown; completion callbacks must never call this directly. */
+    fun retryFailedAdd(): Boolean {
+        val current = desired?.takeIf { it.requestId in failedAdds } ?: return false
+        failedAdds.remove(current.requestId)
+        desired = current.copy(requestId = createRequestId())
+        return true
+    }
+
+    /** A NOT_AVAILABLE alert invalidates registration, including any add still in flight. */
+    fun invalidateRegistration(): Boolean {
+        val current = desired ?: return false
+        registered?.let { obsolete[it.requestId] = it }
+        registered = null
+        failedAdds.remove(current.requestId)
+        desired = current.copy(requestId = createRequestId()).also { failedAdds += it.requestId }
+        // Cleanup may proceed, but the replacement add waits for a later cooled-down retry.
+        return true
+    }
+
     fun nextOperation(): GeofenceRegistrationOperation? {
         if (inFlight != null) return null
         val next = when {

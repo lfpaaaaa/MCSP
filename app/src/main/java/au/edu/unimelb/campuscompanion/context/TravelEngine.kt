@@ -11,6 +11,8 @@ import au.edu.unimelb.campuscompanion.data.repository.EtaRepository
 import au.edu.unimelb.campuscompanion.data.repository.WeatherRepository
 import au.edu.unimelb.campuscompanion.sensing.location.EvidenceFreshness
 import au.edu.unimelb.campuscompanion.sensing.location.GeofenceEntryEvent
+import au.edu.unimelb.campuscompanion.sensing.location.GeofenceEntryResult
+import au.edu.unimelb.campuscompanion.sensing.location.GeofenceRejectionReason
 import au.edu.unimelb.campuscompanion.sensing.location.SensingEvidence
 import au.edu.unimelb.campuscompanion.sensing.location.SensingTarget
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
@@ -250,52 +252,79 @@ class TravelEngine(
     }
 
     /** The receiver has already checked the ID against the current successful registration. */
-    fun reportGeofenceEntered(event: GeofenceEntryEvent): Boolean = synchronized(inputLock) {
+    fun reportGeofenceEntered(event: GeofenceEntryEvent): GeofenceEntryResult = synchronized(inputLock) {
         val now = clock()
         reconcileTargetLocked(now)
         val target = _sensingTarget.value
-        val building = target.building ?: return@synchronized false
         val before = inputs.value
         val observedNow = elapsedNanos()
-        if (!target.active || !before.sensingManaged || event.generation != target.generation ||
-            event.buildingCode != building.locCode || event.requestId.isBlank() ||
-            event.receivedAtNanos < target.activatedAtNanos ||
-            !EvidenceFreshness.isFresh(event.receivedAtNanos, observedNow, EvidenceFreshness.LOCATION_MAX_AGE_NANOS)
-        ) return@synchronized false
-
         val trigger = event.triggerLocation
+        fun ageMillis(at: Long): Long? = trigger?.elapsedRealtimeNanos?.takeIf { it > 0 && it <= at }
+            ?.let { (at - it) / 1_000_000L }
+        fun result(reason: GeofenceRejectionReason? = null) = GeofenceEntryResult(
+            reason, ageMillis(observedNow), ageMillis(event.receivedAtNanos), trigger?.accuracyMeters,
+            trigger != null && trigger.elapsedRealtimeNanos < target.activatedAtNanos
+        )
+        val building = target.building
+        val scopeRejection = when {
+            !target.active || !before.sensingManaged || building == null -> GeofenceRejectionReason.NO_ACTIVE_TARGET
+            event.generation != target.generation -> GeofenceRejectionReason.WRONG_GENERATION
+            event.buildingCode != building.locCode -> GeofenceRejectionReason.WRONG_BUILDING
+            event.requestId.isBlank() -> GeofenceRejectionReason.INVALID_REQUEST_ID
+            event.receivedAtNanos <= 0 || event.receivedAtNanos > observedNow -> GeofenceRejectionReason.INVALID_RECEIPT_TIME
+            event.receivedAtNanos < target.activatedAtNanos -> GeofenceRejectionReason.RECEIPT_BEFORE_ACTIVATION
+            observedNow - event.receivedAtNanos > EvidenceFreshness.LOCATION_MAX_AGE_NANOS -> GeofenceRejectionReason.RECEIPT_EXPIRED
+            else -> null
+        }
+        if (scopeRejection != null) return@synchronized result(scopeRejection)
+        requireNotNull(building)
+
         val eventObserved = trigger?.elapsedRealtimeNanos ?: event.receivedAtNanos
         val consumed = before.consumedGeofenceEntries[event.requestId]
         // A supplied measured fix distinguishes a later real re-entry from a duplicate delivery.
         // Without one, only the first entry per registration can be identified safely.
-        if (consumed != null && (trigger == null || eventObserved <= consumed)) return@synchronized false
+        if (consumed != null && (trigger == null || eventObserved <= consumed)) {
+            return@synchronized result(GeofenceRejectionReason.DUPLICATE)
+        }
         if (trigger != null) {
-            if (eventObserved < target.activatedAtNanos || eventObserved > event.receivedAtNanos ||
-                !EvidenceFreshness.isFresh(eventObserved, observedNow, GEOFENCE_TRIGGER_MAX_AGE_NANOS) ||
+            // INITIAL_TRIGGER_ENTER may carry a recent fix taken before registration/activation.
+            // Allow it only for the first entry of this successfully registered ID, under the
+            // unchanged three-minute age bound. GPS admission still requires post-activation fixes.
+            val triggerRejection = when {
+                eventObserved <= 0 -> GeofenceRejectionReason.MISSING_TRIGGER_TIME
+                eventObserved > event.receivedAtNanos -> GeofenceRejectionReason.TRIGGER_AFTER_RECEIPT
+                observedNow - eventObserved > GEOFENCE_TRIGGER_MAX_AGE_NANOS -> GeofenceRejectionReason.TRIGGER_EXPIRED
+                eventObserved < target.activatedAtNanos && consumed != null -> GeofenceRejectionReason.PRE_ACTIVATION_REENTRY
                 !trigger.latitude.isFinite() || trigger.latitude !in -90.0..90.0 ||
-                !trigger.longitude.isFinite() || trigger.longitude !in -180.0..180.0 ||
-                !trigger.accuracyMeters.isFinite() || trigger.accuracyMeters < 0f ||
-                GeoMath.distanceMeters(GeoPoint(trigger.latitude, trigger.longitude), building.location) > config.leftBuildingMeters
-            ) return@synchronized false
+                    !trigger.longitude.isFinite() || trigger.longitude !in -180.0..180.0 -> GeofenceRejectionReason.INVALID_POSITION
+                !trigger.accuracyMeters.isFinite() || trigger.accuracyMeters < 0f -> GeofenceRejectionReason.INVALID_ACCURACY
+                GeoMath.distanceMeters(GeoPoint(trigger.latitude, trigger.longitude), building.location) > config.leftBuildingMeters ->
+                    GeofenceRejectionReason.OUTSIDE_EXIT_RADIUS
+                else -> null
+            }
+            if (triggerRejection != null) return@synchronized result(triggerRejection)
         }
         // A delayed entry cannot override a newer accepted far-away fix, even once that GPS fix
         // expires. The origin remains scoped and timestamped for this contradiction check.
         val lastAway = before.origin?.let { GeoMath.distanceMeters(it, building.location) > config.leftBuildingMeters } == true
-        if (lastAway && (trigger == null || before.lastObservedNanos >= eventObserved)) return@synchronized false
+        if (lastAway && (trigger == null || before.lastObservedNanos >= eventObserved)) {
+            return@synchronized result(GeofenceRejectionReason.NEWER_AWAY_FIX)
+        }
+        val tracked = ContextEngine.trackedSession(before.sessions, now)
+            ?: return@synchronized result(GeofenceRejectionReason.NO_TRACKED_SESSION)
 
         inputs.value = before.copy(
             evidence = null, resetProgress = true,
             lastObservedNanos = maxOf(before.lastObservedNanos, eventObserved),
             consumedGeofenceEntries = before.consumedGeofenceEntries + (event.requestId to eventObserved)
         )
-        val tracked = ContextEngine.trackedSession(before.sessions, now) ?: return@synchronized false
         val previous = _snapshot.value.takeIf { sameSession(it.session, tracked) && it.building == building }
         // Consume the entry in this decision only. Older GPS cannot immediately undo it on a tick;
         // subsequent fresh fixes still apply the normal 200 m exit hysteresis.
         publishLocked(tracked, building, previous?.estimate, previous?.weather,
             previous?.leadMinutes ?: leadMinutes(tracked, before), previous?.weatherBufferMinutes ?: 0,
             previous?.estimateOrigin, now, geofenceEntry = true)
-        true
+        result()
     }
 
     /** Minutes the user wants in hand on top of the travel time; set on the schedule screen. */

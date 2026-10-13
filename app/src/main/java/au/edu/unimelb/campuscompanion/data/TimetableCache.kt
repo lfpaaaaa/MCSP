@@ -1,5 +1,6 @@
 package au.edu.unimelb.campuscompanion.data
 
+import au.edu.unimelb.campuscompanion.context.ContextConfig
 import au.edu.unimelb.campuscompanion.data.model.TimetableGroupSpec
 import au.edu.unimelb.campuscompanion.ui.model.CourseGroup
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
@@ -74,9 +75,13 @@ internal object TimetableCache {
     )
 }
 
-/** Re-evaluate dates at startup; yesterday's classes and travel estimates must not appear as upcoming. */
-internal fun TimetableImport.forDisplay(now: Instant, zone: ZoneId): TimetableImport = copy(
-    sessions = sessions.filter { it.end.toInstant().isAfter(now) }
+/** Restore recent post-class context as well as upcoming classes, without reusing live estimates. */
+internal fun TimetableImport.forDisplay(
+    now: Instant,
+    zone: ZoneId,
+    postClassMinutes: Int = ContextConfig().postClassMinutes
+): TimetableImport = copy(
+    sessions = sessions.filter { it.isRetainedForContext(now, postClassMinutes) }
         .sortedBy { it.start.toInstant() }
         .map { it.copy(start = it.start.withZoneSameInstant(zone), end = it.end.withZoneSameInstant(zone),
             etaMinutes = null, routeEstimate = null) }

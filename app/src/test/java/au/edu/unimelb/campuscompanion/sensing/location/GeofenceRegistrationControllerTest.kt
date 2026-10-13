@@ -45,6 +45,77 @@ class GeofenceRegistrationControllerTest {
     }
 
     @Test
+    fun laterLifecycleRetryCanRecoverAFailedAddAtTheSameTargetWithANewId() {
+        val controller = ready()
+        controller.setTarget(target(1))
+        val failed = controller.nextOperation() as GeofenceRegistrationOperation.Add
+        controller.complete(failed, false)
+        assertNull(controller.nextOperation())
+        assertTrue(controller.retryFailedAdd())
+        val retry = controller.nextOperation() as GeofenceRegistrationOperation.Add
+        assertNotEquals(failed.registration.requestId, retry.registration.requestId)
+        assertEquals(failed.registration.generation, retry.registration.generation)
+        assertNull(controller.currentRegistration(failed.registration.requestId))
+        controller.complete(retry, true)
+        assertEquals(retry.registration, controller.currentRegistration(retry.registration.requestId))
+        assertFalse(controller.retryFailedAdd())
+        assertNull(controller.nextOperation())
+    }
+
+    @Test
+    fun unavailableAlertInvalidatesTheSuccessfulIdAndDefersReplacementUntilRetry() {
+        val controller = ready()
+        val old = registered(controller, target(1))
+        assertTrue(controller.invalidateRegistration())
+        assertNull(controller.registered)
+        assertNull(controller.currentRegistration(old.requestId))
+        val remove = controller.nextOperation() as GeofenceRegistrationOperation.Remove
+        assertEquals(old, remove.registration)
+        controller.complete(remove, true)
+        assertNull(controller.nextOperation())
+        assertTrue(controller.retryFailedAdd())
+        val retry = controller.nextOperation() as GeofenceRegistrationOperation.Add
+        assertNotEquals(old.requestId, retry.registration.requestId)
+        controller.complete(retry, true)
+        assertNull(controller.currentRegistration(old.requestId))
+        assertEquals(retry.registration, controller.currentRegistration(retry.registration.requestId))
+    }
+
+    @Test
+    fun unavailableDuringAddCleansUpLateSuccessBeforeRecovering() {
+        val controller = ready()
+        controller.setTarget(target(1))
+        val old = controller.nextOperation() as GeofenceRegistrationOperation.Add
+        controller.invalidateRegistration()
+        controller.complete(old, true)
+        assertNull(controller.currentRegistration(old.registration.requestId))
+        val remove = controller.nextOperation() as GeofenceRegistrationOperation.Remove
+        assertEquals(old.registration, remove.registration)
+        controller.complete(remove, true)
+        assertNull(controller.nextOperation())
+        controller.retryFailedAdd()
+        val retry = controller.nextOperation() as GeofenceRegistrationOperation.Add
+        assertNotEquals(old.registration.requestId, retry.registration.requestId)
+        controller.complete(retry, true)
+        assertEquals(retry.registration, controller.registered)
+    }
+
+    @Test
+    fun stoppingAfterUnavailableCannotReviveARegistrationDuringRetry() {
+        val controller = ready()
+        val old = registered(controller, target(1))
+        controller.invalidateRegistration()
+        controller.setTarget(null)
+        assertFalse(controller.retryFailedAdd())
+        val remove = controller.nextOperation() as GeofenceRegistrationOperation.Remove
+        assertEquals(old, remove.registration)
+        controller.complete(remove, true)
+        assertFalse(controller.invalidateRegistration())
+        assertNull(controller.desired)
+        assertNull(controller.nextOperation())
+    }
+
+    @Test
     fun identicalTargetRetainsSuccessfulRegistrationAndRequestId() {
         val controller = ready()
         val current = registered(controller, target(1))

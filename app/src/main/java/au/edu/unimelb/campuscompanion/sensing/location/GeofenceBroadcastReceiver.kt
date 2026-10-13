@@ -24,6 +24,7 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
             val event = GeofencingEvent.fromIntent(intent) ?: return
             if (event.hasError()) {
                 Log.w(TAG, "Geofence delivery failed code=${event.errorCode}")
+                manager.deliveryFailed(event.errorCode)
                 return
             }
             if (event.geofenceTransition != Geofence.GEOFENCE_TRANSITION_ENTER) return
@@ -35,15 +36,25 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                 )
             }
             event.triggeringGeofences.orEmpty().forEach { geofence ->
-                val entry = manager.entry(geofence.requestId, receivedAt, location) ?: return@forEach
+                val entry = manager.entry(geofence.requestId, receivedAt, location)
+                if (entry == null) {
+                    val triggerAge = location?.elapsedRealtimeNanos?.takeIf { it > 0 && it <= receivedAt }
+                        ?.let { (receivedAt - it) / 1_000_000L }
+                    Log.d(TAG, "Geofence entry rejected id=${geofence.requestId} source=geofence " +
+                        "reason=no_current_registration triggerAgeMs=$triggerAge accuracyM=${location?.accuracyMeters}")
+                    return@forEach
+                }
                 val before = AppRepositories.travel.snapshot.value.state
-                val accepted = AppRepositories.travel.reportGeofenceEntered(entry)
+                val result = AppRepositories.travel.reportGeofenceEntered(entry)
                 val after = AppRepositories.travel.snapshot.value.state
                 val arrivalStates = setOf(ContextState.ARRIVED, ContextState.IN_CLASS)
-                val established = accepted && before !in arrivalStates && after in arrivalStates
+                val established = result.accepted && before !in arrivalStates && after in arrivalStates
                 Log.d(
                     TAG, "Geofence entry delivered id=${entry.requestId} generation=${entry.generation} " +
-                        "building=${entry.buildingCode} source=geofence accepted=$accepted " +
+                        "building=${entry.buildingCode} source=geofence accepted=${result.accepted} " +
+                        "reason=${result.rejectionReason?.logValue ?: "accepted"} triggerAgeMs=${result.triggerAgeMillis} " +
+                        "triggerAgeAtReceiptMs=${result.triggerAgeAtReceiptMillis} accuracyM=${result.triggerAccuracyMeters} " +
+                        "preActivation=${result.triggerBeforeActivation} " +
                         "state=$before->$after established=$established"
                 )
             }
