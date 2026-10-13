@@ -143,8 +143,9 @@ class DeparturePromptPipelineTest {
             refresh(minutes = 10)
             assertEquals(ContextState.UPCOMING, engine.snapshot.value.state)
 
-            // 11:38: with 10 minutes in hand it is time to leave (by 11:40); with none, not until 11:45.
-            now = at(-22)
+            // 11:40: prepare with a 10-minute lead; with zero lead, wait until 11:50.
+            now = at(-20)
+            engine.updateOrigin(HOME)
             val inFlight = async(start = CoroutineStart.UNDISPATCHED) { engine.refresh() }
             val request = eta.next()
             preference = CourseReminderPreference(leadMinutes = 0)
@@ -159,18 +160,19 @@ class DeparturePromptPipelineTest {
             refresh(minutes = 10)
             assertEquals(ContextState.UPCOMING, engine.snapshot.value.state)
 
-            now = at(-14) // 11:46
+            now = at(-10) // 11:50: the physical departure deadline with zero lead.
+            engine.updateOrigin(HOME)
             refresh(minutes = 10)
             awaitShade { shade.alerts.size == 1 }
-            assertEquals(ContextState.LEAVE_SOON, shade.alerts.single().state)
+            assertEquals(DepartureReminderStage.LeaveNow, shade.alerts.single().stage)
         }
     }
 
     @Test
     fun aPromptShownBeforeARestartSurvivesStartupAndIsUpdatedSilently() = runBlocking<Unit> {
         // The previous process delivered the warning; the shade and the history outlived it.
-        val history = mutableSetOf<Pair<String, ContextState>>()
-        history += key to ContextState.LEAVE_SOON
+        val history = mutableSetOf<Pair<String, DepartureReminderStage>>()
+        history += key to DepartureReminderStage.Prepare
         shade.shown[key] = "Time to leave for COMP90018" to "Mobile Computing starts at 12:00 PM in Peter Hall."
         val reminders = DepartureReminders(
             snapshots = flowOf(),
@@ -192,7 +194,7 @@ class DeparturePromptPipelineTest {
 
         assertTrue(shade.alerts.isEmpty())
         assertEquals(1, shade.updates.size)
-        assertTrue(shade.textOf(key)!!.contains("About 15 min"))
+        assertTrue(shade.textOf(key)!!.contains("Travel time: 15 min"))
     }
 
     @Test
@@ -207,7 +209,7 @@ class DeparturePromptPipelineTest {
             shade = shade,
             currentUserId = { userId },
             wasSent = { user, session, state ->
-                user == userId && session.departurePromptKey() == key && state == ContextState.LEAVE_SOON
+                user == userId && session.departurePromptKey() == key && state == DepartureReminderStage.Prepare
             }
         )
         engine.updateOrigin(HOME)
@@ -229,7 +231,7 @@ class DeparturePromptPipelineTest {
             assertEquals(setOf(key), shade.shownKeys())
             assertTrue(shade.withdrawn.isEmpty())
             assertTrue(shade.alerts.isEmpty())
-            assertTrue(shade.textOf(key)!!.contains("About 15 min"))
+            assertTrue(shade.textOf(key)!!.contains("Travel time: 15 min"))
         } finally {
             engineJob.cancelAndJoin()
             reminderJob.cancelAndJoin()

@@ -20,9 +20,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.NotificationsActive
@@ -46,7 +44,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import au.edu.unimelb.campuscompanion.context.ContextConfig
 import au.edu.unimelb.campuscompanion.context.TravelSnapshot
 import au.edu.unimelb.campuscompanion.ui.model.CourseReminderPreference
 import au.edu.unimelb.campuscompanion.ui.model.CourseReminderSeries
@@ -58,7 +55,6 @@ import kotlin.math.roundToInt
 
 private val courseTimeFormatter = DateTimeFormatter.ofPattern("EEE, d MMM - h:mm a")
 private val departureTimeFormatter = DateTimeFormatter.ofPattern("EEE d MMM, h:mm a")
-private val warningMinutes = ContextConfig().leaveSoonWindowMinutes
 
 @Composable
 fun CourseReminderSettingsScreen(
@@ -188,9 +184,8 @@ private fun CourseReminderDialog(
 ) {
     val textResources = textResources()
     val session = course.nextSession
-    val notificationTime = session.etaMinutes?.let {
-        session.departureReminderTime(preference.leadMinutes)
-    }
+    val timing = session.reminderTiming(travelSnapshot, preference.leadMinutes)
+    val notificationTime = (timing as? CourseReminderTiming.Ready)?.warningAt
     val preparationMessage = if (preference.leadMinutes == 0) {
         textResources.getString(R.string.course_reminder_settings_leave_when_the_reminder_arrives)
     } else {
@@ -238,11 +233,6 @@ private fun CourseReminderDialog(
                             style = MaterialTheme.typography.bodyLarge,
                             fontWeight = FontWeight.Medium
                         )
-                        Text(
-                            text = "Extra time to aim to arrive before class. Weather and time to reach the classroom may add more.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
                         Slider(
                             modifier = Modifier.semantics {
                                 contentDescription = textResources.getString(R.string.a11y_preparation_time)
@@ -266,12 +256,6 @@ private fun CourseReminderDialog(
                         )
                     }
 
-                    Text(
-                        text = "Leave-soon reminders warn you $warningMinutes minutes before the calculated departure time, unless you’re already heading to class or have arrived.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
                     Surface(
                         shape = RoundedCornerShape(8.dp),
                         color = MaterialTheme.colorScheme.primaryContainer,
@@ -292,15 +276,18 @@ private fun CourseReminderDialog(
                                 verticalArrangement = Arrangement.spacedBy(2.dp)
                             ) {
                                 Text(
-                                    text = notificationTime?.format(notificationTimeFormatter)
+                                    text = notificationTime?.let { textResources.getString(R.string.reminder_prepare_at, it.format(departureTimeFormatter)) }
                                         ?: textResources.getString(R.string.course_reminder_settings_calculated_from_your_live_route),
                                     style = MaterialTheme.typography.titleMedium
                                 )
+                                if (timing is CourseReminderTiming.Ready) {
+                                    Text(textResources.getString(R.string.home_leave_by, timing.leaveBy.format(departureTimeFormatter)))
+                                }
                                 Text(
-                                    text = if (session.etaMinutes == null) {
+                                    text = if (timing !is CourseReminderTiming.Ready) {
                                         textResources.getString(R.string.course_reminder_settings_live_travel_time_will_be_included, preparationMessage)
                                     } else {
-                                        textResources.getString(R.string.course_reminder_settings_travel_time_min, preparationMessage, session.etaMinutes)
+                                        textResources.getString(R.string.course_reminder_settings_travel_time_min, preparationMessage, timing.travelMinutes)
                                     },
                                     style = MaterialTheme.typography.bodyMedium
                                 )

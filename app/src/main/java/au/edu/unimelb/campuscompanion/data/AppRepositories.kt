@@ -98,13 +98,10 @@ object AppRepositories {
                 preferences = ::courseReminderPreference,
                 notify = { reminder -> DepartureNotifier.show(appContext, reminder) },
                 preferenceChanges = CourseReminderPreferencesStore.changes.map { Unit },
-                cancelCourse = { key -> DepartureNotifier.cancelCourse(appContext, key) },
-                wasSent = { session, stage -> SupabaseProvider.client?.auth?.currentUserOrNull()?.id?.let {
-                    departureHistory.wasSent(it, session, stage)
-                } ?: true },
-                rememberSent = { session, stage -> SupabaseProvider.client?.auth?.currentUserOrNull()?.id?.let {
-                    departureHistory.record(it, session, stage)
-                }; Unit }
+                shade = DepartureNotifier.shade(appContext),
+                currentUserId = { SupabaseProvider.client?.auth?.currentUserOrNull()?.id },
+                wasSent = { userId, session, stage -> departureHistory.wasSent(userId, session, stage) },
+                rememberSent = { userId, session, stage -> departureHistory.record(userId, session, stage) }
             ).run()
         }
         SupabaseProvider.client?.let { client ->

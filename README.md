@@ -108,9 +108,9 @@ Apply migration `20261010120000_group_nicknames.sql` before installing this vers
 
 The `route-eta` Edge Function returns travel times for departure reminders. Walking and driving times come from the [FOSSGIS OSRM servers](https://routing.openstreetmap.de/about.html) and public transport times from [Transitous](https://transitous.org/api/); neither needs an API key. Both services are run by volunteers, so the function rounds positions to about 110 m, caches answers, starts calls to each service at least one second apart, and applies the fair-use limits in `private.route_limits`. When a limit is reached or a service is unavailable, the app falls back to a straight-line estimate, which the next-class card marks as approximate ("~12 min", "Walking (approx.)").
 
-On the device, `context/TravelEngine` joins the timetable, the location and motion sensors and these travel times into the full context state and buffered departure deadline; `context/DepartureReminders` turns the "leave soon" and "running late" states into one notification each per class, which the activity switches on the Schedule screen's "Departure reminders" page control. Its "Arrival buffer" slider adds extra time to arrive before class, separately from weather and classroom-entry allowances. The leave-soon warning remains fixed at five minutes before the engine's calculated departure deadline. The settings preview shows that same live deadline and warning time when a travel estimate is available for the current or next class. Each course's Lecture, Tutorial and Workshop have independent settings, shared across that activity's recurring classes. Settings are saved on the device per account; the notifier reads the matching activity's saved setting directly, including in the background. Turning an activity off removes its visible departure notifications without muting other activities or group messages. Existing reminder choices are retained until the activity is edited. The building of each class is looked up from the location code in the timetable (for example `PAR-160`) in `assets/uom_building_outlines.geojson`. Rain or heat at the class's building adds a few minutes to the departure buffer; the weather comes from [Open-Meteo](https://open-meteo.com), which needs no key, is free for non-commercial use and licenses its data CC BY 4.0, so screens that show it must say "Weather data by Open-Meteo.com".
+On the device, `context/TravelEngine` joins the timetable, location and motion sensors and travel estimates into a context state and physical departure deadline. `context/DepartureReminders` sends a preparation notification (ten minutes before departure by default), followed by an urgent notification five minutes before departure if fresh GPS fixes show no progress toward the destination. The Schedule screen's "Departure reminders" page controls the preparation lead independently for each course's Lecture, Tutorial and Workshop. Home and the settings preview use the same departure deadline; changing the preparation lead changes only the warning time. Settings are saved per account and read by the notifier in the background. Turning an activity off removes its visible departure notifications without muting other activities or group messages. Existing reminder choices are retained until the activity is edited. The building of each class is looked up from the location code in the timetable (for example `PAR-160`) in `assets/uom_building_outlines.geojson`. Rain or heat at the class's building adds a few minutes to the departure buffer; the weather comes from [Open-Meteo](https://open-meteo.com), which needs no key, is free for non-commercial use and licenses its data CC BY 4.0, so screens that show it must say "Weather data by Open-Meteo.com".
 
-Home receives `TravelSnapshot` directly. One combined card shows class details, the engine's current instruction, its departure deadline/countdown, the travel estimate and the individual arrival, weather and room-entry buffers, alongside Google Maps navigation. Instructions change from "Leave in 5 minutes" or "Leave now" to "On your way", "Class starts in …" and "In class until …". Travel estimates stay labelled when approximate, with the appropriate routing and weather credits. Departure prompts stop once the student is travelling or has arrived; long breaks and days without more classes have their own guidance. An updating state prevents a previous class's snapshot from supplying a new class's guidance.
+Home receives `TravelSnapshot` directly. One combined card shows class details, the engine's current instruction, its departure deadline/countdown, the travel estimate and the weather and room-entry allowances, alongside Google Maps navigation. Instructions change from "Leave in 5 minutes" or "Leave now" to "On your way", "Class starts in …" and "In class until …". Travel estimates stay labelled when approximate, with the appropriate routing and weather credits. Departure prompts stop once the student is travelling or has arrived; long breaks and days without more classes have their own guidance. An updating state prevents a previous class's snapshot from supplying a new class's guidance.
 
 Changing a class's venue or times with the same occurrence ID now clears outdated guidance immediately. The engine resolves the current building on each refresh, resets arrival and movement history when the tracked class or its resolved building changes, and rejects ETA/weather results started before a timetable change or account reset. Room, title and time corrections within the same building keep the student's arrival: arrival is entered within 75 m and kept until 200 m because indoor GPS is often that far off, so resetting it would turn a student who is already there into "Running late" or "Time to leave", and the reminder history (keyed by class ID and start) would let that alert through. Home, timetable ETA enrichment and reminder timing previews share an occurrence comparison that includes course/activity, times and venue while excluding display titles and transient estimates. Global GPS/movement inputs remain available for the new trip. Known-to-unknown venue changes clear travel guidance; unknown-to-known changes begin resolving normally. Manual timetable editing must save the building and room consistently because imported room text can include a full building code.
 
@@ -262,29 +262,31 @@ This setup does not switch the context engine's ETA provider to Google.
 
 Home shows **Travel time** (duration and mode), without a distance metric. Current GPS fixes feed the
 application-owned travel engine about every 10 seconds while its location foreground service runs;
-the engine also reevaluates the clock every 30 seconds. The context engine retains the last supplied
-location when sensing stops, matching the feature branch's current policy. Movement input remains
-the motion detector's raw verdict; the engine combines it with progress toward the classroom.
+the engine also reevaluates the clock every 30 seconds. Positions older than two minutes cannot supply a travel estimate. The engine combines motion
+input with recent, timestamped GPS progress toward the classroom; repeated or inaccurate fixes
+do not count as additional evidence.
 Routing requests are limited to once per destination every three minutes. Walking/driving estimates
 are cached for one day, transit estimates for ten minutes, and a recent routed estimate can be reused
 for ten minutes while the user moves. Otherwise the offline straight-line estimate is used.
 
-The default ten-minute setting is an **arrival buffer**. Departure deadline = class start − travel
-minutes − arrival buffer − classroom entry allowance − weather allowance. For example, with entry
-and weather allowances set to zero, a class at 11:00 with a 20-minute journey and ten-minute arrival
-buffer has a 10:30 departure deadline; Leave soon starts at 10:25. Notifications follow the context
-engine's Leave soon or Running late state and are suppressed in its other states, including En route,
-Arrived and In class. Lecture/tutorial/workshop switches and individual buffers still apply.
+The default ten-minute setting is a **preparation reminder lead**. Departure deadline = class start
+− travel minutes − classroom entry allowance − weather allowance. Home, reminder settings and
+notifications use this same physical deadline. For an 11:00 class and a 20-minute trip, Home shows
+10:40 as the departure deadline, and the preparation notification arrives at 10:30. If fresh GPS
+samples show that the student is stationary or moving away, Home and a second notification urge
+immediate departure at 10:35. This five-minute urgent check is independent of the preparation slider.
+Approaching the destination or arriving suppresses the warning. Each warning stage is delivered at
+most once per account and class occurrence. Lecture/tutorial/workshop switches still apply.
 Notifications are generated on the phone, so FCM/server push credentials are not
 required. Android notifications and location permission must be enabled; the foreground service must
 be running. Force-stop prevents background delivery until the app is opened again.
 
 The application restores the signed-in user's cached timetable for reminders and no longer clears
 it when a screen is destroyed. Successful reminder deliveries are saved on the device by account,
-class ID, class start time and context state, so restarting the app does not repeat them. A delivered
-Running late alert also prevents a later Leave soon warning from replacing it. Failed delivery
+class ID, class start time and warning stage, so restarting the app does not repeat them. A delivered
+urgent alert also prevents a later preparation warning from replacing it. Failed delivery
 attempts remain eligible on the next travel snapshot or reminder preference update, while the
-context still calls for a reminder. Saved records expire when the class ends and are pruned on the
+current timing and movement still call for a reminder. Saved records expire when the class ends and are pruned on the
 next successful delivery. The notification links to Schedule.
 
 ## Editing a profile

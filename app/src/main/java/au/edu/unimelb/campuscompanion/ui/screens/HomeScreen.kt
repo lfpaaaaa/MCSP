@@ -45,6 +45,7 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
@@ -204,20 +205,8 @@ fun HomeScreen(
                     notice = timetableState.offlineNotice()?.resolve(textResources)
                 )
 
-                SectionHeader(title = textResources.getString(R.string.groups_course_groups))
-                if (timetableState.groups.isEmpty()) {
-                    EmptyImportedSection(
-                        text = textResources.getString(R.string.home_no_groups_are_available_to_add)
-                    )
-                } else {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        timetableState.groups.take(2).forEach { group ->
-                            GroupUpdateRow(
-                                group = group,
-                                onClick = { onOpenGroup(group) }
-                            )
-                        }
-                    }
+                if (groupUpdates.featuredGroup == null) {
+                    HomeCourseGroupUpdates(groupUpdates, onOpenGroup)
                 }
             }
         }
@@ -230,18 +219,19 @@ internal fun HomeCourseGroupUpdates(
     onOpenGroup: (CourseGroup) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val textResources = textResources()
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SectionHeader(title = "Course groups")
+        SectionHeader(title = textResources.getString(R.string.groups_course_groups))
         updates.contextLabel?.let { label ->
             Text(
-                text = label,
+                text = label.resolve(textResources),
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.SemiBold
             )
         }
         if (updates.rows.isEmpty()) {
-            EmptyImportedSection(text = "No groups are available to add.")
+            EmptyImportedSection(text = textResources.getString(R.string.home_no_groups_are_available_to_add))
         } else {
             updates.rows.forEach { group ->
                 GroupUpdateRow(group = group, onClick = { onOpenGroup(group) })
@@ -259,11 +249,7 @@ internal fun NextClassCard(
     modifier: Modifier = Modifier
 ) {
     val textResources = textResources()
-    val status = session.statusAt(now)
-    val travel = selectTravelSummary(session, travelPreferences)
-    val locationText = listOf(session.location, session.room)
-        .filter(String::isNotBlank)
-        .joinToString(" - ")
+    val travel = card.estimate
 
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -276,7 +262,7 @@ internal fun NextClassCard(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                text = textResources.getString(R.string.label_next_class),
+                text = guidance.cardLabel.resolve(textResources),
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.Bold
             )
@@ -304,23 +290,8 @@ internal fun NextClassCard(
                     )
                 }
                 StatusPill(
-                    label = card.statusLabel,
+                    label = card.statusLabel.resolve(textResources),
                     status = card.statusTone
-                )
-            }
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    text = session.code,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    text = session.title.trimTrailingCommas(),
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                Text(
-                    text = "${session.startDate.format(nextClassDateFormatter)}  ${session.startTime.format(homeTimeFormatter)} - ${session.endTime.format(homeTimeFormatter)}",
-                    style = MaterialTheme.typography.bodyLarge
                 )
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -330,32 +301,39 @@ internal fun NextClassCard(
                     modifier = Modifier.size(18.dp)
                 )
                 Text(
-                    text = card.destinationText,
+                    text = card.destinationText.resolve(textResources),
                     modifier = Modifier.padding(start = 6.dp),
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.2f))
-            TravelMetric(
-                icon = travel.mode?.icon() ?: Icons.Outlined.AccessTime,
-                label = textResources.getString(R.string.home_travel_time),
-                value = travel.durationMinutes?.let { minutes ->
-                    textResources.getString(R.string.home_min, if (travel.isApproximate) "~" else "", minutes) +
-                        travel.mode?.let { " · ${it.displayName.resolve(textResources)}" }.orEmpty()
-                } ?: textResources.getString(R.string.home_waiting_for_current_location_or_route),
-                modifier = Modifier.fillMaxWidth()
-            )
-            if (travel.isApproximate) {
-                Text(textResources.getString(R.string.home_approximate_travel_time_live_route_unavailable), style = MaterialTheme.typography.bodySmall)
+            HomeGuidanceText(guidance)
+            if (guidance.showTravelDetails) {
+                TravelMetric(
+                    icon = travel?.mode?.icon() ?: Icons.Outlined.AccessTime,
+                    label = textResources.getString(R.string.home_travel_time),
+                    value = travel?.durationMinutes?.let { minutes ->
+                        textResources.getString(R.string.home_min, if (travel.isApproximate) "~" else "", minutes) +
+                            " · ${travel.mode.displayName.resolve(textResources)}"
+                    } ?: guidance.travelUnavailableMessage?.resolve(textResources).orEmpty(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                guidance.bufferExplanation?.let { Text(it.resolve(textResources), style = MaterialTheme.typography.bodyMedium) }
+                if (travel?.isApproximate == true) {
+                    Text(textResources.getString(R.string.home_approximate_travel_time_live_route_unavailable), style = MaterialTheme.typography.bodySmall)
+                }
             }
             Button(onClick = onNavigate, modifier = Modifier.fillMaxWidth()) { Text(textResources.getString(R.string.campus_components_navigate_with_google_maps)) }
-            if (session.routeEstimate?.source == au.edu.unimelb.campuscompanion.data.model.EstimateSource.GoogleMaps) {
+            if (guidance.showTravelDetails && travel?.source == EstimateSource.GoogleMaps) {
                 Text(textResources.getString(R.string.class_navigation_google_maps), style = MaterialTheme.typography.bodySmall)
-            } else if (!travel.isApproximate && travel.durationMinutes != null) {
+            } else if (guidance.showTravelDetails && travel?.source == EstimateSource.Routing) {
                 RoutingCredit()
+                if (travel.mode == TravelMode.PublicTransport) {
+                    HomeSourceCredit(textResources.getString(R.string.home_transit_sources), DataSources.TRANSITOUS_SOURCES_URL)
+                }
             }
             if (guidance.showWeatherCredit) {
-                HomeSourceCredit(DataSources.OPEN_METEO_CREDIT, DataSources.OPEN_METEO_URL)
+                HomeSourceCredit(DataSources.OPEN_METEO_CREDIT.resolve(textResources), DataSources.OPEN_METEO_URL)
             }
         }
     }
@@ -366,6 +344,7 @@ internal fun HomeDayCard(
     guidance: HomeCardGuidance,
     modifier: Modifier = Modifier
 ) {
+    val textResources = textResources()
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
@@ -376,7 +355,7 @@ internal fun HomeDayCard(
             modifier = Modifier.padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text(guidance.cardLabel, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+            Text(guidance.cardLabel.resolve(textResources), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
             HomeGuidanceText(guidance)
         }
     }
@@ -384,11 +363,12 @@ internal fun HomeDayCard(
 
 @Composable
 private fun HomeGuidanceText(guidance: HomeCardGuidance) {
+    val textResources = textResources()
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(guidance.headline, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        guidance.detail?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+        Text(guidance.headline.resolve(textResources), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        guidance.detail?.let { Text(it.resolve(textResources), style = MaterialTheme.typography.bodyMedium) }
         guidance.departureLine?.let {
-            Text(it, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(it.resolve(textResources), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         }
     }
 }

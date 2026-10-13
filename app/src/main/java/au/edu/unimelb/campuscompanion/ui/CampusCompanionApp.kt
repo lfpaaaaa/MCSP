@@ -871,7 +871,13 @@ private fun AuthenticatedCampusApp(
                         .filter { group -> group.origin == GroupOrigin.Timetable || group.courseCode.isNotBlank() }
                         .sortedBy { group -> group.origin == GroupOrigin.Timetable }
                 ),
-                travelPreferences = travelPreferences,
+                travelSnapshot = travelSnapshot,
+                postClassGroupCandidates = homePostClassCandidates(
+                    joinedGroups = syncedGroups
+                        .filter { it.origin == GroupOrigin.Timetable || it.courseCode.isNotBlank() }
+                        .sortedBy { it.origin == GroupOrigin.Timetable },
+                    preferences = groupPreferences
+                ),
                 onNavigate = ::navigateToClass,
                 onTimetableUrlSave = connectTimetable,
                 onTimetableRefresh = refreshTimetable,
@@ -902,7 +908,8 @@ private fun AuthenticatedCampusApp(
             CourseReminderSettingsScreen(
                 courses = reminderCourses,
                 preferences = courseReminderPreferences,
-                onPreferenceChange = updateCourseReminder
+                onPreferenceChange = updateCourseReminder,
+                travelSnapshot = travelSnapshot
             )
         }
         campusPage(CampusDestination.Groups.route) {

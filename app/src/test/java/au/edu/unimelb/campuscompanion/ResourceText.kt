@@ -18,6 +18,9 @@ object ResourceText {
     }
     private val names = R.string::class.java.fields.associate { it.getInt(null) to it.name }
 
+    private val pluralNames = R.plurals::class.java.fields.associate { it.getInt(null) to it.name }
+    fun resolveQuantity(id: Int, count: Int, args: Array<out Any>): String = quantity(pluralNames.getValue(id), count, *args)
+
     fun resolve(id: Int, args: Array<out Any>): String = format(strings.getValue(names.getValue(id)), *args)
 
     fun quantity(name: String, count: Int, vararg args: Any): String {
@@ -38,4 +41,4 @@ object ResourceText {
         if (args.isEmpty()) value else String.format(Locale.ENGLISH, value, *args)
 }
 
-fun UiText.english(): String = resolve(ResourceText::resolve)
+fun UiText.english(): String = resolve(ResourceText::resolve, ResourceText::resolveQuantity)

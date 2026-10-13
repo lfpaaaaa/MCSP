@@ -35,7 +35,7 @@ class CourseReminderTimingTest {
         val deadline = ContextEngine.leaveBy(
             start = start.toInstant(),
             travelMinutes = travel.durationMinutes,
-            bufferMinutes = 10 + 5,
+            bufferMinutes = 5,
             entryAllowanceMinutes = 3
         )!!.atZone(start.zone)
         val snapshot = liveSnapshot().copy(
@@ -44,53 +44,53 @@ class CourseReminderTimingTest {
             leaveBy = deadline
         )
 
-        assertEquals(start.withHour(10).withMinute(22), deadline)
+        assertEquals(start.withHour(10).withMinute(32), deadline)
         assertEquals(
             CourseReminderTiming.Ready(
                 leaveBy = deadline,
-                warningAt = start.withHour(10).withMinute(17),
+                warningAt = start.withHour(10).withMinute(22),
                 travelMinutes = 20
             ),
-            lecture.reminderTiming(snapshot, arrivalBufferMinutes = 10)
+            lecture.reminderTiming(snapshot, preparationMinutes = 10)
         )
     }
 
     @Test
-    fun zeroArrivalBufferStillWarnsFiveMinutesBeforeDeparture() {
-        val snapshot = liveSnapshot(arrivalBufferMinutes = 0)
+    fun zeroPreparationLeadWarnsAtDepartureWithoutAnExtraFiveMinutes() {
+        val snapshot = liveSnapshot(preparationMinutes = 0)
 
         assertEquals(
             CourseReminderTiming.Ready(
                 leaveBy = start.minusMinutes(20),
-                warningAt = start.minusMinutes(25),
+                warningAt = start.minusMinutes(20),
                 travelMinutes = 20
             ),
-            lecture.reminderTiming(snapshot, arrivalBufferMinutes = 0)
+            lecture.reminderTiming(snapshot, preparationMinutes = 0)
         )
     }
 
     @Test
     fun changingTheBufferHidesTheOldTimeUntilTheEngineHasAppliedTheNewChoice() {
-        val oldSnapshot = liveSnapshot(arrivalBufferMinutes = 10)
+        val oldSnapshot = liveSnapshot(preparationMinutes = 10)
         assertEquals(
             CourseReminderTiming.Updating,
-            lecture.reminderTiming(oldSnapshot, arrivalBufferMinutes = 20)
+            lecture.reminderTiming(oldSnapshot, preparationMinutes = 20)
         )
 
-        val updatedSnapshot = liveSnapshot(arrivalBufferMinutes = 20)
+        val updatedSnapshot = liveSnapshot(preparationMinutes = 20)
         assertEquals(
             CourseReminderTiming.Ready(
-                leaveBy = start.minusMinutes(40),
-                warningAt = start.minusMinutes(45),
+                leaveBy = start.minusMinutes(20),
+                warningAt = start.minusMinutes(40),
                 travelMinutes = 20
             ),
-            lecture.reminderTiming(updatedSnapshot, arrivalBufferMinutes = 20)
+            lecture.reminderTiming(updatedSnapshot, preparationMinutes = 20)
         )
 
         // A quick second change must not display the previous choice's deadline either.
         assertEquals(
             CourseReminderTiming.Updating,
-            lecture.reminderTiming(updatedSnapshot, arrivalBufferMinutes = 10)
+            lecture.reminderTiming(updatedSnapshot, preparationMinutes = 10)
         )
     }
 
@@ -173,14 +173,14 @@ class CourseReminderTimingTest {
         )
     }
 
-    private fun liveSnapshot(arrivalBufferMinutes: Int = 10) = TravelSnapshot(
+    private fun liveSnapshot(preparationMinutes: Int = 10) = TravelSnapshot(
         session = lecture,
         estimate = travel,
-        leadMinutes = arrivalBufferMinutes,
+        leadMinutes = preparationMinutes,
         leaveBy = ContextEngine.leaveBy(
             start = start.toInstant(),
             travelMinutes = travel.durationMinutes,
-            bufferMinutes = arrivalBufferMinutes,
+            bufferMinutes = 0,
             entryAllowanceMinutes = 0
         )!!.atZone(start.zone)
     )

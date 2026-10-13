@@ -4,12 +4,12 @@ import au.edu.unimelb.campuscompanion.data.TravelMode
 import au.edu.unimelb.campuscompanion.data.building.BuildingLocation
 import au.edu.unimelb.campuscompanion.data.model.TravelEstimate
 import au.edu.unimelb.campuscompanion.data.model.WeatherSnapshot
-import au.edu.unimelb.campuscompanion.sensing.location.DistanceTrend
-import au.edu.unimelb.campuscompanion.sensing.location.TravelState
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
 import au.edu.unimelb.campuscompanion.ui.model.RouteEstimate
 import au.edu.unimelb.campuscompanion.ui.model.matchesTimetableSession
 import java.time.ZonedDateTime
+import java.time.Instant
+import au.edu.unimelb.campuscompanion.sensing.location.DistanceTrend
 
 /** What the app currently knows about the trip to the next class. */
 data class TravelSnapshot(
@@ -29,9 +29,23 @@ data class TravelSnapshot(
     val weather: WeatherSnapshot? = null,
     /** Extra minutes added to the departure buffer because of the weather. */
     val weatherBufferMinutes: Int = 0,
-    /** Clock used for this position/ETA calculation, including second-accurate reminder boundaries. */
-    val evaluatedAt: java.time.Instant? = null,
-    /** Recent GPS progress toward this class; UNKNOWN means insufficient or stale evidence. */
+    /** Minutes before departure to send the preparation reminder. */
+    val leadMinutes: Int = 0,
+    /** Minutes allowed to get from the building entrance to the room. */
+    val entryAllowanceMinutes: Int = 0,
+    /** When to leave: start - travel - weather - entry allowance. Null when the travel time is unknown. */
+    val leaveBy: ZonedDateTime? = null,
+    /** The class that finished in the last few minutes, if any; shown while the state is POST_CLASS. */
+    val finishedSession: CourseSession? = null,
+    /**
+     * True while the engine works out a new result: before its first one, and after a timetable or
+     * account change made the previous result obsolete. A pending snapshot describes no class.
+     * Departure reminders keep what the student can see until the next result decides.
+     */
+    val pending: Boolean = false,
+    /** Time of the current ETA/state calculation, including exact notification boundaries. */
+    val evaluatedAt: Instant? = null,
+    /** Recent GPS progress toward this class, or UNKNOWN without sufficient fresh evidence. */
     val destinationProgress: DistanceTrend = DistanceTrend.UNKNOWN
 ) {
     /** The sessions with the tracked one carrying its travel time and route, for the screens. */

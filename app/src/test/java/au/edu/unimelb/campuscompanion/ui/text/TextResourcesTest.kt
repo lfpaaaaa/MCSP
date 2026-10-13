@@ -38,6 +38,16 @@ class TextResourcesTest {
         assertEquals("1 class this week", ResourceText.quantity("week_class_count", 1, 1))
     }
 
+    @Test fun nestedCountdownQuantitiesUseRealResourceForms() {
+        val duration = UiText.Joined(listOf(
+            UiText.Plural(R.plurals.home_hours, 1, listOf(1)),
+            UiText.Plural(R.plurals.home_minutes, 2, listOf(2))
+        ))
+        assertEquals("Leave in 1 hour 2 minutes", UiText(R.string.home_leave_in, duration).english())
+        assertEquals("0 minutes", UiText.Plural(R.plurals.home_minutes, 0, listOf(0)).english())
+        assertEquals("2 hours", UiText.Plural(R.plurals.home_hours, 2, listOf(2)).english())
+    }
+
     @Test fun progressAndNestedLabelsAreFormattedAtRenderTime() {
         assertEquals("Uploading 42%", UiText(R.string.chat_attachments_uploading, 42).english())
         assertEquals("Travel time: 5 min on foot.", UiText(R.string.departure_travel, 5,
