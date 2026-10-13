@@ -47,7 +47,7 @@ data class ContextInputs(
     val isMoving: Boolean,
     /**
      * The sensing service's combined verdict (moving, distance falling, heading towards the building),
-     * or null when it does not provide one. Without it the engine checks walking and distance itself.
+     * True confirms entry, false vetoes entry, and null permits movement/progress fallback.
      */
     val enRouteSignal: Boolean? = null,
     /** The arrival geofence of the tracked class's building has been entered. */
@@ -57,7 +57,11 @@ data class ContextInputs(
      * geofence), or null when the building is unknown. The distances above are measured against
      * it, so trip memory is kept only while the class and this building stay the same.
      */
-    val buildingCode: String? = null
+    val buildingCode: String? = null,
+    /** Production fallback needs sustained distinct observations, not a single GPS jump. */
+    val progressConfirmed: Boolean = true,
+    /** A stale sampling gap clears unconfirmed history without ending an established trip. */
+    val resetProgress: Boolean = false
 )
 
 /**
@@ -170,8 +174,11 @@ object ContextEngine {
         } else {
             sameTrip
         }
+        val scopedMemory = previousMemory ?: ContextMemory(session.id, buildingCode = inputs.buildingCode)
         val memory = updateMemory(
-            previous = previousMemory ?: ContextMemory(session.id, buildingCode = inputs.buildingCode),
+            previous = if (inputs.resetProgress && !scopedMemory.enRoute) {
+                scopedMemory.copy(farthestMeters = null, closestMeters = null)
+            } else scopedMemory,
             inputs = inputs,
             inDepartureWindow = inDepartureWindow,
             config = config
@@ -258,8 +265,11 @@ object ContextEngine {
         }
 
         val farthest = max(previous.farthestMeters ?: distance, distance)
-        val setOff = inputs.enRouteSignal == true ||
-            (inputs.isMoving && farthest - distance >= config.closingMeters)
+        val setOff = when (inputs.enRouteSignal) {
+            true -> true
+            false -> false
+            null -> inputs.isMoving && inputs.progressConfirmed && farthest - distance >= config.closingMeters
+        }
         return if (setOff) {
             previous.copy(arrived = false, enRoute = true, farthestMeters = null, closestMeters = distance)
         } else {

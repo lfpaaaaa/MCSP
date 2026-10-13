@@ -271,7 +271,8 @@ object AppRepositories {
             preferences = { TravelPreferencesStore(appContext).load() },
             weather = weather,
             reminderPreference = ::courseReminderPreference,
-            reminderChanges = CourseReminderPreferencesStore.changes.map { Unit }
+            reminderChanges = CourseReminderPreferencesStore.changes.map { Unit },
+            elapsedNanos = android.os.SystemClock::elapsedRealtimeNanos
         )
     }
 }

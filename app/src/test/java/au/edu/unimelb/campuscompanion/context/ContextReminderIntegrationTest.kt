@@ -123,8 +123,8 @@ class ContextReminderIntegrationTest {
     fun settingOffEarlyAndWaitingSuppressRemindersThroughArrivalAndClassStart() = runBlocking<Unit> {
         val trip = Trip()
         trip.refresh(at(10, 0))
-        // The optional fused verdict is not a veto of raw movement plus closing distance.
-        trip.engine.updateEnRouteSignal(false)
+        // Unavailable fusion permits fresh movement plus closing distance.
+        trip.engine.updateEnRouteSignal(null)
         val settingOff = trip.refresh(at(10, 2), origin = CLOSER, moving = true)
         assertSuppressed(trip, settingOff, ContextState.EN_ROUTE)
 

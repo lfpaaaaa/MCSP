@@ -2,6 +2,7 @@ package au.edu.unimelb.campuscompanion.context
 
 import au.edu.unimelb.campuscompanion.data.TravelMode
 import au.edu.unimelb.campuscompanion.data.building.BuildingLocation
+import au.edu.unimelb.campuscompanion.data.model.GeoPoint
 import au.edu.unimelb.campuscompanion.data.model.TravelEstimate
 import au.edu.unimelb.campuscompanion.data.model.WeatherSnapshot
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
@@ -40,7 +41,9 @@ data class TravelSnapshot(
      * account change made the previous result obsolete. A pending snapshot describes no class.
      * Departure reminders keep what the student can see until the next result decides.
      */
-    val pending: Boolean = false
+    val pending: Boolean = false,
+    /** Sampled routing origin; distanceMeters may describe a newer physical observation. */
+    val estimateOrigin: GeoPoint? = null
 ) {
     /** The sessions with the tracked one carrying its travel time and route, for the screens. */
     fun applyTo(sessions: List<CourseSession>): List<CourseSession> {

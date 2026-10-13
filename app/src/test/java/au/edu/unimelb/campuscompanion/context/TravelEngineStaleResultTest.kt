@@ -235,9 +235,9 @@ class TravelEngineStaleResultTest {
         nextRequest.complete()
         withTimeout(TIMEOUT_MS) { nextRefresh.await() }
 
-        // This refresh captured its motion before routing: neither old A nor new B evidence leaks.
+        // Publication re-reads current-target evidence received during routing.
         assertEquals(second, engine.snapshot.value.session)
-        assertEquals(ContextState.UPCOMING, engine.snapshot.value.state)
+        assertEquals(ContextState.ARRIVED, engine.snapshot.value.state)
         refreshAndComplete(engine)
         assertEquals(ContextState.ARRIVED, engine.snapshot.value.state)
     }
@@ -258,7 +258,7 @@ class TravelEngineStaleResultTest {
         engine.reportGeofenceEntered(FakeBuildingLookup.ALAN_GILBERT.locCode)
         nextRequest.complete()
         withTimeout(TIMEOUT_MS) { nextRefresh.await() }
-        assertEquals(ContextState.UPCOMING, engine.snapshot.value.state)
+        assertEquals(ContextState.ARRIVED, engine.snapshot.value.state)
 
         val queuedRequest = eta.next()
         assertEquals(FakeBuildingLookup.ALAN_GILBERT.location, queuedRequest.destination)
