@@ -48,7 +48,7 @@ internal fun GroupInviteQrDialog(
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(groupName)
-                if (loading) CircularProgressIndicator(Modifier.semantics { contentDescription = textResources.getString(R.string.nfc_share_creating_invitation) })
+                if (loading) CircularProgressIndicator(Modifier.semantics { contentDescription = textResources.getString(R.string.qr_invite_creating_invitation) })
                 error?.let { Text(it, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
                 invite?.let { current ->
                     if (current.isExpired(now)) {

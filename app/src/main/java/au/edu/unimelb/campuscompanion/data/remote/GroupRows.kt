@@ -100,7 +100,7 @@ fun GroupMemberRow.toModel(): GroupMember = GroupMember(
     joinedAt = parseTimestamp(joinedAt)
 )
 
-/** The invite for [groupId] as the QR and NFC screens use it. */
+/** The invite for [groupId] as the QR invitation screen uses it. */
 fun InviteRow.toModel(groupId: String): GroupInvite = GroupInvite(
     groupId = groupId,
     token = token,

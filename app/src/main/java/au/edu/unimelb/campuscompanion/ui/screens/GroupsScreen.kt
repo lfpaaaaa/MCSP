@@ -24,13 +24,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Archive
-import androidx.compose.material.icons.outlined.CheckCircle
-import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.GroupAdd
 import androidx.compose.material.icons.outlined.Groups
-import androidx.compose.material.icons.outlined.Nfc
 import androidx.compose.material.icons.outlined.QrCodeScanner
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -60,7 +57,6 @@ import au.edu.unimelb.campuscompanion.ui.components.QuickActionChip
 import au.edu.unimelb.campuscompanion.ui.components.SectionHeader
 import au.edu.unimelb.campuscompanion.ui.model.CourseGroup
 import au.edu.unimelb.campuscompanion.ui.model.GROUP_JOIN_CODE_LENGTH
-import au.edu.unimelb.campuscompanion.ui.model.NfcJoinUiState
 import au.edu.unimelb.campuscompanion.ui.model.TimetableState
 import au.edu.unimelb.campuscompanion.ui.model.isValidGroupJoinCode
 import au.edu.unimelb.campuscompanion.ui.model.normalizeGroupJoinCode
@@ -77,10 +73,6 @@ fun GroupsScreen(
     onOpenGroup: (CourseGroup) -> Unit,
     onStartGroup: suspend (name: String, courseCode: String?) -> Result<CourseGroup>,
     onJoinGroup: suspend (code: String) -> Result<CourseGroup>,
-    nfcJoinState: NfcJoinUiState,
-    onStartNfcJoin: () -> Unit,
-    onDismissNfcJoin: () -> Unit,
-    onOpenNfcSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val textResources = textResources()
@@ -123,15 +115,6 @@ fun GroupsScreen(
                 showJoinGroup = false
                 onOpenGroup(group)
             }
-        )
-    }
-
-    if (nfcJoinState !is NfcJoinUiState.Idle) {
-        NfcJoinDialog(
-            state = nfcJoinState,
-            onDismiss = onDismissNfcJoin,
-            onTryAgain = onStartNfcJoin,
-            onOpenNfcSettings = onOpenNfcSettings
         )
     }
 
@@ -193,18 +176,11 @@ fun GroupsScreen(
             }
         }
 
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            QuickActionChip(
-                label = textResources.getString(R.string.groups_scan_qr),
-                icon = Icons.Outlined.QrCodeScanner,
-                onClick = { showQrJoin = true }
-            )
-            QuickActionChip(
-                label = textResources.getString(R.string.label_nfc_join),
-                icon = Icons.Outlined.Nfc,
-                onClick = onStartNfcJoin
-            )
-        }
+        QuickActionChip(
+            label = textResources.getString(R.string.groups_scan_qr),
+            icon = Icons.Outlined.QrCodeScanner,
+            onClick = { showQrJoin = true }
+        )
 
         if (timetableState.isLoading && activeGroups.isEmpty() && foldedGroups.isEmpty()) {
             Surface(
@@ -295,85 +271,6 @@ fun GroupsScreen(
             }
         }
     }
-}
-
-@Composable
-private fun NfcJoinDialog(
-    state: NfcJoinUiState,
-    onDismiss: () -> Unit,
-    onTryAgain: () -> Unit,
-    onOpenNfcSettings: () -> Unit
-) {
-    val textResources = textResources()
-    val isJoining = state is NfcJoinUiState.Joining
-    val title = when (state) {
-        NfcJoinUiState.Idle -> ""
-        NfcJoinUiState.Waiting -> textResources.getString(R.string.groups_ready_to_join)
-        NfcJoinUiState.Joining -> textResources.getString(R.string.groups_joining_group)
-        NfcJoinUiState.Disabled -> textResources.getString(R.string.groups_turn_on_nfc)
-        NfcJoinUiState.Unsupported -> textResources.getString(R.string.presentation_nfc_is_not_available)
-        is NfcJoinUiState.Joined -> textResources.getString(R.string.groups_group_joined)
-        is NfcJoinUiState.Failed -> state.title
-    }
-    val message = when (state) {
-        NfcJoinUiState.Idle -> ""
-        NfcJoinUiState.Waiting -> {
-            textResources.getString(R.string.groups_hold_the_back_of_your_phone_near_the)
-        }
-        NfcJoinUiState.Joining -> textResources.getString(R.string.groups_checking_the_invitation_and_adding_the_group)
-        NfcJoinUiState.Disabled -> textResources.getString(R.string.groups_nfc_is_switched_off_on_this_device_turn)
-        NfcJoinUiState.Unsupported -> textResources.getString(R.string.groups_this_device_cannot_read_nfc_tags_you_can)
-        is NfcJoinUiState.Joined -> textResources.getString(R.string.copy_now_appears_in_your_active_groups, state.groupName)
-        is NfcJoinUiState.Failed -> state.message
-    }
-
-    AlertDialog(
-        onDismissRequest = {
-            if (!isJoining) onDismiss()
-        },
-        icon = {
-            when (state) {
-                NfcJoinUiState.Joining -> CircularProgressIndicator(modifier = Modifier.size(28.dp))
-                is NfcJoinUiState.Joined -> Icon(
-                    imageVector = Icons.Outlined.CheckCircle,
-                    contentDescription = null
-                )
-                is NfcJoinUiState.Failed,
-                NfcJoinUiState.Disabled,
-                NfcJoinUiState.Unsupported -> Icon(
-                    imageVector = Icons.Outlined.ErrorOutline,
-                    contentDescription = null
-                )
-                else -> Icon(
-                    imageVector = Icons.Outlined.Nfc,
-                    contentDescription = null
-                )
-            }
-        },
-        title = { Text(title) },
-        text = { Text(message, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) },
-        confirmButton = {
-            when (state) {
-                NfcJoinUiState.Disabled -> TextButton(onClick = onOpenNfcSettings) {
-                    Text(textResources.getString(R.string.groups_open_nfc_settings))
-                }
-                is NfcJoinUiState.Failed -> TextButton(onClick = onTryAgain) {
-                    Text(textResources.getString(R.string.groups_try_again))
-                }
-                NfcJoinUiState.Joining -> Unit
-                else -> TextButton(onClick = onDismiss) {
-                    Text(if (state is NfcJoinUiState.Waiting) textResources.getString(R.string.action_cancel) else textResources.getString(R.string.course_reminder_settings_done))
-                }
-            }
-        },
-        dismissButton = {
-            if (state is NfcJoinUiState.Disabled || state is NfcJoinUiState.Failed) {
-                TextButton(onClick = onDismiss) {
-                    Text(textResources.getString(R.string.action_cancel))
-                }
-            }
-        }
-    )
 }
 
 @Composable

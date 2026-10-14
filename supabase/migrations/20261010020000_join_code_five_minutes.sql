@@ -1,5 +1,5 @@
 -- Typed codes expire at the original creation time + 5 minutes, including existing groups.
--- Rotating a code cannot extend that deadline. QR/NFC token invites retain their own expiry.
+-- Rotating a code cannot extend that deadline. QR token invites retain their own expiry.
 CREATE OR REPLACE FUNCTION private.join_group_with_token(p_token TEXT)
 RETURNS public.groups
 LANGUAGE plpgsql
@@ -37,7 +37,7 @@ BEGIN
         RETURN v_group;
     END IF;
 
-    -- Otherwise an invite token from a QR code or an NFC tag.
+    -- Otherwise an invite token from a QR code.
     SELECT * INTO v_invite
     FROM public.invitations
     WHERE token_hash = encode(sha256(convert_to(v_input, 'UTF8')), 'hex')

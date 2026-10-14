@@ -20,7 +20,7 @@ object FakeData {
     const val STUDY_GROUP_ID = "10000000-0000-4000-8000-000000000002"
     const val JOINABLE_GROUP_ID = "10000000-0000-4000-8000-000000000003"
 
-    /** Always joins [JOINABLE_GROUP_ID]; handy for demonstrating QR and NFC joining. */
+    /** Always joins [JOINABLE_GROUP_ID]; handy for demonstrating QR joining. */
     const val DEMO_INVITE_TOKEN = "demo-invite-token"
 
     /** The join code of [JOINABLE_GROUP_ID]; typing it joins that group in the fakes. */

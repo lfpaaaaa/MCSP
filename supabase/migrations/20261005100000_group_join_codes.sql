@@ -1,6 +1,6 @@
 -- Six-character group codes that people type to join a group. Every group gets one when it is
--- created and keeps it until an owner resets it; members see it on the group screen. The QR and
--- NFC invite tokens stay as they are, and join_group_with_token accepts both.
+-- created and keeps it until an owner resets it; members see it on the group screen. QR invite
+-- tokens stay as they are, and join_group_with_token accepts codes and tokens.
 --
 -- Codes use the 32 letters and digits that are hard to confuse (no 0/O/1/I), so there are about
 -- a billion of them. Only signed-in users can try codes, and a wrong code costs a one-second
@@ -74,7 +74,7 @@ BEGIN
         RETURN v_group;
     END IF;
 
-    -- Otherwise an invite token from a QR code or an NFC tag.
+    -- Otherwise an invite token from a QR code.
     SELECT * INTO v_invite
     FROM public.invitations
     WHERE token_hash = encode(sha256(convert_to(v_input, 'UTF8')), 'hex')

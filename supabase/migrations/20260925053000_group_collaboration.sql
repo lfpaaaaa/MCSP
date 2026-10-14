@@ -51,7 +51,7 @@ CREATE TABLE public.invitations (
 );
 
 COMMENT ON TABLE public.invitations IS
-    'Short-lived invite tokens shared by QR code and NFC. Only the SHA-256 hash of a token is stored.';
+    'Short-lived invite tokens shared by QR code. Only the SHA-256 hash of a token is stored.';
 
 CREATE INDEX invitations_group_id_idx ON public.invitations (group_id);
 CREATE INDEX invitations_created_by_idx ON public.invitations (created_by);

@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Nfc
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.QrCode
 import androidx.compose.material3.Button
@@ -60,7 +59,6 @@ fun GroupSettingsDialog(
     onDismiss: () -> Unit,
     onOpenMembers: () -> Unit,
     onOpenFiles: () -> Unit,
-    onInviteWithNfc: () -> Unit,
     createQrInvite: suspend () -> Result<au.edu.unimelb.campuscompanion.data.model.GroupInvite>,
     observeMembers: () -> kotlinx.coroutines.flow.Flow<List<au.edu.unimelb.campuscompanion.data.model.GroupMember>>,
     onExitGroup: suspend (Boolean) -> Result<Unit>,
@@ -141,19 +139,6 @@ fun GroupSettingsDialog(
                     OutlinedButton(onClick = { showQr = true }, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Outlined.QrCode, contentDescription = null)
                         Text(textResources.getString(R.string.group_invite_qr_share_qr_code), modifier = Modifier.padding(start = 8.dp))
-                    }
-                    OutlinedButton(
-                        onClick = onInviteWithNfc,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Nfc,
-                            contentDescription = null
-                        )
-                        Text(
-                            text = textResources.getString(R.string.group_settings_invite_with_nfc),
-                            modifier = Modifier.padding(start = 8.dp)
-                        )
                     }
                 }
                 SettingSwitchRow(

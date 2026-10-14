@@ -8,7 +8,7 @@ After a successful calendar import, the signed-in client calls `sync_timetable_g
 - Activity is read from calendar summary suffix/prefix or explicit activity/class type fields in the description. Explicit course/subject names in the description take precedence.
 - Weekly occurrences, event UIDs, device time zones and daylight saving do not create duplicate groups. Unknown locations, all-day events and missing durations do not generate guessed small groups.
 - Slot labels in the group list distinguish same-named groups. Small groups fold when their own matching sessions end, independently of lectures or other rooms.
-- System-managed groups do not assign ownership to the first student. Existing manually created groups and QR/NFC joining are unchanged.
+- System-managed groups do not assign ownership to the first student. Existing manually created groups and QR joining are unchanged.
 - Matching retains the existing course-code lifetime; it does not infer semester cohorts from dates. Location normalization handles case, Unicode width, whitespace and comma spacing, not building aliases.
 
 Apply `20261010030000_timetable_groups.sql` to each Supabase environment before using the new client. The local emulator database has been migrated. The app keeps schedules available while group sync retries after a network/server error.

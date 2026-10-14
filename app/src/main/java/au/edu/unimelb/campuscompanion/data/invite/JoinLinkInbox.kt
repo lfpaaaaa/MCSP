@@ -6,8 +6,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * Keeps the invite token from the last join link that opened the app (a scanned QR code, an NFC
- * tap or a shared link) until the user joins or dismisses it. The token is kept while the user
+ * Keeps the invite token from the last join link that opened the app (a scanned QR code or a
+ * shared link) until the user joins or dismisses it. The token is kept while the user
  * signs in, because a join link can open the app before anyone is signed in.
  */
 class JoinLinkInbox {

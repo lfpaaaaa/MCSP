@@ -130,7 +130,7 @@ SELECT set_config('request.jwt.claim.sub', 'd4000000-0000-4000-8000-000000000004
 SELECT is(
     (SELECT id FROM public.join_group_with_token(current_setting('test.token'))),
     current_setting('test.group_id')::uuid,
-    'invite tokens from QR codes and NFC tags still join the group'
+    'invite tokens from QR codes still join the group'
 );
 
 RESET ROLE;

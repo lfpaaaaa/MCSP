@@ -3,8 +3,6 @@
     <string name="attachment_service_unavailable">Attachment sharing is not available on the server yet. Contact the app administrator, then retry.</string>
     <!-- Keep complete sentences, positional format arguments, and plurals in resources. -->
     <string name="app_name">Campus Companion</string>
-    <string name="nfc_invite_service_description">Share a Campus Companion group invitation</string>
-    <string name="nfc_invite_aid_group_description">Campus Companion group invitation</string>
     <string name="audio_playback_failed">This recording could not be played.</string>
     <string name="audio_pause">Pause audio</string>
     <string name="audio_play">Play audio</string>
@@ -55,11 +53,6 @@
     <string name="campus_companion_app_you_can_attach_up_to_9_documents">You can attach up to 9 documents.</string>
     <string name="campus_companion_app_could_not_join_timetable_groups_retrying_automatically">Could not join timetable groups. Retrying automatically…</string>
     <string name="campus_companion_app_the_timetable_location_could_not_be_matched_to">The timetable location could not be matched to a teaching building.</string>
-    <string name="campus_companion_app_could_not_read_invitation">Could not read invitation</string>
-    <string name="campus_companion_app_hold_the_phones_together_and_try_again">Hold the phones together and try again.</string>
-    <string name="campus_companion_app_keep_campus_companion_open_and_try_again">Keep Campus Companion open and try again.</string>
-    <string name="campus_companion_app_invitation_expired">Invitation expired</string>
-    <string name="campus_companion_app_create_a_new_nfc_invitation_and_try_again">Create a new NFC invitation and try again.</string>
     <string name="campus_companion_app_group">Group</string>
     <string name="campus_companion_app_edit_profile">Edit profile</string>
     <string name="campus_companion_app_class_navigation">Class navigation</string>
@@ -226,7 +219,6 @@
     <string name="group_qr_download_no_file_saving_app_is_available_on_this">No file saving app is available on this device.</string>
     <string name="group_qr_download_download_qr_code">Download QR code</string>
     <string name="group_settings_group_members">Group members</string>
-    <string name="group_settings_invite_with_nfc">Invite with NFC</string>
     <string name="group_settings_fold_this_group">Fold this group</string>
     <string name="group_settings_timetable_groups_are_folded_automatically_after_the_final">Timetable groups are folded automatically after the final class.</string>
     <string name="group_settings_created_and_joined_groups_stay_active_until_you">Created and joined groups stay active until you fold them.</string>
@@ -251,15 +243,8 @@
     <string name="groups_show_folded_groups">Show folded groups</string>
     <string name="groups_folded_groups">Folded groups</string>
     <string name="groups_no_folded_group_chats">No folded group chats.</string>
-    <string name="groups_ready_to_join">Ready to join</string>
     <string name="groups_joining_group">Joining group</string>
-    <string name="groups_turn_on_nfc">Turn on NFC</string>
-    <string name="groups_group_joined">Group joined</string>
-    <string name="groups_hold_the_back_of_your_phone_near_the">Hold the back of your phone near the phone sharing the invitation. Keep this screen open until the phone vibrates.</string>
     <string name="groups_checking_the_invitation_and_adding_the_group">Checking the invitation and adding the group.</string>
-    <string name="groups_nfc_is_switched_off_on_this_device_turn">NFC is switched off on this device. Turn it on, then return and try again.</string>
-    <string name="groups_this_device_cannot_read_nfc_tags_you_can">This device cannot read NFC tags. You can still join with a QR code.</string>
-    <string name="groups_open_nfc_settings">Open NFC settings</string>
     <string name="groups_try_again">Try again</string>
     <string name="groups_no_active_groups">No active groups</string>
     <string name="groups_your_existing_group_chats_are_in">Your existing group chats are in Folded groups.</string>
@@ -274,9 +259,9 @@
     <string name="groups_find_code_in_settings">After creating the group, find its code in Group settings → View join code. It is valid for 5 minutes after creation.</string>
     <string name="groups_copy_join_code">Copy join code</string>
     <string name="groups_code_expires_in_valid_only_during_the_first">Code expires in %1$d:%2$s. Valid only during the first 5 minutes after group creation.</string>
-    <string name="groups_the_6_character_code_is_unavailable_or_expired">The 6-character code is unavailable or expired. Use Share QR code or NFC in group settings.</string>
+    <string name="groups_the_6_character_code_is_unavailable_or_expired">The 6-character code is unavailable or expired. Use Share QR code in group settings.</string>
     <string name="groups_start">Start</string>
-    <string name="groups_enter_the_6_character_code_it_works_only">Enter the 6-character code. It works only within 5 minutes of group creation; afterwards use QR or NFC.</string>
+    <string name="groups_enter_the_6_character_code_it_works_only">Enter the 6-character code. It works only within 5 minutes of group creation; afterwards use a QR code.</string>
     <string name="groups_join">Join</string>
     <string name="home_overview">Overview</string>
     <string name="home_classes_below_are_from_your_saved_timetable">Classes below are from your saved timetable.</string>
@@ -297,14 +282,7 @@
     <string name="home_add_the_private_mytimetable_subscription_url">Add the private MyTimetable subscription URL.</string>
     <string name="home_add_url">Add URL</string>
     <string name="home_timetable_connected">Timetable connected</string>
-    <string name="nfc_share_creating_invitation">Creating invitation</string>
-    <string name="nfc_share_ready_to_share">Ready to share</string>
-    <string name="nfc_share_invitation_shared">Invitation shared</string>
-    <string name="nfc_share_preparing_a_secure_group_invitation">Preparing a secure group invitation.</string>
-    <string name="nfc_share_this_phone_cannot_share_invitations_with_nfc_use">This phone cannot share invitations with NFC. Use the QR invitation instead.</string>
-    <string name="nfc_share_on_the_other_phone_tap_nfc_join_then">On the other phone, tap NFC join, then hold the backs of both phones together. The %1$s invitation expires in 10 minutes.</string>
-    <string name="nfc_share_the_other_phone_received_the_invitation">The other phone received the %1$s invitation.</string>
-    <string name="nfc_share_stop_sharing">Stop sharing</string>
+    <string name="qr_invite_creating_invitation">Creating invitation</string>
     <string name="profile_remove_timetable_url">Remove timetable URL?</string>
     <string name="profile_courses_departure_reminders_and_automatically_joined_groups_will">Courses, departure reminders, and automatically joined groups will be cleared.</string>
     <string name="profile_travel_preferences">Travel preferences</string>
@@ -392,7 +370,7 @@
     <!-- The validated upper limit is always greater than one. -->
     <string name="validation_file_names_need_1_to_characters" tools:ignore="PluralsCandidate">File names need 1 to %1$d characters.</string>
     <string name="validation_the_uploader_has_disabled_downloads_for_this_attachment">The uploader has disabled downloads for this attachment.</string>
-    <string name="validation_the_6_character_code_expired_5_minutes_after">The 6-character code expired 5 minutes after group creation. Join using QR or NFC.</string>
+    <string name="validation_the_6_character_code_expired_5_minutes_after">The 6-character code expired 5 minutes after group creation. Join using a QR code.</string>
     <string name="validation_the_photo_could_not_be_read_try_taking">The photo could not be read. Try taking it again.</string>
     <string name="validation_files_must_be_20_mb_or_smaller">Files must be 20 MB or smaller.</string>
     <string name="validation_the_selected_location_could_not_be_written">The selected location could not be written.</string>
@@ -531,8 +509,6 @@
     <string name="departure_avoid_delay">Leave now to avoid further delay.</string>
     <string name="departure_leave_by">Leave by %1$s (within %2$d min).</string>
     <string name="departure_weather_buffer">Includes %1$d min extra for weather.</string>
-    <string name="nfc_the_other_device_is_not_sharing_a_campus">The other device is not sharing a Campus Companion invite.</string>
-    <string name="nfc_the_nfc_invitation_could_not_be_read_hold">The NFC invitation could not be read. Hold the phones together and try again.</string>
 
     <string name="copy_profile_photo">%1$s profile photo</string>
     <string name="copy_m_to">%1$d m to %2$s</string>
@@ -540,7 +516,6 @@
     <string name="copy_reminders">%1$s reminders</string>
     <string name="copy_label">%1$s - %2$s - %3$s</string>
     <string name="copy_qr_invitation_expires_in">QR invitation expires in %1$d:%2$s.</string>
-    <string name="copy_now_appears_in_your_active_groups">%1$s now appears in your active groups.</string>
     <string name="copy_is_ready">%1$s is ready.</string>
     <string name="copy_account">%1$s account</string>
     <string name="attachment_summary">%1$s · %2$s · Tap to open</string>
@@ -590,17 +565,13 @@
     <string name="building_number">Building %1$s</string>
 
     <string name="label_next_class">NEXT CLASS</string>
-    <string name="label_nfc_join">NFC join</string>
     <string name="label_comp90018" translatable="false">COMP90018</string>
     <string name="label_a1b2c3" translatable="false">A1B2C3</string>
     <string name="label_class_reminders">CLASS REMINDERS</string>
     <string name="label_6_digit_code">6-digit code</string>
     <string name="label_i_have_a_code_from_a_classmate">I have a code from a classmate</string>
 
-    <string name="presentation_nfc_could_not_start">NFC could not start</string>
-    <string name="presentation_nfc_is_not_available">NFC is not available</string>
     <string name="input_code_character_count">%1$d/%2$d</string>
-    <string name="presentation_nfc_sharing_is_not_available">NFC sharing is not available</string>
     <string name="presentation_qr_code_saved">QR code saved.</string>
     <string name="presentation_photo_jpg">Photo %1$s.jpg</string>
     <string name="audio_playback_position">%1$s / %2$s</string>

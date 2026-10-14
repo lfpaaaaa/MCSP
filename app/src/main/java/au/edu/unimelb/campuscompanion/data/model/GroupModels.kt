@@ -9,9 +9,8 @@ enum class GroupRole {
 }
 
 /**
- * A course group. Members join with the group's six-character [joinCode] or by invitation (QR code
- * or NFC); [courseCode] is an optional tag. [createdBy] is null when the creator has deleted their
- * account.
+ * A course group. Members join with the group's six-character [joinCode] or a QR invitation;
+ * [courseCode] is an optional tag. [createdBy] is null when the creator has deleted their account.
  */
 data class Group(
     val id: String,
@@ -45,7 +44,7 @@ data class GroupMember(
     val joinedAt: Instant
 )
 
-/** A short-lived invitation. The same [joinUri] is encoded in QR codes and sent over NFC. */
+/** A short-lived invitation whose [joinUri] is encoded in a QR code. */
 data class GroupInvite(
     val groupId: String,
     val token: String,
