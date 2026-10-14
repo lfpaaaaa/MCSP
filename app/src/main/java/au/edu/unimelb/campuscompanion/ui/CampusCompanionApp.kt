@@ -82,16 +82,14 @@ import au.edu.unimelb.campuscompanion.ui.model.MAX_PENDING_DOCUMENTS
 import au.edu.unimelb.campuscompanion.ui.model.NfcJoinUiState
 import au.edu.unimelb.campuscompanion.ui.model.NfcShareUiState
 import au.edu.unimelb.campuscompanion.ui.model.PendingDocument
-import au.edu.unimelb.campuscompanion.ui.model.StartedGroupAccess
 import au.edu.unimelb.campuscompanion.ui.model.toCourseGroup
-import au.edu.unimelb.campuscompanion.ui.model.groupJoinCodeExpiresAt
 import au.edu.unimelb.campuscompanion.ui.model.restoreJoinCodeExpiresAt
 import au.edu.unimelb.campuscompanion.ui.model.TimetableState
 import au.edu.unimelb.campuscompanion.ui.model.buildCourseReminderSeries
 import au.edu.unimelb.campuscompanion.ui.model.foldedOverrideAfterEdit
 import au.edu.unimelb.campuscompanion.ui.model.isFolded
 import au.edu.unimelb.campuscompanion.ui.model.homePostClassCandidates
-import au.edu.unimelb.campuscompanion.ui.model.isValidGroupJoinCode
+import au.edu.unimelb.campuscompanion.ui.model.joinCodeAccess
 import au.edu.unimelb.campuscompanion.ui.model.mergePendingDocuments
 import au.edu.unimelb.campuscompanion.push.DepartureNotifier
 import au.edu.unimelb.campuscompanion.ui.model.legacyReminderSeriesKey
@@ -100,6 +98,7 @@ import au.edu.unimelb.campuscompanion.ui.screens.AuthLoadingScreen
 import au.edu.unimelb.campuscompanion.ui.screens.CompleteProfileScreen
 import au.edu.unimelb.campuscompanion.ui.screens.CourseReminderSettingsScreen
 import au.edu.unimelb.campuscompanion.ui.screens.GroupChatScreen
+import au.edu.unimelb.campuscompanion.ui.screens.GroupJoinCodeDialog
 import au.edu.unimelb.campuscompanion.ui.screens.GroupSettingsDialog
 import au.edu.unimelb.campuscompanion.ui.screens.GroupsScreen
 import au.edu.unimelb.campuscompanion.ui.screens.HomeScreen
@@ -581,6 +580,8 @@ private fun AuthenticatedCampusApp(
         openGoogleMaps(context, destination, selectTravelSummary(session, travelPreferences).mode ?: travelPreferences.longerDistanceMode)
     }
     var showGroupSettings by rememberSaveable { mutableStateOf(false) }
+    // The chat of a group created here opens with its join code on top, so the creator can share it at once.
+    var startedGroupJoinCodeId by rememberSaveable { mutableStateOf<String?>(null) }
     val selectedGroup = backStackEntry
         ?.arguments
         ?.getString("groupId")
@@ -593,6 +594,9 @@ private fun AuthenticatedCampusApp(
     }
 
     fun openGroup(group: CourseGroup) {
+        // A successful create/join already returned this group. Keep that record visible while
+        // the refreshed list catches up (including a failed list refresh after a successful join).
+        if (allGroups.none { it.id == group.id }) groupSyncReady = false
         onGroupOpened(group)
         navController.navigate(groupChatRoute(group.id)) {
             launchSingleTop = true
@@ -799,7 +803,8 @@ private fun AuthenticatedCampusApp(
         inviteRepository.joinWithToken(token).fold(
             onSuccess = { group ->
                 groupSyncReady = true
-                nfcJoinState = NfcJoinUiState.Joined(group.name)
+                nfcJoinState = NfcJoinUiState.Idle
+                openGroup(group.toCourseGroup(currentUserId = user.id, memberCount = 0))
             },
             onFailure = { error ->
                 val message = error.toUserMessage()
@@ -822,7 +827,10 @@ private fun AuthenticatedCampusApp(
     }
 
     LaunchedEffect(currentRoute) {
-        if (!isGroupChat) showGroupSettings = false
+        if (!isGroupChat) {
+            showGroupSettings = false
+            startedGroupJoinCodeId = null
+        }
         // The list's previews and unread counts come from the server; fetch them when it is shown.
         if (currentRoute == CampusDestination.Groups.route && SupabaseProvider.isConfigured) {
             groupRepository.refresh()
@@ -840,6 +848,10 @@ private fun AuthenticatedCampusApp(
         )
     }
 
+    val startedGroup = startedGroupJoinCodeId?.let { id -> selectedGroup?.takeIf { isGroupChat && it.id == id } }
+    if (startedGroup != null && !showGroupSettings) {
+        GroupJoinCodeDialog(startedGroup.joinCodeAccess(), onDismiss = { startedGroupJoinCodeId = null })
+    }
     if (showGroupSettings && selectedGroup != null && selectedPreferences != null) {
         GroupSettingsDialog(
             group = selectedGroup,
@@ -1068,17 +1080,15 @@ private fun AuthenticatedCampusApp(
                     onStartGroup = { name, courseCode ->
                         groupRepository.createGroup(name, courseCode).map { group ->
                             groupSyncReady = true
-                            StartedGroupAccess(
-                                groupName = group.name,
-                                joinCode = group.joinCode?.takeIf(::isValidGroupJoinCode),
-                                expiresAt = groupJoinCodeExpiresAt(group.createdAt)
-                            )
+                            val created = group.toCourseGroup(currentUserId = user.id, memberCount = 1)
+                            startedGroupJoinCodeId = created.id
+                            openGroup(created)
                         }
                     },
                     onJoinGroup = { code ->
-                        inviteRepository.joinWithToken(code).map {
+                        inviteRepository.joinWithToken(code).map { group ->
                             groupSyncReady = true
-                            Unit
+                            openGroup(group.toCourseGroup(currentUserId = user.id, memberCount = 0))
                         }
                     },
                     nfcJoinState = nfcJoinState,
@@ -1120,7 +1130,9 @@ private fun AuthenticatedCampusApp(
                             val groupName = group.name.substringBefore(",").trim().ifBlank { group.courseCode }.take(60)
                             groupRepository.createGroup(groupName, group.courseCode).map { created ->
                                 groupSyncReady = true
-                                openGroup(created.toCourseGroup(currentUserId = user.id, memberCount = 1))
+                                val course = created.toCourseGroup(currentUserId = user.id, memberCount = 1)
+                                startedGroupJoinCodeId = course.id
+                                openGroup(course)
                             }
                         },
                         onGoToGroups = ::navigateToGroups

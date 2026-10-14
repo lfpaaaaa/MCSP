@@ -47,7 +47,6 @@ internal fun QrJoinDialog(
     var invite by rememberSaveable { mutableStateOf<String?>(null) }
     var message by rememberSaveable { mutableStateOf<String?>(null) }
     var permissionDenied by rememberSaveable { mutableStateOf(false) }
-    var joined by rememberSaveable { mutableStateOf(false) }
     // In-flight work belongs to this composition, so never restore a stale loading state.
     var joining by remember { mutableStateOf(false) }
     var scanning by rememberSaveable { mutableStateOf(false) }
@@ -90,11 +89,10 @@ internal fun QrJoinDialog(
 
     AlertDialog(
         onDismissRequest = { if (!joining && !scanning) onDismiss() },
-        title = { Text(if (joined) "Group joined" else "Scan to join") },
+        title = { Text("Scan to join") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(when {
-                    joined -> "The group now appears in your active groups."
                     joining -> "Checking the invitation and joining the group…"
                     invite != null -> "Group invitation found. Tap Join to accept it."
                     else -> "Scan the QR code shown by a group member."
@@ -107,7 +105,7 @@ internal fun QrJoinDialog(
                             Uri.parse("package:${context.packageName}")))
                     }) { Text("Open settings") }
                 }
-                if (!joined && !joining && !scanning) {
+                if (!joining && !scanning) {
                     TextButton(onClick = onEnterCode) { Text("Enter code instead") }
                     if (invite != null) {
                         TextButton(onClick = { invite = null; message = null }) { Text("Use another QR code") }
@@ -121,14 +119,14 @@ internal fun QrJoinDialog(
                 onClick = {
                     val scannedInvite = invite
                     when {
-                        joined -> onDismiss()
                         scannedInvite != null -> {
                             joining = true
                             message = null
                             scope.launch {
                                 try {
                                     onJoinGroup(scannedInvite).fold(
-                                        onSuccess = { joined = true },
+                                        // The app has already opened the joined group's chat.
+                                        onSuccess = { onDismiss() },
                                         onFailure = { message = it.toUserMessage().body }
                                     )
                                 } catch (cancelled: CancellationException) {
@@ -145,12 +143,10 @@ internal fun QrJoinDialog(
                         else -> permission.launch(Manifest.permission.CAMERA)
                     }
                 }
-            ) { Text(if (joined) "Done" else if (invite != null) "Join" else "Open scanner") }
+            ) { Text(if (invite != null) "Join" else "Open scanner") }
         },
         dismissButton = {
-            if (!joined) {
-                TextButton(onClick = onDismiss, enabled = !joining && !scanning) { Text("Cancel") }
-            }
+            TextButton(onClick = onDismiss, enabled = !joining && !scanning) { Text("Cancel") }
         }
     )
 }
