@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import au.edu.unimelb.campuscompanion.ui.model.CourseGroup
 import au.edu.unimelb.campuscompanion.ui.model.GroupOrigin
 import au.edu.unimelb.campuscompanion.ui.model.StartedGroupAccess
+import java.time.Instant
 
 @Composable
 fun GroupSettingsDialog(
@@ -94,10 +95,12 @@ fun GroupSettingsDialog(
     }
 
     val canInvite = group.origin != GroupOrigin.Timetable && group.timetableKey == null
+    val joinAccess = StartedGroupAccess(group.name, group.joinCode, group.joinCodeExpiresAt)
+    val hasActiveJoinCode = joinAccess.activeJoinCode(rememberJoinCodeTime(joinAccess)) != null
     var showJoinCode by rememberSaveable(group.id) { mutableStateOf(false) }
     if (canInvite && showJoinCode) {
         GroupJoinCodeDialog(
-            access = StartedGroupAccess(group.name, group.joinCode, group.joinCodeExpiresAt),
+            access = joinAccess,
             onDismiss = { showJoinCode = false }
         )
     }
@@ -126,12 +129,14 @@ fun GroupSettingsDialog(
                     Text(stringResource(R.string.group_files))
                 }
                 if (canInvite) {
-                    OutlinedButton(
-                        onClick = { showJoinCode = true },
-                        enabled = !saving,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(stringResource(R.string.groups_view_join_code))
+                    if (hasActiveJoinCode) {
+                        OutlinedButton(
+                            onClick = { showJoinCode = joinAccess.activeJoinCode(Instant.now()) != null },
+                            enabled = !saving,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(stringResource(R.string.groups_view_join_code))
+                        }
                     }
                     OutlinedButton(onClick = { showQr = true }, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Outlined.QrCode, contentDescription = null)

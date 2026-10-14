@@ -64,14 +64,7 @@ internal fun GroupJoinCodeDialog(access: StartedGroupAccess, onDismiss: () -> Un
 /** Used both after creation and when reopening settings, with the same server expiry. */
 @Composable
 internal fun GroupJoinCodeContent(access: StartedGroupAccess) {
-    var now by remember(access) { mutableStateOf(Instant.now()) }
-    LaunchedEffect(access) {
-        do {
-            now = Instant.now()
-            if (access.activeJoinCode(now) == null) break
-            delay(1_000)
-        } while (true)
-    }
+    val now = rememberJoinCodeTime(access)
     val clipboard = LocalClipboardManager.current
     val code = access.activeJoinCode(now)
     if (code == null) {
@@ -109,4 +102,18 @@ internal fun GroupJoinCodeContent(access: StartedGroupAccess) {
             (remaining % 60).toString().padStart(2, '0')
         ))
     }
+}
+
+/** Settings and code content both update against the original creation deadline. */
+@Composable
+internal fun rememberJoinCodeTime(access: StartedGroupAccess): Instant {
+    var now by remember(access) { mutableStateOf(Instant.now()) }
+    LaunchedEffect(access) {
+        do {
+            now = Instant.now()
+            if (access.activeJoinCode(now) == null) break
+            delay(Duration.between(now, access.expiresAt).toMillis().coerceIn(1, 1_000))
+        } while (true)
+    }
+    return now
 }
