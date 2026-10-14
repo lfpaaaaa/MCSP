@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Nfc
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.QrCode
 import androidx.compose.material.icons.outlined.FolderOpen
@@ -122,8 +121,7 @@ fun GroupSettingsDialog(
 
     if (canInvite && showJoinCode) {
         GroupJoinCodeDialog(group.joinCodeAccess(), onDismiss = { showJoinCode = false },
-            onShareQr = { showJoinCode = false; showQr = true },
-            onInviteWithNfc = { showJoinCode = false; onInviteWithNfc() })
+            onShareQr = { showJoinCode = false; showQr = true })
     }
     if (canInvite && showQr) {
         GroupInviteQrDialog(group.name, createQrInvite, onDismiss = { showQr = false })
@@ -159,20 +157,6 @@ fun GroupSettingsDialog(
                     OutlinedButton(onClick = { showQr = true }, enabled = !saving, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Outlined.QrCode, contentDescription = null)
                         Text("Share QR code", modifier = Modifier.padding(start = 8.dp))
-                    }
-                    OutlinedButton(
-                        onClick = onInviteWithNfc,
-                        enabled = !saving,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Nfc,
-                            contentDescription = null
-                        )
-                        Text(
-                            text = "Invite with NFC",
-                            modifier = Modifier.padding(start = 8.dp)
-                        )
                     }
                 }
                 SettingSwitchRow(

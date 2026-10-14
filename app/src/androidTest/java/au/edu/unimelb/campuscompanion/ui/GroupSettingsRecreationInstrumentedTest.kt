@@ -128,22 +128,24 @@ class GroupSettingsRecreationInstrumentedTest {
     }
 
     @Test
-    fun expiredJoinCodeDoesNotRenewOnActivityRecreationAndOffersQrAndNfc() = withFixture { fixture, scenario ->
+    fun expiredJoinCodeDoesNotRenewOnActivityRecreationAndOffersQrWithoutNfc() = withFixture { fixture, scenario ->
+        assertFalse("NFC invitation is hidden in group settings", allTexts().contains("Invite with NFC"))
         clickText("View join code")
         awaitTextContaining("The 6-character code is unavailable or expired")
         assertTrue(visibleTexts().contains("Share QR code"))
-        assertTrue(visibleTexts().contains("Invite with NFC"))
+        assertFalse(visibleTexts().contains("Invite with NFC"))
         assertFalse(visibleTexts().contains("ABC234"))
         assertFalse(visibleTexts().contains("Copy join code"))
 
         recreate(scenario, fixture, "Join code")
         awaitTextContaining("The 6-character code is unavailable or expired")
         assertTrue(visibleTexts().contains("Share QR code"))
-        assertTrue(visibleTexts().contains("Invite with NFC"))
+        assertFalse(visibleTexts().contains("Invite with NFC"))
         assertFalse(visibleTexts().contains("ABC234"))
         clickText("Done")
         awaitText("Group settings")
         assertTrue(fixture.saved.isEmpty())
+        assertEquals(0, fixture.invites.get())
     }
 
     @Test

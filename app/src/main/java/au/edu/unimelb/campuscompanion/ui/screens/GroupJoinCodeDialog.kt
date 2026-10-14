@@ -41,8 +41,7 @@ import kotlinx.coroutines.delay
 internal fun GroupJoinCodeDialog(
     access: StartedGroupAccess,
     onDismiss: () -> Unit,
-    onShareQr: (() -> Unit)? = null,
-    onInviteWithNfc: (() -> Unit)? = null
+    onShareQr: (() -> Unit)? = null
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -56,9 +55,6 @@ internal fun GroupJoinCodeDialog(
                 GroupJoinCodeContent(access)
                 onShareQr?.let { action ->
                     TextButton(onClick = action, modifier = Modifier.fillMaxWidth()) { Text("Share QR code") }
-                }
-                onInviteWithNfc?.let { action ->
-                    TextButton(onClick = action, modifier = Modifier.fillMaxWidth()) { Text("Invite with NFC") }
                 }
             }
         },
@@ -81,7 +77,7 @@ internal fun GroupJoinCodeContent(access: StartedGroupAccess) {
     val code = access.activeJoinCode(now)
     if (code == null) {
         Text(
-            "The 6-character code is unavailable or expired. Use Share QR code or NFC in group settings.",
+            "The 6-character code is unavailable or expired. Use Share QR code in group settings.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
         )

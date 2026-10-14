@@ -8,7 +8,7 @@ Implement Group files and View join code first, then foreground voice recording 
 
 | Work | Intended result | Scope |
 | --- | --- | --- |
-| Group settings additions | Members → Group files → View join code → Share QR → Invite with NFC, followed by existing fold/mute/nickname settings and exit action. | Required. Preserve current role and timetable-group visibility rules. |
+| Group settings additions | Members → Group files → View join code → Share QR, followed by existing fold/mute/nickname settings and exit action. | Required. Preserve current role and timetable-group visibility rules. |
 | Group file browser | Search/filter the group's existing attachments, preview/download with current permissions and let uploaders delete their own files. | Required. Reuse existing cloud files rather than creating a second sharing system. |
 | Chat voice messages | Microphone beside the composer; Start/Stop, timer, live input meter, review, Cancel and Use recording; then Send. | Required. Maximum ten minutes, matching the supplied recording image. |
 | Speech to text | Automatically queue a transcript when a recorded clip is sent; display durable progress and the saved transcript to group members. | Deferred by the team on 14 October 2026; retain the design for later work. |
@@ -66,7 +66,7 @@ Adapt `GroupJoinCodeDialog.kt` and the expiry helpers from `main`.
 - Put **View join code** before Share QR, using the same custom-group visibility rule.
 - Carry the existing group's join code and expiry into `CourseGroup` and both repository-to-UI mappings.
 - Use the original server creation timestamp plus the existing five-minute lifetime; preferably expose a server-computed expiry if the backend contract is extended. Reopening the dialog must never restart that lifetime.
-- Display the six-character code, remaining time, Copy and an expired state with QR/NFC alternatives. Do not offer a cosmetic refresh that implies a new server code has been created.
+- Display the six-character code, remaining time, Copy and an expired state with a QR alternative. Do not offer a cosmetic refresh that implies a new server code has been created.
 - Preserve code/expiry when restoring an open group and clear them when closing it; tolerate absent fields in older saved state.
 
 Keep timetable groups automatically joined and hide their invite controls. Preserve owner Dissolve versus member Leave, nickname saving, mute behavior and Cancel semantics.
@@ -109,6 +109,10 @@ Extract recording ownership/state into a testable controller rather than keeping
 **Completion check:** a real phone records audible speech, responds to quiet/loud input, stops at ten minutes and preserves a stopped draft after locking/switching apps. Denial, interruption, immediate Stop, Cancel, rotation, upload interruption and retry behave predictably. A second member receives and plays exactly one clip, including after the sender leaves chat.
 
 ## Phase 3 Deferred automatic transcription
+
+The current Step 4 instead hides NFC join/invite buttons on the Groups page and group settings,
+including the join-code fallback, following the team's inconsistent results across phones.
+QR and code joins remain available; NFC internals are retained for a later fix.
 
 This phase is deferred by the team and is not enabled or deployed as part of voice recording. When resumed, reuse the core `file_transcripts` schema/RPC/worker design from `main`, adapting `TranscriptRepository` and a simple transcript status/viewer. Transcript search/edit and their extra migration are optional later work.
 

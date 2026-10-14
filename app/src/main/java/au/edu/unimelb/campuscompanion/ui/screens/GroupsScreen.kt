@@ -179,11 +179,6 @@ fun GroupsScreen(
                 icon = Icons.Outlined.QrCodeScanner,
                 onClick = { showQrJoin = true }
             )
-            QuickActionChip(
-                label = "NFC join",
-                icon = Icons.Outlined.Nfc,
-                onClick = onStartNfcJoin
-            )
         }
 
         if (timetableState.isLoading && activeGroups.isEmpty() && foldedGroups.isEmpty()) {
@@ -536,7 +531,7 @@ private fun JoinGroupDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    text = "Enter the 6-character code. It works only within 5 minutes of group creation; afterwards use QR or NFC.",
+                    text = "Enter the 6-character code. It works only within 5 minutes of group creation; afterwards use QR.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

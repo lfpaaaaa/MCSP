@@ -1,6 +1,6 @@
 # MCSP Campus Companion
 
-Campus Companion is a context-aware Android app built for COMP90018 (University of Melbourne, 2026 Semester 2). It reads the student's timetable, follows the trip to the next class with the phone's location and motion sensors and routed travel times, and gives each class a group with real-time chat, shared files, six-character join codes and NFC invitations. The app is Kotlin and Jetpack Compose; the backend is Supabase (Postgres with row-level security, Realtime, Storage and Edge Functions).
+Campus Companion is a context-aware Android app built for COMP90018 (University of Melbourne, 2026 Semester 2). It reads the student's timetable, follows the trip to the next class with the phone's location and motion sensors and routed travel times, and gives each class a group with real-time chat, shared files, six-character join codes and QR invitations. The app is Kotlin and Jetpack Compose; the backend is Supabase (Postgres with row-level security, Realtime, Storage and Edge Functions).
 
 Two commands check a fresh clone:
 
@@ -94,7 +94,11 @@ npx supabase db push
 
 ### Group codes and invitations
 
-Every group gets a six-character join code when it is created (`groups.join_code`, letters and digits that are hard to confuse). The code is shown to the person who starts the group and works for five minutes, long enough to read it out in class; after that the group is joined through QR codes and NFC tags, which carry short-lived invite tokens. `join_group_with_token` accepts both, and a wrong code costs a one-second wait on the server, which keeps guessing impractical. Groups created from the timetable (`sync_timetable_groups`, see `docs/timetable-groups.md`) are joined automatically by everyone who imports the same class.
+Every group gets a six-character join code when it is created (`groups.join_code`, letters and digits that are hard to confuse). The code is shown to the person who starts the group and works for five minutes, long enough to read it out in class; after that the group is joined through QR invitations, which carry short-lived invite tokens. `join_group_with_token` accepts codes and invite tokens, and a wrong code costs a one-second wait on the server, which keeps guessing impractical. Groups created from the timetable (`sync_timetable_groups`, see `docs/timetable-groups.md`) are joined automatically by everyone who imports the same class.
+
+NFC join/invite buttons are temporarily hidden on the Groups page, in group settings and in
+the join-code fallback, following inconsistent behavior across phones. QR sharing/scanning and
+six-character join codes remain available; the NFC implementation is retained for later fixes.
 
 The QR code (group settings > QR code) encodes the invite link `campuscompanion://join?token=…`, so it works both with the app's own scanner (Groups > Scan QR, built on ZXing) and with the phone's camera app, which opens the link in Campus Companion. The scanner also accepts a QR code that simply contains a six-character join code, and the image can be saved or shared from the dialog.
 
@@ -205,12 +209,12 @@ Debug builds turn on `StrictMode` in `CampusCompanionApplication`: disk and netw
 - Schedule: switch between a date-grouped list (10 classes per page, with all imported upcoming classes accessible through paging) and a Monday–Sunday calendar selector with all classes for the selected day. Date headings appear once per day, times use a 24-hour clock, and each class retains Google Maps navigation. Sync and departure reminder settings remain available.
 - Attachments: each staged photo, video, camera capture or document has an **Allow others to download** switch (on by default). Camera confirmation stages the photo so the sender can choose before tapping Send. Consent is saved with the upload queue and in `shared_files.allow_downloads`; older attachments default to enabled. Members can preview images, videos, PDFs and text in the app; only permitted recipients and the uploader can download or open the original in another app. Unsupported formats show a preview-unavailable message. There is no private-attachment/device-unlock feature.
 - Timetable connection: imports a MyTimetable subscription and saves the URL, parsed sessions, class-group information and last successful update time per account. Home and Schedule show saved classes immediately on restart while refreshing in the background. Failed refreshes keep the cache; Refresh retries without re-entering the URL. Removing the subscription deletes its cache.
-- Groups: course groups, join by code, QR code or NFC, and the group chat: messages and shared files come from Supabase (realtime feed plus the Room cache, so saved messages stay readable offline), with optimistic sending, retry of failed messages, paging of older history, upload progress and photo previews.
+- Groups: course groups, join by code or QR code, and the group chat: messages and shared files come from Supabase (realtime feed plus the Room cache, so saved messages stay readable offline), with optimistic sending, retry of failed messages, paging of older history, upload progress and photo previews.
 - Profile: account summary, travel preferences (walking range and the mode for longer trips), the timetable URL, the real state of each permission with a note on where location data goes, credits for the data sources, the app version, and sign-out.
 
 ## Status and next steps
 
-Working end to end: sign-in (Google and email code), timetable import from a MyTimetable subscription URL (with a saved copy for offline use), the next-class card with travel estimates, routed travel times with weather buffers, departure reminders ("time to leave" and "running late" notifications, switched on and timed per course from the Schedule screen), groups with join codes, QR and NFC invitations, real-time chat with an offline cache that resends what failed offline, shared files and photos, push notifications for new messages, and a Profile screen with the real permission state and the data credits.
+Working end to end: sign-in (Google and email code), timetable import from a MyTimetable subscription URL (with a saved copy for offline use), the next-class card with travel estimates, routed travel times with weather buffers, departure reminders ("time to leave" and "running late" notifications, switched on and timed per course from the Schedule screen), groups with join codes and QR invitations, real-time chat with an offline cache that resends what failed offline, shared files and photos, push notifications for new messages, and a Profile screen with the real permission state and the data credits.
 
 In a 50-message, two-emulator test against the Sydney Supabase project, send confirmation had a 58 ms median and 77 ms p95; peer delivery took about 0.1–0.6 seconds, with no lost messages.
 
@@ -378,8 +382,8 @@ Validation for this increment is recorded in
 
 ## Group files and join codes
 
-Group settings now lists **Members → Group files → View join code → Share QR code → Invite
-with NFC**. Opening Members or Files and returning keeps pending fold, mute and nickname
+Group settings now lists **Members → Group files → View join code → Share QR code**.
+Opening Members or Files and returning keeps pending fold, mute and nickname
 edits, including through Activity recreation. Cancel discards the draft; Save applies it.
 Timetable groups keep their automatic membership and hide invitation/exit controls.
 
@@ -393,7 +397,7 @@ deleting a completed file before returning to chat cannot leave a stuck upload i
 
 View join code shows the existing six-character code and its remaining original five-minute
 lifetime from server group creation. Reopening/recreating the screen never starts a new
-lifetime. Expired/unavailable codes offer QR/NFC alternatives, and Copy checks expiry again.
+lifetime. Expired/unavailable codes offer a QR alternative, and Copy checks expiry again.
 
 This increment adds no backend migration. Upload/deletion still require the shared delivery
 migration/functions/cleanup schedule above. See
