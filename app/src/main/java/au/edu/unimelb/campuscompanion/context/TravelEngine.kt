@@ -83,7 +83,6 @@ class TravelEngine(
     /** Timetable timing for the sensing policy, available even while Home/ETA is pending. */
     val sensingSession: StateFlow<CourseSession?> = _sensingSession.asStateFlow()
     private var decision: ContextDecision? = null
-    private val destinationProgress = DestinationProgressTracker()
 
     /** The timetable sessions; [reset] also starts a new account scope, even with identical classes. */
     fun updateSessions(value: List<CourseSession>, reset: Boolean = false) = synchronized(inputLock) {
@@ -95,7 +94,6 @@ class TravelEngine(
         val now = clock()
         val oldTracked = ContextEngine.trackedSession(before.sessions, now)
         val tracked = ContextEngine.trackedSession(sessions, now)
-        if (reset || oldTracked?.start?.toInstant() != tracked?.start?.toInstant()) destinationProgress.reset()
         // Reconcile the resolved destination now, before any new sensor evidence can arrive.
         // Room, title and time corrections in the same building keep physical arrival memory.
         val trackingChanged = reset || oldTracked?.id != tracked?.id
@@ -117,14 +115,14 @@ class TravelEngine(
             signals = if (trackingChanged) before.signals.copy(enRoute = null, geofenceCode = null) else before.signals
         )
         reconcileTargetLocked(now, force = reset)
-        // A retime outside the departure window must also invalidate raw departure evidence.
+        // A retime starts fresh GPS/fusion history, while preserving same-building arrival.
         if (!trackingChanged && tracked != null && oldTracked?.start?.toInstant() != tracked.start.toInstant()) {
             val leave = ContextEngine.leaveBy(tracked.start.toInstant(), snapshot.estimate?.durationMinutes,
                 snapshot.leadMinutes + snapshot.weatherBufferMinutes, config.entryAllowanceMinutes)
-            if (now.isBefore((leave ?: tracked.start.toInstant()).minusSeconds(config.earlyDepartureWindowMinutes * 60L))) {
+            if (now.isBefore(ContextEngine.departureWindowOpensAt(tracked.start.toInstant(), leave, config))) {
                 decision = decision?.let { it.copy(memory = it.memory.copy(enRoute = false, farthestMeters = null, closestMeters = null)) }
-                advanceSensingLocked(clearGuidance = false)
             }
+            advanceSensingLocked(clearGuidance = false)
         }
     }
 
@@ -151,9 +149,9 @@ class TravelEngine(
     fun clearSensingEvidence() = synchronized(inputLock) {
         val before = inputs.value
         if (!before.sensingManaged) return@synchronized
-        destinationProgress.reset()
         inputs.value = before.copy(
-            evidence = before.evidence?.copy(movement = null, activity = null, enRoute = null, progressConfirmed = false),
+            evidence = before.evidence?.copy(movement = null, activity = null, enRoute = null,
+                progressConfirmed = false, distanceTrend = DistanceTrend.UNKNOWN, noProgressConfirmed = false),
             signals = MotionSignals(), resetProgress = true
         )
         decision = decision?.let {
@@ -208,7 +206,6 @@ class TravelEngine(
         building: BuildingLocation? = _sensingTarget.value.building
     ) {
         val target = _sensingTarget.value
-        destinationProgress.reset()
         // Publish identity and generation together: observers never see a new venue in an old run.
         _sensingTarget.value = SensingTarget(target.generation + 1, elapsedNanos(), active, sessionId, building)
         val before = inputs.value
@@ -455,9 +452,10 @@ class TravelEngine(
         }
         val position = if (current.sensingManaged) measured?.let { GeoPoint(it.latitude, it.longitude) } else current.origin
         val distance = if (position != null && destination != null) GeoMath.distanceMeters(position, destination.location) else null
-        if (current.resetProgress || measured == null || distance == null || geofenceEntry) destinationProgress.reset()
-        val progress = if (measured != null && distance != null && !geofenceEntry) {
-            destinationProgress.observe(distance, measured.accuracyMeters, measured.elapsedRealtimeNanos, observedNow)
+        val progress = if (measured != null && distance != null && !current.resetProgress && !geofenceEntry) {
+            // Fusion and urgency share one trend; uncertain no-progress evidence cannot escalate.
+            evidence.distanceTrend.takeIf { it == DistanceTrend.APPROACHING || evidence.noProgressConfirmed }
+                ?: DistanceTrend.UNKNOWN
         } else DistanceTrend.UNKNOWN
         // Expiry removes physical evidence, not the same-target last-known late guidance.
         // The routing origin is cleared on target/account replacement and explicit stop.

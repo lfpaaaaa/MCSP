@@ -129,5 +129,50 @@ class DistanceTrendDetectorTest {
         assertEquals(DistanceTrend.APPROACHING, detector.getCurrentTrend())
     }
 
+    @Test fun shortBurstsAndTimerReplaysCannotConfirmNoProgress() {
+        val detector = DistanceTrendDetector()
+        repeat(6) { index ->
+            detector.update(1200.0, seconds(1 + index * 5L), 5f)
+            assertFalse(detector.noProgressConfirmed())
+        }
+        repeat(4) { detector.update(1200.0, seconds(26), 5f) }
+        assertFalse(detector.noProgressConfirmed())
+        detector.update(1200.0, seconds(31), 5f)
+        assertEquals(DistanceTrend.STABLE, detector.getCurrentTrend())
+        assertTrue(detector.noProgressConfirmed())
+    }
+
+    @Test fun jumpAndReboundAreNotConfirmedStopsDespiteTheFusionStableFallback() {
+        for (distances in listOf(listOf(1200.0, 1200.0, 1200.0, 1500.0),
+            listOf(500.0, 480.0, 460.0, 540.0))) {
+            val detector = DistanceTrendDetector()
+            distances.forEachIndexed { index, distance -> detector.update(distance, seconds(1 + index * 10L), 5f) }
+            assertEquals(DistanceTrend.STABLE, detector.getCurrentTrend())
+            assertFalse(detector.noProgressConfirmed())
+        }
+    }
+
+    @Test fun retreatInsideTheReportedGpsErrorDoesNotConfirmNoProgress() {
+        val detector = DistanceTrendDetector()
+        listOf(1200.0, 1220.0, 1240.0, 1260.0).forEachIndexed { index, distance ->
+            detector.update(distance, seconds(1 + index * 10L), 40f)
+        }
+        assertEquals(DistanceTrend.MOVING_AWAY, detector.getCurrentTrend())
+        assertFalse(detector.noProgressConfirmed())
+    }
+
+    @Test fun staleGapAndTargetResetClearConfirmedStop() {
+        val detector = DistanceTrendDetector()
+        repeat(4) { detector.update(1200.0, seconds(1 + it * 10L), 5f) }
+        assertTrue(detector.noProgressConfirmed())
+        assertEquals(DistanceTrend.UNKNOWN, detector.update(1200.0, seconds(62), 5f))
+        assertFalse(detector.noProgressConfirmed())
+        repeat(3) { detector.update(1200.0, seconds(72 + it * 10L), 5f) }
+        assertTrue(detector.noProgressConfirmed())
+        detector.reset()
+        assertFalse(detector.noProgressConfirmed())
+        assertEquals(DistanceTrend.UNKNOWN, detector.update(1200.0, seconds(102), 5f))
+    }
+
     private fun seconds(value: Long) = value * 1_000_000_000L
 }

@@ -287,6 +287,24 @@ missing, expired, inaccurate, replayed or ambiguous fixes do not establish no pr
 consistent approach does not count as stationary. Target, account and sensing resets clear this
 history. Production admits GPS fixes up to 30 seconds old with accuracy within 50 metres.
 
+GPS history belongs to the sensing service's `DistanceTrendDetector`, reused from
+`feat/context-engine-sensing`. Fusion and departure urgency consume the same target-scoped trend.
+The same detector also confirms 30 seconds of no progress before urgency is allowed; its generic
+STABLE fallback alone cannot prove a stop after a jump or rebound. The travel engine does not keep
+a second GPS history. Retiming a class restarts sensing evidence while preserving same-building
+arrival; changing only its display time zone keeps the current sensing generation.
+
+Home's tracked class row uses the main card's engine state and label. Other rows show only their
+calendar status, so missing ETA or an unrelated occurrence cannot invent a departure warning.
+The engine, retiming guard and sensing policy share one departure-window calculation.
+
+`TravelPreferencesStore` now owns travel-mode choices only. The obsolete global
+`reminders_enabled` and `reminder_lead_minutes` keys are ignored and removed on the next travel
+settings save. They are not migrated into or allowed to overwrite account/course/activity-scoped
+reminder settings. Existing course choices, legacy course fallback and notification history remain
+intact. The unused legacy travel-state resolver/manager and their private arrival helper have been
+removed. Chat and file subscriptions share the same capped retry backoff.
+
 Home, the settings preview and notifications use the same leave-by time. The engine suppresses
 preparation and urgent prompts while travelling or after arrival. If the current travel estimate
 would arrive after class starts, it shows **Running late**. Lecture/tutorial/workshop switches

@@ -1,6 +1,7 @@
 package au.edu.unimelb.campuscompanion.sensing.service
 
 import au.edu.unimelb.campuscompanion.context.ContextConfig
+import au.edu.unimelb.campuscompanion.context.ContextEngine
 import au.edu.unimelb.campuscompanion.context.ContextState
 import au.edu.unimelb.campuscompanion.context.TravelSnapshot
 import au.edu.unimelb.campuscompanion.sensing.location.SensingTarget
@@ -43,8 +44,7 @@ object SensingPolicy {
         if (guidance?.state == ContextState.EN_ROUTE || guidance?.state == ContextState.ARRIVED) {
             return SensingMode.PRE_CLASS
         }
-        val windowOpens = (guidance?.leaveBy?.toInstant() ?: start)
-            .minusSeconds(config.earlyDepartureWindowMinutes * 60L)
+        val windowOpens = ContextEngine.departureWindowOpensAt(start, guidance?.leaveBy?.toInstant(), config)
         return if (!now.isBefore(windowOpens)) SensingMode.PRE_CLASS else SensingMode.NORMAL
     }
 }

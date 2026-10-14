@@ -197,7 +197,8 @@ fun HomeScreen(
                 } else {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         agenda.todayClasses.forEach { session ->
-                            CourseSessionRow(session = session, onNavigate = { onNavigate(session) })
+                            CourseSessionRow(session = session, onNavigate = { onNavigate(session) },
+                                homeCard = homeCard, now = now)
                         }
                     }
                 }

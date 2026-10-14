@@ -44,7 +44,9 @@ import au.edu.unimelb.campuscompanion.ui.model.CourseGroup
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
 import au.edu.unimelb.campuscompanion.ui.model.GroupOrigin
 import au.edu.unimelb.campuscompanion.ui.model.SessionStatus
-import java.time.LocalDate
+import au.edu.unimelb.campuscompanion.ui.model.HomeCardUiState
+import au.edu.unimelb.campuscompanion.ui.model.forSession
+import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 
 private val timeFormatter = DateTimeFormatter.ofPattern("h:mm a")
@@ -159,11 +161,14 @@ fun MetricItem(
 fun CourseSessionRow(
     session: CourseSession,
     onNavigate: (() -> Unit)? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    homeCard: HomeCardUiState? = null,
+    now: ZonedDateTime = ZonedDateTime.now(session.start.zone)
 ) {
     val textResources = textResources()
-    val status = session.statusAt()
-    val today = LocalDate.now(session.start.zone)
+    val guidance = homeCard?.forSession(session)
+    val status = guidance?.statusTone ?: session.statusAt(now)
+    val today = now.withZoneSameInstant(session.start.zone).toLocalDate()
     val dateLabel = when (session.startDate) {
         today -> textResources.getString(R.string.campus_components_today)
         today.plusDays(1) -> textResources.getString(R.string.campus_components_tomorrow)
@@ -215,7 +220,7 @@ fun CourseSessionRow(
                     )
                     Spacer(Modifier.width(8.dp))
                     StatusPill(
-                        label = status.displayName(),
+                        label = guidance?.statusLabel?.resolve(textResources) ?: status.displayName(),
                         status = status
                     )
                 }

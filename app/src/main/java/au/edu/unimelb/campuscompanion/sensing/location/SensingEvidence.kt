@@ -22,7 +22,11 @@ data class SensingEvidence(
     val enRoute: Boolean? = null,
     val progressConfirmed: Boolean = false,
     /** Accepted activity state from the uninterrupted subscription in this sensing period. */
-    val activity: ActivityObservation? = null
+    val activity: ActivityObservation? = null,
+    /** The same GPS trend used by fusion, measured from this target's accepted observations. */
+    val distanceTrend: DistanceTrend = DistanceTrend.UNKNOWN,
+    /** The shared detector confirmed a sustained stop or retreat, rather than a GPS jump. */
+    val noProgressConfirmed: Boolean = false
 )
 
 /** Closed diagnostic vocabulary: geofence rejection logs never contain positions. */

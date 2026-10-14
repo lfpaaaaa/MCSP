@@ -2,6 +2,8 @@ package au.edu.unimelb.campuscompanion.ui.model
 
 import au.edu.unimelb.campuscompanion.english
 import au.edu.unimelb.campuscompanion.context.ContextState
+import au.edu.unimelb.campuscompanion.context.ContextEngine
+import au.edu.unimelb.campuscompanion.context.ContextInputs
 import au.edu.unimelb.campuscompanion.context.TravelSnapshot
 import au.edu.unimelb.campuscompanion.data.TravelMode
 import au.edu.unimelb.campuscompanion.data.building.BuildingLocation
@@ -44,6 +46,31 @@ class HomeCardTest {
         source = EstimateSource.Routing,
         computedAt = now.toInstant()
     )
+
+    @Test fun classRowUsesTheEnginePreparationChoiceAndNeverInventsAMissingEta() {
+        for ((eta, preparation, expected) in listOf(
+            Triple(null, 10, ContextState.UPCOMING),
+            Triple(10, 0, ContextState.UPCOMING),
+            Triple(10, 25, ContextState.LEAVE_SOON)
+        )) {
+            val clock = if (eta == null) nextClass.start.minusMinutes(5) else now
+            val decision = ContextEngine.decide(ContextInputs(clock.toInstant(), listOf(nextClass), eta,
+                bufferMinutes = 0, distanceMeters = null, isMoving = false, preparationMinutes = preparation))
+            val card = buildHomeCardState(listOf(nextClass), TravelSnapshot(session = nextClass,
+                state = decision.state, preparationMinutes = preparation,
+                leaveBy = decision.leaveBy?.atZone(melbourne)), clock)
+            val row = requireNotNull(card.forSession(nextClass))
+            assertEquals(expected, row.state)
+            assertEquals(card.statusLabel, row.statusLabel)
+        }
+    }
+
+    @Test fun anotherOccurrenceCannotInheritTheTrackedRowsTravelState() {
+        val card = buildHomeCardState(listOf(nextClass), snapshot(ContextState.EN_ROUTE), now)
+        assertEquals(ContextState.EN_ROUTE, card.forSession(nextClass)?.state)
+        assertNull(card.forSession(nextClass.copy(id = "next-week", start = nextClass.start.plusWeeks(1))))
+        assertNull(card.forSession(nextClass.copy(room = "PAR-104")))
+    }
 
     @Test
     fun aRoomEmbeddedInCalendarLocationIsPreservedAlongsideTheResolvedBuilding() {

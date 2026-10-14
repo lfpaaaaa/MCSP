@@ -161,7 +161,7 @@ class DefaultChatRepository(
                 }
                 // The live feed stopped; join it again after a pause.
                 attempt++
-                delay(retryDelay(attempt))
+                delay(retryDelayMillis(attempt, firstRetryDelayMillis, maxRetryDelayMillis))
             }
         }
     }
@@ -176,7 +176,7 @@ class DefaultChatRepository(
             }
             connectionState.value = ChatConnection.Offline
             attempt++
-            delay(retryDelay(attempt))
+            delay(retryDelayMillis(attempt, firstRetryDelayMillis, maxRetryDelayMillis))
         }
     }
 
@@ -266,13 +266,8 @@ class DefaultChatRepository(
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { /* Keep the cached names until the connection recovers. */ }
-            delay(retryDelay(++attempt))
+            delay(retryDelayMillis(++attempt, firstRetryDelayMillis, maxRetryDelayMillis))
         }
-    }
-
-    private fun retryDelay(attempt: Int): Long {
-        val factor = 1L shl (attempt - 1).coerceIn(0, 6)
-        return (firstRetryDelayMillis * factor).coerceAtMost(maxRetryDelayMillis)
     }
 
     private fun MessageEntity.toModel(): ChatMessage = ChatMessage(

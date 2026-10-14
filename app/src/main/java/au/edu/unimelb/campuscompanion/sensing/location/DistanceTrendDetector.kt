@@ -1,6 +1,7 @@
 package au.edu.unimelb.campuscompanion.sensing.location
 
 import java.util.ArrayDeque
+import kotlin.math.abs
 
 /** Distance policy is independent of Android; callers supply valid monotonic GPS observation times. */
 class DistanceTrendDetector {
@@ -10,16 +11,20 @@ class DistanceTrendDetector {
         private const val MIN_SEGMENT_CHANGE_METERS = 2.0
         private const val APPROACH_CONFIRMATION_COUNT = 3
         private const val MAX_SAMPLE_GAP_NANOS = 30_000_000_000L
+        private const val NO_PROGRESS_MIN_SPAN_NANOS = 30_000_000_000L
     }
 
-    private val distanceHistory = ArrayDeque<Double>()
+    private data class Observation(val distance: Double, val timeNanos: Long, val accuracy: Float)
+    private val distanceHistory = ArrayDeque<Observation>()
     private var lastObservedAtNanos: Long? = null
     private var currentTrend = DistanceTrend.UNKNOWN
     private var approachObservationCount = 0
     private var sustainedClosingMeters = 0.0
+    private var noProgressSinceNanos: Long? = null
 
-    fun update(distanceMeters: Double, observedAtNanos: Long): DistanceTrend {
-        if (!distanceMeters.isFinite() || distanceMeters < 0.0 || observedAtNanos < 0L) {
+    fun update(distanceMeters: Double, observedAtNanos: Long, accuracyMeters: Float = 0f): DistanceTrend {
+        if (!distanceMeters.isFinite() || distanceMeters < 0.0 || observedAtNanos < 0L ||
+            !accuracyMeters.isFinite() || accuracyMeters !in 0f..50f) {
             return DistanceTrend.UNKNOWN
         }
         val previousObservation = lastObservedAtNanos
@@ -30,11 +35,12 @@ class DistanceTrendDetector {
             reset()
         }
         lastObservedAtNanos = observedAtNanos
-        distanceHistory.addLast(distanceMeters)
+        distanceHistory.addLast(Observation(distanceMeters, observedAtNanos, accuracyMeters))
         if (distanceHistory.size > WINDOW_SIZE) distanceHistory.removeFirst()
         if (distanceHistory.size < WINDOW_SIZE) return DistanceTrend.UNKNOWN
 
-        val distances = distanceHistory.toList()
+        val observations = distanceHistory.toList()
+        val distances = observations.map { it.distance }
         val closingChanges = distances.zipWithNext { before, after -> before - after }
         val netClosing = distances.first() - distances.last()
         val previousTrend = currentTrend
@@ -50,6 +56,16 @@ class DistanceTrendDetector {
                 closingChanges.none { it >= MIN_DISTANCE_CHANGE_METERS } -> DistanceTrend.MOVING_AWAY
             else -> DistanceTrend.STABLE
         }
+        // Keep the feature branch's fusion verdict. Urgency needs stronger evidence: its STABLE
+        // fallback can include a jump or a rebound, which must not be described as standing still.
+        val compactStop = currentTrend == DistanceTrend.STABLE &&
+            distances.max() - distances.min() <= 20.0 &&
+            !(abs(netClosing) > 5.0 && (closingChanges.all { it > 0 } || closingChanges.all { it < 0 }))
+        val clearRetreat = currentTrend == DistanceTrend.MOVING_AWAY &&
+            -netClosing >= maxOf(20.0, (observations.first().accuracy + observations.last().accuracy).toDouble())
+        noProgressSinceNanos = if (compactStop || clearRetreat) {
+            noProgressSinceNanos ?: observations.first().timeNanos
+        } else null
         approachObservationCount = if (currentTrend == DistanceTrend.APPROACHING) {
             (approachObservationCount + 1).coerceAtMost(APPROACH_CONFIRMATION_COUNT)
         } else {
@@ -81,11 +97,17 @@ class DistanceTrendDetector {
     /** Conservative progress accumulated only while the four-sample approach remains sustained. */
     fun closingMeters(): Double = sustainedClosingMeters
 
+    /** A fresh trend may prompt only after continuous no-progress evidence spans 30 seconds. */
+    fun noProgressConfirmed(): Boolean = noProgressSinceNanos?.let { since ->
+        (lastObservedAtNanos ?: since) - since >= NO_PROGRESS_MIN_SPAN_NANOS
+    } == true
+
     fun reset() {
         distanceHistory.clear()
         lastObservedAtNanos = null
         currentTrend = DistanceTrend.UNKNOWN
         approachObservationCount = 0
         sustainedClosingMeters = 0.0
+        noProgressSinceNanos = null
     }
 }

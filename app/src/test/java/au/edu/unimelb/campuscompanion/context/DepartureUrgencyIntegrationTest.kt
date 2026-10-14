@@ -3,11 +3,15 @@ package au.edu.unimelb.campuscompanion.context
 import au.edu.unimelb.campuscompanion.english
 import au.edu.unimelb.campuscompanion.data.TravelMode
 import au.edu.unimelb.campuscompanion.data.TravelPreferences
+import au.edu.unimelb.campuscompanion.data.geo.GeoMath
 import au.edu.unimelb.campuscompanion.data.model.EstimateSource
 import au.edu.unimelb.campuscompanion.data.model.GeoPoint
 import au.edu.unimelb.campuscompanion.data.model.TravelEstimate
 import au.edu.unimelb.campuscompanion.data.repository.EtaRepository
 import au.edu.unimelb.campuscompanion.sensing.location.LocationSample
+import au.edu.unimelb.campuscompanion.sensing.location.DistanceTrend
+import au.edu.unimelb.campuscompanion.sensing.location.DistanceTrendDetector
+import au.edu.unimelb.campuscompanion.sensing.location.EvidenceFreshness
 import au.edu.unimelb.campuscompanion.sensing.location.MovementObservation
 import au.edu.unimelb.campuscompanion.sensing.location.SensingEvidence
 import au.edu.unimelb.campuscompanion.ui.model.CourseReminderPreference
@@ -95,6 +99,26 @@ class DepartureUrgencyIntegrationTest {
         trip.trace(listOf(1200.0, 1230.0, 1260.0, 1290.0))
         assertEquals(ContextState.LEAVE_NOW, trip.snapshot.state)
         assertEquals(ContextState.LEAVE_NOW, trip.reminders.consider(trip.snapshot)?.state)
+    }
+
+    @Test fun featureBranchApproachWithSmallReboundDoesNotProduceConflictingUrgency() = runBlocking {
+        val trip = Trip()
+        trip.prepare()
+        trip.trace(listOf(1200.0, 1190.0, 1191.0, 1182.0))
+        assertEquals(DistanceTrend.APPROACHING, trip.trend.getCurrentTrend())
+        assertEquals(ContextState.LEAVE_SOON, trip.snapshot.state)
+        assertNull(trip.reminders.consider(trip.snapshot))
+    }
+
+    @Test fun isolatedJumpAndSubtleConsistentApproachCannotBeReportedAsStandingStill() = runBlocking {
+        for (distances in listOf(listOf(1200.0, 1200.0, 1200.0, 1500.0),
+            listOf(1200.0, 1198.0, 1196.0, 1194.0))) {
+            val trip = Trip()
+            trip.prepare()
+            trip.trace(distances)
+            assertEquals(ContextState.LEAVE_SOON, trip.snapshot.state)
+            assertNull(trip.reminders.consider(trip.snapshot))
+        }
     }
 
     @Test fun staleGpsWithdrawsUrgencyAndRequiresNewHistory() = runBlocking {
@@ -241,6 +265,8 @@ class DepartureUrgencyIntegrationTest {
         private val history = mutableSetOf<Triple<String, String, ContextState>>()
         var reminders = coordinator()
         val snapshot get() = engine.snapshot.value
+        val trend = DistanceTrendDetector()
+        private var trendGeneration = Long.MIN_VALUE
 
         init {
             engine.updateSessions(listOf(session))
@@ -268,10 +294,20 @@ class DepartureUrgencyIntegrationTest {
 
         fun evidence(distance: Double = 1200.0, accuracy: Float = 5f): SensingEvidence {
             val point = FakeBuildingLookup.PETER_HALL.location
+            val target = engine.sensingTarget.value
+            if (target.generation != trendGeneration) {
+                trend.reset()
+                trendGeneration = target.generation
+            }
+            val location = LocationSample(point.latitude - distance / 111_000.0, point.longitude,
+                accuracy, now.toEpochMilli(), elapsed)
+            val observedTrend = if (EvidenceFreshness.accepts(location, target, elapsed) && target.building != null) {
+                trend.update(GeoMath.distanceMeters(GeoPoint(location.latitude, location.longitude), target.building.location),
+                    location.elapsedRealtimeNanos, location.accuracyMeters)
+            } else DistanceTrend.UNKNOWN
             return SensingEvidence(
-                generation = engine.sensingTarget.value.generation,
-                location = LocationSample(point.latitude - distance / 111_000.0, point.longitude,
-                    accuracy, now.toEpochMilli(), elapsed)
+                generation = target.generation, location = location,
+                distanceTrend = observedTrend, noProgressConfirmed = trend.noProgressConfirmed()
             )
         }
 

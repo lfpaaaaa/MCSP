@@ -63,8 +63,9 @@ class CourseReminderModelsTest {
         )
 
         assertEquals(
-            dateTime(2026, 10, 2, 13, 20),
-            session.departureReminderTime(leadMinutes = 10)
+            dateTime(2026, 10, 2, 13, 20).toInstant(),
+            au.edu.unimelb.campuscompanion.context.ContextEngine.leaveBy(
+                session.start.toInstant(), session.etaMinutes, bufferMinutes = 10, entryAllowanceMinutes = 0)
         )
     }
 

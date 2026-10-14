@@ -31,21 +31,16 @@ data class CourseSession(
     val startTime: LocalTime get() = start.toLocalTime()
     val endTime: LocalTime get() = end.toLocalTime()
 
+    /** Calendar-only fallback. Travel and reminder states come from the current engine snapshot. */
     fun statusAt(now: ZonedDateTime = ZonedDateTime.now(start.zone)): SessionStatus {
         val localNow = now.withZoneSameInstant(start.zone)
         return when {
             !localNow.isBefore(end) -> SessionStatus.Finished
             !localNow.isBefore(start) -> SessionStatus.InProgress
-            startDate != localNow.toLocalDate() -> SessionStatus.Upcoming
-            !localNow.isBefore(departureReminderTime(DEFAULT_REMINDER_LEAD_MINUTES)) ->
-                SessionStatus.LeaveSoon
             else -> SessionStatus.Upcoming
         }
     }
 
-    private companion object {
-        const val DEFAULT_REMINDER_LEAD_MINUTES = 10
-    }
 }
 
 /** Travel times to a class's building by mode, from the routing service or the straight-line fallback. */
@@ -58,13 +53,6 @@ data class RouteEstimate(
     val isApproximate: Boolean = false,
     val source: au.edu.unimelb.campuscompanion.data.model.EstimateSource = au.edu.unimelb.campuscompanion.data.model.EstimateSource.Routing
 )
-
-/** When to leave for this class: its start minus the travel time and [leadMinutes]. */
-fun CourseSession.departureReminderTime(leadMinutes: Int): ZonedDateTime {
-    require(leadMinutes >= 0) { "Lead time cannot be negative" }
-    val safeEtaMinutes = (etaMinutes ?: 0).coerceAtLeast(0)
-    return start.minusMinutes((safeEtaMinutes + leadMinutes).toLong())
-}
 
 /** Where the user is relative to a class, as the Home card shows it. */
 enum class SessionStatus {

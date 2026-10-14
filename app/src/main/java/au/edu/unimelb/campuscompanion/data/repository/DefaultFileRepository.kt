@@ -156,7 +156,7 @@ class DefaultFileRepository(
                     // The last list stays visible while the live feed is joined again.
                 }
                 attempt++
-                delay(retryDelay(attempt))
+                delay(retryDelayMillis(attempt, firstRetryDelayMillis, maxRetryDelayMillis))
             }
         }
     }
@@ -165,7 +165,7 @@ class DefaultFileRepository(
         var attempt = 0
         while (!refresh(groupId)) {
             attempt++
-            delay(retryDelay(attempt))
+            delay(retryDelayMillis(attempt, firstRetryDelayMillis, maxRetryDelayMillis))
         }
     }
 
@@ -203,11 +203,6 @@ class DefaultFileRepository(
 
     private fun cachedRow(fileId: String): SharedFileRow? =
         filesByGroup.value.values.asSequence().flatten().firstOrNull { it.id == fileId }
-
-    private fun retryDelay(attempt: Int): Long {
-        val factor = 1L shl (attempt - 1).coerceIn(0, 6)
-        return (firstRetryDelayMillis * factor).coerceAtMost(maxRetryDelayMillis)
-    }
 
     private companion object {
         const val MAX_FILE_NAME_LENGTH = 255

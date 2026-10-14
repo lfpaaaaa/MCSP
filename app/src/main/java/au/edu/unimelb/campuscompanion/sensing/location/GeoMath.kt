@@ -4,8 +4,6 @@ import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
 
-private const val EARTH_RADIUS_METERS = 6_371_000.0
-
 fun bearingDegrees(
     lat1: Double,
     lon1: Double,

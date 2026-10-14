@@ -68,6 +68,10 @@ data class HomeCardUiState(
         }
 }
 
+/** List rows share the tracked card's exact label and colour; another occurrence cannot inherit them. */
+fun HomeCardUiState.forSession(session: CourseSession): HomeCardUiState? =
+    takeIf { this.session?.matchesTimetableSession(session) == true }
+
 /**
  * Reuses the engine's session-selection rule, then binds its snapshot to the current timetable.
  * A previous class or a changed destination must not supply another class's guidance or travel.

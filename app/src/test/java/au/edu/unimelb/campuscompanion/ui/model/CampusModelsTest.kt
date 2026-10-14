@@ -26,11 +26,13 @@ class CampusModelsTest {
     }
 
     @Test
-    fun classLaterTodayChangesToLeaveSoonAtDepartureTime() {
+    fun calendarRowsNeverInventDepartureGuidanceFromAnEta() {
         val start = ZonedDateTime.of(2026, 10, 2, 15, 0, 0, 0, melbourne)
         val session = session(start = start, etaMinutes = 30)
 
-        assertEquals(SessionStatus.LeaveSoon, session.statusAt(start.minusMinutes(40)))
+        assertEquals(SessionStatus.Upcoming, session.statusAt(start.minusMinutes(40)))
+        assertEquals(SessionStatus.Upcoming, session.statusAt(start.minusMinutes(5)))
+        assertEquals(SessionStatus.Upcoming, session.copy(etaMinutes = null).statusAt(start.minusMinutes(5)))
     }
 
     @Test

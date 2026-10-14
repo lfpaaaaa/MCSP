@@ -23,6 +23,7 @@ import au.edu.unimelb.campuscompanion.data.geo.GeoMath
 import au.edu.unimelb.campuscompanion.data.model.GeoPoint
 import au.edu.unimelb.campuscompanion.sensing.activity.ActivityRecognitionManager
 import au.edu.unimelb.campuscompanion.sensing.location.DistanceTrendDetector
+import au.edu.unimelb.campuscompanion.sensing.location.DistanceTrend
 import au.edu.unimelb.campuscompanion.sensing.location.EnRouteFusionDetector
 import au.edu.unimelb.campuscompanion.sensing.location.EvidenceFreshness
 import au.edu.unimelb.campuscompanion.sensing.location.GeofenceManager
@@ -355,13 +356,12 @@ class SensingForegroundService : Service() {
                 var verdict: Boolean? = null
                 var progressConfirmed = false
                 var distanceMeters: Int? = null
-                var trendName = "unavailable"
+                var trend = DistanceTrend.UNKNOWN
                 var headingDifference: Double? = null
                 currentTarget.building?.takeIf { highRate }?.let { building ->
                     val distance = GeoMath.distanceMeters(point, building.location)
-                    val trend = distanceTrendDetector.update(distance, location.elapsedRealtimeNanos)
+                    trend = distanceTrendDetector.update(distance, location.elapsedRealtimeNanos, location.accuracyMeters)
                     distanceMeters = distance.toInt()
-                    trendName = trend.name
                     val closing = distanceTrendDetector.closingMeters()
                     val bearing = bearingDegrees(
                         location.latitude, location.longitude,
@@ -390,7 +390,9 @@ class SensingForegroundService : Service() {
                         movement = movement?.let { MovementObservation(it.isMoving, it.timestampNanos) },
                         enRoute = verdict,
                         progressConfirmed = progressConfirmed,
-                        activity = activity
+                        activity = activity,
+                        distanceTrend = trend,
+                        noProgressConfirmed = highRate && distanceTrendDetector.noProgressConfirmed()
                     )
                 )
                 if (accepted) {
@@ -409,7 +411,7 @@ class SensingForegroundService : Service() {
                             "SensingFusion",
                             "accepted source=$source, ageMs=$ageMillis, generation=${currentTarget.generation}, " +
                                 "target=${currentTarget.sessionId}/${currentTarget.building?.locCode}, " +
-                                "distanceM=$distanceMeters, trend=$trendName, moving=${movement?.isMoving}, " +
+                                "distanceM=$distanceMeters, trend=$trend, moving=${movement?.isMoving}, " +
                                 "activity=${activity?.state}, activityAvailable=${activityRecognitionManager.isAvailable}, " +
                                 "headingDelta=$headingDifference, headingFresh=${heading != null}, rotating=${rotation?.isRotating}, " +
                                 "verdict=$verdict, progressConfirmed=$progressConfirmed, " +

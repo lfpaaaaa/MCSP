@@ -143,6 +143,10 @@ object ContextEngine {
         return start.minus(minutes(total))
     }
 
+    /** One departure-window boundary for state decisions, retiming and sensing frequency. */
+    fun departureWindowOpensAt(start: Instant, leaveBy: Instant?, config: ContextConfig): Instant =
+        (leaveBy ?: start).minus(minutes(config.earlyDepartureWindowMinutes))
+
     fun decide(
         inputs: ContextInputs,
         previous: ContextDecision? = null,
@@ -166,7 +170,7 @@ object ContextEngine {
         val leaveBy = leaveBy(start, inputs.travelMinutes, inputs.bufferMinutes, config.entryAllowanceMinutes)
         val preparationMinutes = (inputs.preparationMinutes ?: config.leaveSoonWindowMinutes)
             .coerceIn(0, MAX_COURSE_REMINDER_PREPARATION_MINUTES)
-        val departureWindowOpens = (leaveBy ?: start).minus(minutes(config.earlyDepartureWindowMinutes))
+        val departureWindowOpens = departureWindowOpensAt(start, leaveBy, config)
         val inDepartureWindow = !now.isBefore(departureWindowOpens)
 
         // A different class, or the same class moved to another (or an unknown) building, starts a
