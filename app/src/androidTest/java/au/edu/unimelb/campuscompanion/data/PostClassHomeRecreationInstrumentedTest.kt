@@ -8,11 +8,13 @@ import android.os.SystemClock
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.FrameLayout
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.room.Room
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -22,12 +24,16 @@ import au.edu.unimelb.campuscompanion.context.ContextEngine
 import au.edu.unimelb.campuscompanion.context.ContextInputs
 import au.edu.unimelb.campuscompanion.context.ContextState
 import au.edu.unimelb.campuscompanion.context.TravelSnapshot
+import au.edu.unimelb.campuscompanion.data.local.TimetableDatabase
 import au.edu.unimelb.campuscompanion.testing.HomeRecreationTestActivity
 import au.edu.unimelb.campuscompanion.ui.model.CourseGroup
 import au.edu.unimelb.campuscompanion.ui.model.GroupOrigin
 import au.edu.unimelb.campuscompanion.ui.screens.HomeScreen
 import au.edu.unimelb.campuscompanion.ui.theme.CampusCompanionTheme
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotSame
@@ -45,8 +51,8 @@ import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Actual recreation of an empty debug-only Activity containing production
- * remember/TimetableSession/store/parser/HomeScreen. The host has no authentication, sensing or
- * permission-prompt logic; pre-existing timetable preference entries are checked unchanged.
+ * remember/TimetableSession/Room repository/parser/HomeScreen. The host has no authentication,
+ * sensing or permission-prompt logic; pre-existing timetable preference entries are checked unchanged.
  * Group summaries and importer outcomes are fixtures; this is Home lifecycle coverage,
  * not MainActivity/authenticated-shell acceptance,
  * live-backend validation, a real network outage or offline process-death coverage.
@@ -61,9 +67,10 @@ class PostClassHomeRecreationInstrumentedTest {
     fun fixtureFinishedCourseCardRendersAfterRealActivityRecreationRefreshAndOfflineRecreation() {
         val timetablePreferences = context.getSharedPreferences("timetable_subscription", Context.MODE_PRIVATE)
         val originalPreferences = timetablePreferences.all.toMap()
-        val store = TimetableSubscriptionStore(context)
+        val database = Room.inMemoryDatabaseBuilder(context, TimetableDatabase::class.java).build()
+        val repository = RoomTimetableRepository(database)
+        val parent = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         val account = "post-class-home-${UUID.randomUUID()}"
-        val fixtureKeys = setOf("subscription_url_$account", "snapshot_$account")
         val url = "https://calendar.example.invalid/$account"
         val end = ZonedDateTime.now(zone).minusMinutes(2).withNano(0)
         val imported = parse(end)
@@ -80,17 +87,24 @@ class PostClassHomeRecreationInstrumentedTest {
                 // ComposeView and its lifecycle owners cannot be reused by the new Activity.
                 activity.setContentView(FrameLayout(activity))
                 activity.setContent {
-                    val persistence = remember(activity) { TimetableSubscriptionStore(activity) }
-                    val session = remember(account, persistence) {
-                        TimetableSession(account, persistence, { requestedUrl ->
-                            check(requestedUrl == url)
-                            if (offline.get()) Result.failure(IOException("Offline fixture"))
-                            else Result.success(parse(end))
-                        }, displayZone = { zone })
+                    val session = remember(activity, account) {
+                        TimetableSession(
+                            account, repository, parent,
+                            download = { requestedUrl ->
+                                check(requestedUrl == url)
+                                if (offline.get()) Result.failure(IOException("Offline fixture"))
+                                else Result.success(calendar(end))
+                            },
+                            parse = { bytes, retained ->
+                                Result.success(IcsTimetableParser().parse(bytes, ZonedDateTime.now(zone), zone, retained))
+                            },
+                            displayZone = { zone }
+                        )
                     }
                     SideEffect { currentSession.set(session) }
+                    DisposableEffect(session) { onDispose { session.close() } }
                     val state by session.state.collectAsState()
-                    LaunchedEffect(session) { session.refresh() }
+                    LaunchedEffect(session) { if (session.initialize().isSuccess) session.refresh() }
                     val decision = ContextEngine.decide(ContextInputs(
                         now = ZonedDateTime.now(zone).toInstant(), sessions = state.sessions,
                         travelMinutes = null, bufferMinutes = 0, distanceMeters = null, isMoving = false
@@ -117,8 +131,7 @@ class PostClassHomeRecreationInstrumentedTest {
         }
         var scenario: ActivityScenario<HomeRecreationTestActivity>? = null
         try {
-            store.save(account, url, imported, ZonedDateTime.now(zone).toInstant())
-            flushTimetableWrites()
+            runBlocking { repository.replaceImport(account, url, imported, ZonedDateTime.now(zone).toInstant()) }
             application.registerActivityLifecycleCallbacks(lifecycle)
             scenario = ActivityScenario.launch(HomeRecreationTestActivity::class.java)
             assertFixtureHome(currentSession, occurrenceId, cached = false)
@@ -134,18 +147,19 @@ class PostClassHomeRecreationInstrumentedTest {
             // Refresh the same owner through its production parser/store path.
             runBlocking(Dispatchers.Main) { recreatedOwner.refresh().getOrThrow() }
             assertFixtureHome(currentSession, occurrenceId, cached = false)
-            val savedBeforeOffline = store.load(account)
+            val savedBeforeOffline = runBlocking { repository.load(account) }
             offline.set(true)
             scenario.recreate()
             await("Offline recreation should compose a new timetable owner") { currentSession.get() !== recreatedOwner }
             assertFixtureHome(currentSession, occurrenceId, cached = true)
             assertNotSame(recreatedOwner, requireNotNull(currentSession.get()))
             assertEquals(3, createdActivities.get())
-            assertEquals("A failed fixture import must preserve the saved cache", savedBeforeOffline, store.load(account))
+            assertEquals("A failed fixture import must preserve the saved cache", savedBeforeOffline,
+                runBlocking { repository.load(account) })
             assertTrue(requireNotNull(currentSession.get()).state.value.errorMessage != null)
 
             assertEquals("Fixture Home must preserve every pre-existing timetable preference",
-                originalPreferences, timetablePreferences.all.filterKeys { it !in fixtureKeys })
+                originalPreferences, timetablePreferences.all)
         } finally {
             try {
                 scenario?.close()
@@ -154,8 +168,8 @@ class PostClassHomeRecreationInstrumentedTest {
                     finishFixtureActivities()
                 } finally {
                     application.unregisterActivityLifecycleCallbacks(lifecycle)
-                    store.clear(account)
-                    flushTimetableWrites()
+                    parent.cancel()
+                    database.close()
                 }
             }
         }
@@ -213,20 +227,19 @@ class PostClassHomeRecreationInstrumentedTest {
         instrumentation.waitForIdleSync()
     }
 
-    private fun flushTimetableWrites() {
-        assertTrue(context.getSharedPreferences("timetable_subscription", Context.MODE_PRIVATE).edit().commit())
-    }
-
     private fun groupFixture() = CourseGroup(
         id = "fixture-course-membership", courseCode = "COMP90018", name = "Mobile Computing course group",
         members = 12, unreadCount = 4, latestMessage = "Review the post-class proposal",
         latestFileName = "proposal.pdf", origin = GroupOrigin.Timetable, timetableKey = "COMP90018|course"
     )
 
-    private fun parse(end: ZonedDateTime): TimetableImport {
+    private fun parse(end: ZonedDateTime): TimetableImport =
+        IcsTimetableParser().parse(calendar(end), ZonedDateTime.now(zone), zone)
+
+    private fun calendar(end: ZonedDateTime): ByteArray {
         val utc = ZoneId.of("UTC")
         val format = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'")
-        val calendar = """
+        return """
             BEGIN:VCALENDAR
             VERSION:2.0
             PRODID:-//Campus Companion//Home Recreation Fixture//EN
@@ -239,7 +252,6 @@ class PostClassHomeRecreationInstrumentedTest {
             LOCATION:Parkville\, PAR-160
             END:VEVENT
             END:VCALENDAR
-        """.trimIndent().replace("\n", "\r\n")
-        return IcsTimetableParser().parse(calendar.toByteArray(), ZonedDateTime.now(zone), zone)
+        """.trimIndent().replace("\n", "\r\n").toByteArray()
     }
 }

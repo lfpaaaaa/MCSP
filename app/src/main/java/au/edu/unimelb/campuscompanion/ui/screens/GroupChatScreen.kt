@@ -68,7 +68,6 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.listSaver
@@ -854,8 +853,9 @@ private fun FileBubble(
     val file = item.file
     val isMine = item.isMine
     val isImage = file.mimeType.startsWith("image/")
-    val thumbnail by produceState<ImageBitmap?>(initialValue = null, key1 = file.id, key2 = isImage) {
-        value = if (isImage) images.load(file.id) else null
+    var thumbnail by remember(file.id, isImage) { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(file.id, isImage) {
+        thumbnail = if (isImage) images.load(file.id) else null
     }
     Row(
         modifier = modifier.fillMaxWidth(),

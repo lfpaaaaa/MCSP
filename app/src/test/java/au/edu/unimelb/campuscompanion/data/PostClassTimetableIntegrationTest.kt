@@ -17,6 +17,9 @@ import au.edu.unimelb.campuscompanion.ui.model.SessionStatus
 import au.edu.unimelb.campuscompanion.ui.model.buildHomeCardState
 import au.edu.unimelb.campuscompanion.ui.model.buildHomeGroupUpdates
 import au.edu.unimelb.campuscompanion.ui.model.homePostClassCandidates
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -28,12 +31,13 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.ZonedDateTime
 
-/** Exercises the same parse/save/reload/engine/Home path as an activity's new TimetableSession. */
+/** Exercises the same parse/store/reload/engine/Home path as the app-owned TimetableSession. */
 class PostClassTimetableIntegrationTest {
     private val zone = ZoneId.of("Australia/Melbourne")
     private val end = ZonedDateTime.of(2026, 10, 13, 16, 0, 0, 0, zone)
     private var now = end.minusMinutes(10).toInstant()
-    private val disk = mutableMapOf<String, String>()
+    private val repository = MemoryTimetableRepository()
+    private val parent = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
     private val parser = IcsTimetableParser()
     private val url = "https://calendar.example/alice/private.ics"
     private val finishedFeed = calendar(event())
@@ -41,7 +45,7 @@ class PostClassTimetableIntegrationTest {
 
     @Test
     fun finishedCourseUpdatesSurviveRecreationRefreshAndOfflineRestartThenExpireExactly() = runBlocking<Unit> {
-        val connected = session(download = { Result.success(parse(finishedFeed)) })
+        val connected = session(download = { Result.success(finishedFeed.toByteArray()) })
         connected.connect(url).getOrThrow()
         val occurrence = connected.state.value.sessions.single()
         val slotKey = occurrence.timetableGroupSpec()!!.key
@@ -51,28 +55,28 @@ class PostClassTimetableIntegrationTest {
         now = end.plusMinutes(4).toInstant()
         val recreated = session()
         assertTrue(recreated.state.value.isCached)
-        assertTrue(recreated.state.value.isLoading)
+        assertFalse(recreated.state.value.isLoading)
         assertEquals(SessionStatus.Finished, recreated.state.value.sessions.single().statusAt(now.atZone(zone)))
         assertPostClass(home(recreated))
 
         // A normal successful download after the end must preserve the occurrence as well.
         now = end.plusMinutes(9).toInstant()
-        val refreshing = session(download = { Result.success(parse(finishedFeed)) })
+        val refreshing = session(download = { Result.success(finishedFeed.toByteArray()) })
         refreshing.refresh().getOrThrow()
         assertFalse(refreshing.state.value.isCached)
         assertEquals(occurrence.id, refreshing.state.value.sessions.single().id)
         assertFalse(refreshing.state.value.groups.any { it.timetableKey == slotKey })
         assertPostClass(home(refreshing))
-        assertEquals(occurrence.id, store().load("alice").timetable!!.sessions.single().id)
+        assertEquals(occurrence.id, repository.rows.getValue("alice").imported.single().id)
 
         // Recreate again with no network, including a display-zone change.
         now = end.plusMinutes(ContextConfig().postClassMinutes.toLong()).minusNanos(1).toInstant()
         val offline = session(displayZone = ZoneId.of("UTC"))
-        val savedDisk = disk.toMap()
+        val savedRows = repository.rows.toMap()
         assertTrue(offline.refresh().isFailure)
         assertTrue(offline.state.value.isCached)
         assertEquals("Offline", offline.state.value.errorMessage)
-        assertEquals(savedDisk, disk)
+        assertEquals(savedRows, repository.rows)
         assertEquals(ZoneId.of("UTC"), offline.state.value.sessions.single().start.zone)
         val engine = engine()
         assertPostClass(home(offline, engine))
@@ -91,9 +95,9 @@ class PostClassTimetableIntegrationTest {
     @Test
     fun postClassCacheAndFeaturedMembershipRemainScopedToTheAccountAndRemoval() = runBlocking<Unit> {
         now = end.plusMinutes(5).toInstant()
-        session(download = { Result.success(parse(finishedFeed)) }).connect(url).getOrThrow()
+        session(download = { Result.success(finishedFeed.toByteArray()) }).connect(url).getOrThrow()
         val bob = session(userId = "bob", download = {
-            Result.success(parse(calendar(event(code = "SWEN90014", uid = "bob-workshop"))))
+            Result.success(calendar(event(code = "SWEN90014", uid = "bob-workshop")).toByteArray())
         })
         bob.connect("https://calendar.example/bob/private.ics").getOrThrow()
 
@@ -122,7 +126,7 @@ class PostClassTimetableIntegrationTest {
     fun editedFeedCannotKeepFeaturingTheOldFinishedOccurrence() = runBlocking<Unit> {
         now = end.plusMinutes(5).toInstant()
         var feed = finishedFeed
-        val connected = session(download = { Result.success(parse(feed)) })
+        val connected = session(download = { Result.success(feed.toByteArray()) })
         connected.connect(url).getOrThrow()
         val engine = engine()
         assertPostClass(home(connected, engine))
@@ -154,10 +158,10 @@ class PostClassTimetableIntegrationTest {
             "161000" to ContextState.RUNNING_LATE
         )) {
             val connected = session(download = {
-                Result.success(parse(calendar(event(), event(
+                Result.success(calendar(event(), event(
                     uid = "next-workshop", code = "SWEN90014", startTime = nextStart,
                     endTime = "173000", location = "PAR-104"
-                ))))
+                )).toByteArray())
             })
             connected.connect(url).getOrThrow()
             val engine = engine()
@@ -171,18 +175,16 @@ class PostClassTimetableIntegrationTest {
         }
     }
 
-    private fun store() = TimetableSubscriptionStore(
-        read = disk::get,
-        write = { entries -> entries.forEach { (key, value) ->
-            if (value == null) disk.remove(key) else disk[key] = value
-        } }
-    )
-
-    private fun session(
+    /** A new session per "process start": the shared repository plays the role of Room. */
+    private suspend fun session(
         userId: String = "alice",
         displayZone: ZoneId = zone,
-        download: suspend (String) -> Result<TimetableImport> = { Result.failure(IOException("Offline")) }
-    ) = TimetableSession(userId, store(), download, { now }, { displayZone })
+        download: suspend (String) -> Result<ByteArray> = { Result.failure(IOException("Offline")) }
+    ): TimetableSession = TimetableSession(
+        userId, repository, parent, download,
+        parse = { bytes, retained -> Result.success(parser.parse(bytes, now.atZone(zone), zone, retained)) },
+        lifecycleDispatcher = Dispatchers.Unconfined, clock = { now }, displayZone = { displayZone }
+    ).also { it.initialize().getOrThrow() }
 
     private fun engine() = TravelEngine(
         eta = object : EtaRepository {
@@ -240,6 +242,33 @@ class PostClassTimetableIntegrationTest {
     }
 
     private fun parse(feed: String) = parser.parse(feed.toByteArray(), now.atZone(zone), zone)
+
+    private class MemoryTimetableRepository : TimetableRepository {
+        val rows = mutableMapOf<String, TimetableSnapshot>()
+
+        override suspend fun load(ownerId: String): TimetableSnapshot = rows[ownerId] ?: TimetableSnapshot()
+
+        override suspend fun replaceImport(ownerId: String, url: String, imported: TimetableImport, syncedAt: Instant): TimetableSnapshot {
+            val before = rows[ownerId] ?: TimetableSnapshot()
+            val local = if (before.source?.url == url) before.local else before.local.filter { it.kind == LocalClassKind.MANUAL }
+            val source = TimetableSource(url, syncedAt, imported.sourceEventCount, imported.groups.mapNotNull { it.timetableSpec })
+            return TimetableSnapshot(source, imported.sessions, local).also { rows[ownerId] = it }
+        }
+
+        override suspend fun disconnect(ownerId: String): TimetableSnapshot =
+            TimetableSnapshot(local = rows[ownerId]?.local.orEmpty().filter { it.kind == LocalClassKind.MANUAL })
+                .also { rows[ownerId] = it }
+
+        override suspend fun upsertLocal(ownerId: String, row: LocalClass): TimetableSnapshot {
+            val before = rows[ownerId] ?: TimetableSnapshot()
+            return before.copy(local = before.local.filterNot { it.id == row.id } + row).also { rows[ownerId] = it }
+        }
+
+        override suspend fun deleteLocal(ownerId: String, id: String): TimetableSnapshot {
+            val before = rows[ownerId] ?: TimetableSnapshot()
+            return before.copy(local = before.local.filterNot { it.id == id }).also { rows[ownerId] = it }
+        }
+    }
 
     private fun calendar(vararg events: String): String =
         ("BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//Campus Companion//Post-Class Test//EN\n" +

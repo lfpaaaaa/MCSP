@@ -23,10 +23,11 @@ import kotlinx.coroutines.CancellationException
 fun ProfileAvatar(name: String, reference: String?, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val accountId = SupabaseProvider.client?.auth?.currentUserOrNull()?.id
-    val image by produceState<ImageBitmap?>(null, reference, accountId) {
-        value = null
+    var image by remember(reference, accountId) { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(reference, accountId) {
+        image = null
         if (!reference.isNullOrBlank()) {
-            try { value = AvatarImages.load(context, reference)?.asImageBitmap() }
+            try { image = AvatarImages.load(context, reference)?.asImageBitmap() }
             catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { /* A missing/offline image falls back to initials. */ }
         }

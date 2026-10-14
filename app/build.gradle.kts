@@ -79,6 +79,11 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
     implementation(libs.androidx.activity.compose)
+    constraints {
+        implementation(libs.androidx.fragment) {
+            because("Activity Result APIs need Fragment 1.3.0 or newer; the transitive 1.2.x version fails Lint")
+        }
+    }
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)

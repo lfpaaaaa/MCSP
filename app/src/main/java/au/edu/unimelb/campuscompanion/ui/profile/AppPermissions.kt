@@ -147,7 +147,7 @@ object AppPermissions {
             return "Background arrival monitoring needs precise location. Allow precise location first. " +
                 "With approximate location, Campus Companion provides timetable-only guidance."
         }
-        val settingsInstruction = if (state.sdkInt >= 30) {
+        val settingsInstruction = if (state.sdkInt >= 30 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             val option = context.packageManager.backgroundPermissionOptionLabel
             "In Settings, open Permissions, then Location, and choose “$option”. "
         } else {

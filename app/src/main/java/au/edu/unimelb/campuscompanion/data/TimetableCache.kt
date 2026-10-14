@@ -18,12 +18,6 @@ data class SavedTimetable(
     val savedAt: Instant? = null
 )
 
-interface TimetablePersistence {
-    fun load(userId: String): SavedTimetable
-    fun save(userId: String, url: String, timetable: TimetableImport, savedAt: Instant)
-    fun clear(userId: String)
-}
-
 /** Versioned disk format. Private subscription URLs never leave app-private storage. */
 internal object TimetableCache {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
@@ -48,12 +42,7 @@ internal object TimetableCache {
             CourseSession(session.id, session.code, session.title, session.location, session.room,
                 ZonedDateTime.parse(session.start), ZonedDateTime.parse(session.end), activity = session.activity)
         }
-        val groups = snapshot.groups.map { spec ->
-            CourseGroup(id = spec.key, courseCode = spec.courseCode, name = spec.name,
-                members = 0, unreadCount = 0, latestMessage = "Added from your connected timetable.",
-                latestFileName = null,
-                timetableKey = spec.key, timetableSlot = spec.slotLabel(), timetableSpec = spec)
-        }
+        val groups = snapshot.groups.map { it.toTimetableGroup() }
         SavedTimetable(snapshot.url, TimetableImport(sessions, groups, snapshot.sourceEventCount),
             Instant.parse(snapshot.savedAt))
     }.getOrNull()
@@ -74,6 +63,13 @@ internal object TimetableCache {
         val start: String, val end: String, val activity: String? = null
     )
 }
+
+/** Stored group specs carry matching keys, not live server membership or unread metadata. */
+internal fun TimetableGroupSpec.toTimetableGroup(): CourseGroup = CourseGroup(
+    id = key, courseCode = courseCode, name = name, members = 0, unreadCount = 0,
+    latestMessage = "Added from your connected timetable.", latestFileName = null,
+    timetableKey = key, timetableSlot = slotLabel(), timetableSpec = this
+)
 
 /** Restore recent post-class context as well as upcoming classes, without reusing live estimates. */
 internal fun TimetableImport.forDisplay(

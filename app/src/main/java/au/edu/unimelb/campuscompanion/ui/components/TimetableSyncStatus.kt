@@ -22,6 +22,18 @@ import java.time.format.DateTimeFormatter
 /** Refreshing never hides the last successfully imported classes. */
 @Composable
 fun TimetableSyncStatus(state: TimetableState, onRefresh: () -> Unit) {
+    if (!state.isLoaded) {
+        if (!state.isLoading && state.errorMessage != null) {
+            Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.errorContainer) {
+                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Could not load your saved timetable.", style = MaterialTheme.typography.labelLarge)
+                    Text(state.errorMessage, style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = onRefresh) { Text("Retry load") }
+                }
+            }
+        }
+        return
+    }
     if (!state.isConnected) return
     Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainer) {
         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically,

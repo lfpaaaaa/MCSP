@@ -1,12 +1,15 @@
 package au.edu.unimelb.campuscompanion.data
 
 import android.content.Context
+import android.content.SharedPreferences
+import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import au.edu.unimelb.campuscompanion.context.ContextEngine
 import au.edu.unimelb.campuscompanion.context.ContextInputs
 import au.edu.unimelb.campuscompanion.context.ContextState
 import au.edu.unimelb.campuscompanion.context.TravelSnapshot
+import au.edu.unimelb.campuscompanion.data.local.TimetableDatabase
 import au.edu.unimelb.campuscompanion.data.remote.GroupSummaryRow
 import au.edu.unimelb.campuscompanion.data.remote.toModel
 import au.edu.unimelb.campuscompanion.ui.model.CourseGroup
@@ -20,13 +23,18 @@ import au.edu.unimelb.campuscompanion.ui.model.buildHomeGroupUpdates
 import au.edu.unimelb.campuscompanion.ui.model.buildSchedulePage
 import au.edu.unimelb.campuscompanion.ui.model.homePostClassCandidates
 import au.edu.unimelb.campuscompanion.ui.model.isFolded
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.IOException
@@ -35,137 +43,137 @@ import java.time.ZonedDateTime
 import java.util.UUID
 
 /**
- * Exercises the reconstruction performed by CampusCompanionApp's remembered TimetableSession,
- * using Android's real subscription store. It does not replace authentication, launch/recreate
- * MainActivity, or contact a backend; group updates below are repository-shaped response fixtures.
+ * Exercises the reconstruction performed by the app-owned TimetableSession over Android's real
+ * Room storage. It does not replace authentication, launch/recreate MainActivity, or contact a
+ * backend; group updates below are repository-shaped response fixtures.
  */
 @RunWith(AndroidJUnit4::class)
 class PostClassTimetableInstrumentedTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
     private val zone = ZoneId.of("Australia/Melbourne")
     private val end = ZonedDateTime.of(2026, 10, 13, 16, 0, 0, 0, zone)
+    private val parent = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private lateinit var database: TimetableDatabase
+    private lateinit var preferences: SharedPreferences
+    private lateinit var repository: RoomTimetableRepository
+
+    @Before fun createStorage() {
+        database = Room.inMemoryDatabaseBuilder(context, TimetableDatabase::class.java).build()
+        preferences = context.getSharedPreferences("post-class-test-${UUID.randomUUID()}", Context.MODE_PRIVATE)
+        repository = RoomTimetableRepository(database, TimetableSubscriptionStore(preferences))
+    }
+
+    @After fun closeStorage() {
+        parent.cancel()
+        database.close()
+        preferences.edit().clear().commit()
+    }
 
     @Test
-    fun parserAndAndroidCacheKeepFinishedCourseUpdatesThroughReloadRefreshAndOfflineRestart() =
+    fun parserAndRoomStorageKeepFinishedCourseUpdatesThroughReloadRefreshAndOfflineRestart() =
         runBlocking<Unit>(Dispatchers.Main) {
             val account = "post-class-android-${UUID.randomUUID()}"
             val otherAccount = "post-class-android-${UUID.randomUUID()}"
             val url = "https://calendar.example.invalid/$account"
             var now = end.minusMinutes(1)
-            val store = TimetableSubscriptionStore(context)
-            try {
-                val initial = session(account, now = { now }) {
-                    Result.success(parse(now))
-                }
-                initial.connect(url).getOrThrow()
-                flushPreferenceWrites()
-                val occurrenceId = initial.state.value.sessions.single().id
-                val initialGroupKeys = initial.state.value.groups.map(CourseGroup::timetableKey)
-                assertTrue(initialGroupKeys.contains("COMP90018|course"))
-                assertEquals(2, initialGroupKeys.size) // Course and the still-upcoming tutorial slot.
+            val initial = session(account, now = { now }) { Result.success(calendar()) }
+            initial.connect(url).getOrThrow()
+            val occurrenceId = initial.state.value.sessions.single().id
+            val initialGroupKeys = initial.state.value.groups.map(CourseGroup::timetableKey)
+            assertTrue(initialGroupKeys.contains("COMP90018|course"))
+            assertEquals(2, initialGroupKeys.size) // Course and the still-upcoming tutorial slot.
 
-                // A separate account has its own URL and upcoming course throughout this journey.
-                val otherUrl = "https://calendar.example.invalid/$otherAccount"
-                store.save(otherAccount, otherUrl, parse(now, "SWEN90014", end.plusHours(2)), now.toInstant())
-                flushPreferenceWrites()
+            // A separate account has its own URL and upcoming course throughout this journey.
+            val otherUrl = "https://calendar.example.invalid/$otherAccount"
+            repository.replaceImport(otherAccount, otherUrl, parse(now, "SWEN90014", end.plusHours(2)), now.toInstant())
 
-                now = end.plusMinutes(5)
-                val recreated = session(account, now = { now }) { Result.success(parse(now)) }
-                assertTrue(recreated.state.value.isCached)
-                assertTrue(recreated.state.value.isLoading)
-                assertEquals(occurrenceId, recreated.state.value.sessions.single().id)
-                assertPostClassUpdates(recreated.state.value, now)
+            now = end.plusMinutes(5)
+            val recreated = session(account, now = { now }) { Result.success(calendar()) }
+            assertTrue(recreated.state.value.isCached)
+            assertFalse(recreated.state.value.isLoading)
+            assertEquals(occurrenceId, recreated.state.value.sessions.single().id)
+            assertPostClassUpdates(recreated.state.value, now)
 
-                now = end.plusMinutes(6)
-                recreated.refresh().getOrThrow()
-                flushPreferenceWrites()
-                assertFalse(recreated.state.value.isCached)
-                assertFalse(recreated.state.value.isLoading)
-                assertEquals(occurrenceId, recreated.state.value.sessions.single().id)
-                assertEquals(listOf("COMP90018|course"), recreated.state.value.groups.map(CourseGroup::timetableKey))
-                assertPostClassUpdates(recreated.state.value, now)
+            now = end.plusMinutes(6)
+            recreated.refresh().getOrThrow()
+            assertFalse(recreated.state.value.isCached)
+            assertFalse(recreated.state.value.isLoading)
+            assertEquals(occurrenceId, recreated.state.value.sessions.single().id)
+            assertEquals(listOf("COMP90018|course"), recreated.state.value.groups.map(CourseGroup::timetableKey))
+            assertPostClassUpdates(recreated.state.value, now)
 
-                // Construct another owner and store just as an offline app restart reloads disk.
-                now = end.plusMinutes(7)
-                val offline = session(account, now = { now }) { Result.failure(IOException("Offline test")) }
-                val savedBeforeFailure = TimetableSubscriptionStore(context).load(account)
-                assertEquals(occurrenceId, offline.state.value.sessions.single().id)
-                assertTrue(offline.refresh().isFailure)
-                assertTrue(offline.state.value.isCached)
-                assertFalse(offline.state.value.isLoading)
-                assertNotNull(offline.state.value.offlineNotice(zone))
-                assertEquals(savedBeforeFailure, TimetableSubscriptionStore(context).load(account))
-                assertPostClassUpdates(offline.state.value, now)
+            // Construct another owner just as an offline app restart reloads storage.
+            now = end.plusMinutes(7)
+            val offline = session(account, now = { now }) { Result.failure(IOException("Offline test")) }
+            val savedBeforeFailure = repository.load(account)
+            assertEquals(occurrenceId, offline.state.value.sessions.single().id)
+            assertTrue(offline.refresh().isFailure)
+            assertTrue(offline.state.value.isCached)
+            assertFalse(offline.state.value.isLoading)
+            assertNotNull(offline.state.value.offlineNotice(zone))
+            assertEquals(savedBeforeFailure, repository.load(account))
+            assertPostClassUpdates(offline.state.value, now)
 
-                val isolated = session(otherAccount, now = { now }) { Result.failure(IOException("Offline test")) }
-                assertEquals(otherUrl, isolated.state.value.url)
-                assertEquals("SWEN90014", isolated.state.value.sessions.single().code)
-                assertEquals(SessionStatus.Upcoming, isolated.state.value.sessions.single().statusAt(now))
-                assertFalse(session("post-class-unused-${UUID.randomUUID()}", { now }) {
-                    Result.failure(IOException("Offline test"))
-                }.state.value.isConnected)
+            val isolated = session(otherAccount, now = { now }) { Result.failure(IOException("Offline test")) }
+            assertEquals(otherUrl, isolated.state.value.url)
+            assertEquals("SWEN90014", isolated.state.value.sessions.single().code)
+            assertEquals(SessionStatus.Upcoming, isolated.state.value.sessions.single().statusAt(now))
+            assertFalse(session("post-class-unused-${UUID.randomUUID()}", { now }) {
+                Result.failure(IOException("Offline test"))
+            }.state.value.isConnected)
 
-                offline.clear()
-                flushPreferenceWrites()
-                assertEquals(SavedTimetable(""), store.load(account))
-                assertEquals(otherUrl, store.load(otherAccount).url)
-                assertEquals("SWEN90014", store.load(otherAccount).timetable!!.sessions.single().code)
-            } finally {
-                store.clear(account)
-                store.clear(otherAccount)
-                flushPreferenceWrites()
-            }
+            offline.clear().getOrThrow()
+            assertNull(repository.load(account).source)
+            assertTrue(repository.load(account).imported.isEmpty())
+            assertEquals(otherUrl, repository.load(otherAccount).source?.url)
+            assertEquals("SWEN90014", repository.load(otherAccount).imported.single().code)
         }
 
     @Test
     fun parserReloadAndHomeSelectionExpireAtExactlyFifteenMinutes() =
         runBlocking<Unit>(Dispatchers.Main) {
             val account = "post-class-expiry-${UUID.randomUUID()}"
-            val store = TimetableSubscriptionStore(context)
             var now = end.plusMinutes(15).minusNanos(1)
-            try {
-                val imported = parse(now)
-                assertEquals(1, imported.sessions.size)
-                store.save(account, "https://calendar.example.invalid/$account", imported, now.toInstant())
-                flushPreferenceWrites()
-                val justInside = session(account, { now }) { Result.failure(IOException("Offline test")) }
-                assertPostClassUpdates(justInside.state.value, now)
+            val imported = parse(now)
+            assertEquals(1, imported.sessions.size)
+            repository.replaceImport(account, "https://calendar.example.invalid/$account", imported, now.toInstant())
+            val justInside = session(account, { now }) { Result.failure(IOException("Offline test")) }
+            assertPostClassUpdates(justInside.state.value, now)
 
-                now = end.plusMinutes(15)
-                // Engine expiry must work even before a refresh/reload removes the retained row.
-                val expiredUpdates = homeUpdates(justInside.state.value, now)
-                assertNull(expiredUpdates.featuredGroup)
-                assertNull(expiredUpdates.contextLabel)
-                assertTrue(expiredUpdates.rows.isEmpty())
-                assertEquals(SessionStatus.Finished, justInside.state.value.sessions.single().statusAt(now))
+            now = end.plusMinutes(15)
+            // Engine expiry must work even before a refresh/reload removes the retained row.
+            val expiredUpdates = homeUpdates(justInside.state.value, now)
+            assertNull(expiredUpdates.featuredGroup)
+            assertNull(expiredUpdates.contextLabel)
+            assertTrue(expiredUpdates.rows.isEmpty())
+            assertEquals(SessionStatus.Finished, justInside.state.value.sessions.single().statusAt(now))
 
-                val reloaded = session(account, { now }) { Result.failure(IOException("Offline test")) }
-                assertTrue(reloaded.state.value.isConnected)
-                assertTrue(reloaded.state.value.sessions.isEmpty())
-                assertTrue(reloaded.refresh().isFailure)
-                assertTrue(reloaded.state.value.sessions.isEmpty())
-                assertNull(homeUpdates(reloaded.state.value, now).featuredGroup)
+            val reloaded = session(account, { now }) { Result.failure(IOException("Offline test")) }
+            assertTrue(reloaded.state.value.isConnected)
+            assertTrue(reloaded.state.value.sessions.isEmpty())
+            assertTrue(reloaded.refresh().isFailure)
+            assertTrue(reloaded.state.value.sessions.isEmpty())
+            assertNull(homeUpdates(reloaded.state.value, now).featuredGroup)
 
-                val refreshed = session(account, { now }) { Result.success(parse(now)) }
-                refreshed.refresh().getOrThrow()
-                assertTrue(refreshed.state.value.sessions.isEmpty())
-                assertTrue(parse(now).sessions.isEmpty())
-                assertNull(homeUpdates(refreshed.state.value, now).featuredGroup)
-                flushPreferenceWrites()
-                assertTrue(session(account, { now }) { Result.failure(IOException("Offline test")) }
-                    .state.value.sessions.isEmpty())
-            } finally {
-                store.clear(account)
-                flushPreferenceWrites()
-            }
+            val refreshed = session(account, { now }) { Result.success(calendar()) }
+            refreshed.refresh().getOrThrow()
+            assertTrue(refreshed.state.value.sessions.isEmpty())
+            assertTrue(parse(now).sessions.isEmpty())
+            assertNull(homeUpdates(refreshed.state.value, now).featuredGroup)
+            assertTrue(session(account, { now }) { Result.failure(IOException("Offline test")) }
+                .state.value.sessions.isEmpty())
         }
 
-    private fun session(
+    /** A new session per "process start"; the shared Room database is what survives between them. */
+    private suspend fun session(
         account: String,
         now: () -> ZonedDateTime,
-        import: suspend (String) -> Result<TimetableImport>
-    ) = TimetableSession(account, TimetableSubscriptionStore(context), import,
-        clock = { now().toInstant() }, displayZone = { zone })
+        download: suspend (String) -> Result<ByteArray>
+    ): TimetableSession = TimetableSession(
+        account, repository, parent, download,
+        parse = { bytes, retained -> Result.success(IcsTimetableParser().parse(bytes, now(), zone, retained)) },
+        clock = { now().toInstant() }, displayZone = { zone }
+    ).also { it.initialize().getOrThrow() }
 
     private fun assertPostClassUpdates(state: TimetableState, now: ZonedDateTime) {
         val finished = state.sessions.single()
@@ -222,9 +230,11 @@ class PostClassTimetableInstrumentedTest {
         now: ZonedDateTime,
         code: String = "COMP90018",
         classEnd: ZonedDateTime = end
-    ): TimetableImport {
+    ): TimetableImport = IcsTimetableParser().parse(calendar(code, classEnd), now, zone)
+
+    private fun calendar(code: String = "COMP90018", classEnd: ZonedDateTime = end): ByteArray {
         val format = java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss")
-        val calendar = """
+        return """
             BEGIN:VCALENDAR
             VERSION:2.0
             PRODID:-//Campus Companion//Android Post Class Test//EN
@@ -254,13 +264,6 @@ class PostClassTimetableInstrumentedTest {
             LOCATION:Parkville\, PAR-160
             END:VEVENT
             END:VCALENDAR
-        """.trimIndent().replace("\n", "\r\n")
-        return IcsTimetableParser().parse(calendar.toByteArray(), now, zone)
-    }
-
-    /** Waits for this test's apply() writes to reach disk without modifying unrelated keys. */
-    private fun flushPreferenceWrites() {
-        assertTrue(context.getSharedPreferences("timetable_subscription", Context.MODE_PRIVATE)
-            .edit().commit())
+        """.trimIndent().replace("\n", "\r\n").toByteArray()
     }
 }
