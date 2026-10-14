@@ -28,11 +28,6 @@ object SensingPolicy {
             return SensingMode.NORMAL
         }
         val start = session.start.toInstant()
-        if (!now.isBefore(start)) {
-            return if (now.isBefore(start.plusSeconds(config.lateGraceMinutes * 60L))) {
-                SensingMode.PRE_CLASS
-            } else SensingMode.NORMAL
-        }
         // Same-building room/title edits can retain the timing for sampling while Home updates.
         // Retimed classes, new buildings and accounts must bootstrap their own guidance.
         val guidance = snapshot.takeIf {
@@ -40,6 +35,12 @@ object SensingPolicy {
             !it.pending && resolved != null && resolved.id == session.id && resolved.code == session.code &&
                 resolved.start.toInstant() == start && resolved.end.toInstant() == session.end.toInstant() &&
                 it.building == target.building
+        }
+        if (!now.isBefore(start)) {
+            return if (now.isBefore(start.plusSeconds(config.lateGraceMinutes * 60L)) ||
+                guidance?.state == ContextState.EN_ROUTE || guidance?.state == ContextState.RUNNING_LATE) {
+                SensingMode.PRE_CLASS
+            } else SensingMode.NORMAL
         }
         if (guidance?.state == ContextState.EN_ROUTE || guidance?.state == ContextState.ARRIVED) {
             return SensingMode.PRE_CLASS

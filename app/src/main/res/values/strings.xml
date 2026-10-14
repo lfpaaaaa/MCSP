@@ -700,6 +700,9 @@
     <string name="home_status_running_late">Running late</string>
     <string name="home_status_arrived">Arrived</string>
     <string name="home_status_in_class">In class</string>
+    <string name="home_status_class_in_progress">Class in progress</string>
+    <string name="home_class_in_progress_until">Class in progress until %1$s</string>
+    <string name="home_arrival_unconfirmed">Your arrival has not been confirmed.</string>
     <string name="home_status_post_class">Post class</string>
     <string name="home_after_course">After %1$s</string>
     <string name="home_transit_sources">Public transport data sources</string>

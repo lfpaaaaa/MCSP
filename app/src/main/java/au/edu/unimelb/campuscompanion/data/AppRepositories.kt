@@ -110,9 +110,12 @@ object AppRepositories {
                 notify = { reminder -> DepartureNotifier.show(appContext, reminder) },
                 preferenceChanges = CourseReminderPreferencesStore.changes.map { Unit },
                 shade = DepartureNotifier.shade(appContext),
-                currentUserId = { SupabaseProvider.client?.auth?.currentUserOrNull()?.id },
+                // The SDK temporarily hides its session while background auto-refresh is paused.
+                currentUserId = { sensingAccounts.currentAccountId },
                 wasSent = { userId, session, stage -> departureHistory.wasSent(userId, session, stage) },
-                rememberSent = { userId, session, stage -> departureHistory.record(userId, session, stage) }
+                rememberSent = { userId, session, stage -> departureHistory.record(userId, session, stage) },
+                isCurrentSnapshot = { it === travel.snapshot.value },
+                withCurrentAccount = { userId, action -> sensingAccounts.withCurrentAccount(userId, action) }
             ).run()
         }
         SupabaseProvider.client?.let { client ->
@@ -122,22 +125,24 @@ object AppRepositories {
                         is SessionStatus.Authenticated -> {
                             val userId = status.session.user?.id
                             if (!sensingAccounts.ready.value || userId != sensingAccounts.currentAccountId) {
-                                if (sensingAccounts.currentAccountId != null) {
-                                    // Another account signed in without signing out first.
-                                    DepartureNotifier.cancelAll(appContext)
-                                    navigation.clear()
-                                }
+                                val replacesAccount = sensingAccounts.currentAccountId != null
                                 sensingAccounts.replaceAccount(userId,
-                                    userId?.let { TimetableSubscriptionStore(appContext).load(it).timetable?.sessions }.orEmpty())
+                                    userId?.let { TimetableSubscriptionStore(appContext).load(it).timetable?.sessions }.orEmpty()) {
+                                    if (replacesAccount) {
+                                        DepartureNotifier.cancelAll(appContext)
+                                        navigation.clear()
+                                    }
+                                }
                             }
                             push.onSignedIn()
                         }
                         // Cached group data belongs to the user who was signed in.
                         is SessionStatus.NotAuthenticated -> {
-                            sensingAccounts.replaceAccount(null, emptyList())
+                            sensingAccounts.replaceAccount(null, emptyList()) {
+                                navigation.clear()
+                                DepartureNotifier.cancelAll(appContext)
+                            }
                             appContext.stopService(Intent(appContext, SensingForegroundService::class.java))
-                            navigation.clear()
-                            DepartureNotifier.cancelAll(appContext)
                             groups.clearSession()
                             database.messageDao().deleteAll()
                         }
@@ -271,7 +276,8 @@ object AppRepositories {
     val weather: WeatherRepository by lazy { DefaultWeatherRepository(OpenMeteoWeatherDataSource()) }
 
     private fun courseReminderPreference(session: CourseSession): CourseReminderPreference {
-        val userId = SupabaseProvider.client?.auth?.currentUserOrNull()?.id
+        // Local sensing and reminders retain the confirmed account until an actual sign-out.
+        val userId = sensingAccounts.currentAccountId
             ?: return CourseReminderPreference(enabled = false)
         return CourseReminderPreferencesStore(appContext, userId).load(
             session.reminderSeriesKey(), session.legacyReminderSeriesKey()

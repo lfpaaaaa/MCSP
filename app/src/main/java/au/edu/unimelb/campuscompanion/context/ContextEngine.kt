@@ -25,7 +25,7 @@ data class ContextConfig(
     val longBreakMinutes: Int = 60,
     /** How long a finished class stays as [ContextState.POST_CLASS]. */
     val postClassMinutes: Int = 15,
-    /** How long after the start a student who is elsewhere counts as running late rather than absent. */
+    /** Initial high-rate acquisition after class starts; late or en-route trips continue to class end. */
     val lateGraceMinutes: Int = 15,
     /** Distance from the building that counts as arrived; matches the arrival geofence. */
     val arrivalRadiusMeters: Double = 75.0,
@@ -203,7 +203,7 @@ object ContextEngine {
 
         val travelMinutes = inputs.travelMinutes
         val state = when {
-            !now.isBefore(start) -> stateDuringClass(memory, inputs, start, config)
+            !now.isBefore(start) -> stateDuringClass(memory, inputs)
             memory.arrived && inDepartureWindow -> ContextState.ARRIVED
             memory.enRoute -> ContextState.EN_ROUTE
             travelMinutes != null && now.plus(minutes(travelMinutes)).isAfter(start) -> ContextState.RUNNING_LATE
@@ -231,18 +231,15 @@ object ContextEngine {
 
     private fun stateDuringClass(
         memory: ContextMemory,
-        inputs: ContextInputs,
-        start: Instant,
-        config: ContextConfig
+        inputs: ContextInputs
     ): ContextState {
-        val withinGrace = Duration.between(start, inputs.now) < minutes(config.lateGraceMinutes)
         return when {
             memory.arrived -> ContextState.IN_CLASS
-            withinGrace && memory.enRoute -> ContextState.EN_ROUTE
+            memory.enRoute -> ContextState.EN_ROUTE
             // Known to be away from the building (otherwise memory.arrived would be set).
-            withinGrace && (inputs.distanceMeters != null || inputs.lastKnownAway) -> ContextState.RUNNING_LATE
-            // Position unknown, or long past the start: assume the student is in class.
-            else -> ContextState.IN_CLASS
+            inputs.distanceMeters != null || inputs.lastKnownAway -> ContextState.RUNNING_LATE
+            // A timetable boundary cannot establish physical attendance.
+            else -> ContextState.CLASS_IN_PROGRESS
         }
     }
 

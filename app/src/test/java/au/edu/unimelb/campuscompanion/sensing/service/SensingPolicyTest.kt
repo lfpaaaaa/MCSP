@@ -93,12 +93,28 @@ class SensingPolicyTest {
     @Test
     fun lateGraceIsActiveFromClassStartThroughItsExclusiveEnd() {
         for (snapshot in listOf(TravelSnapshot.PENDING, guidance,
-            guidance.copy(state = ContextState.EN_ROUTE), guidance.copy(state = ContextState.ARRIVED))) {
+            guidance.copy(state = ContextState.CLASS_IN_PROGRESS), guidance.copy(state = ContextState.ARRIVED))) {
             assertEquals(SensingMode.PRE_CLASS, mode(start, snapshot))
             assertEquals(SensingMode.PRE_CLASS, mode(start.plusSeconds(15 * 60).minusNanos(1), snapshot))
             assertEquals(SensingMode.NORMAL, mode(start.plusSeconds(15 * 60), snapshot))
             assertEquals(SensingMode.NORMAL, mode(start.plusSeconds(20 * 60), snapshot))
         }
+    }
+
+    @Test
+    fun unfinishedCurrentTripsKeepHighRateAfterFifteenMinutesUntilClassEnd() {
+        for (state in listOf(ContextState.EN_ROUTE, ContextState.RUNNING_LATE)) {
+            val current = guidance.copy(state = state)
+            assertEquals(SensingMode.PRE_CLASS, mode(start.plusSeconds(15 * 60), current))
+            assertEquals(SensingMode.PRE_CLASS, mode(session.end.toInstant().minusNanos(1), current))
+            assertEquals(SensingMode.NORMAL, mode(session.end.toInstant(), current))
+            assertEquals(SensingMode.NORMAL, mode(start.plusSeconds(20 * 60),
+                current.copy(session = session.copy(id = "another-occurrence"))))
+            assertEquals(SensingMode.NORMAL, mode(start.plusSeconds(20 * 60),
+                current.copy(building = FakeBuildingLookup.ALAN_GILBERT)))
+        }
+        assertEquals(SensingMode.NORMAL, mode(start.plusSeconds(20 * 60),
+            guidance.copy(state = ContextState.IN_CLASS)))
     }
 
     @Test

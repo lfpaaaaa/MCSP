@@ -170,6 +170,32 @@ class HomeCardGuidanceTest {
     }
 
     @Test
+    fun calendarProgressDoesNotClaimTheStudentHasArrivedOrAskThemToLeave() {
+        val snapshot = snapshot(ContextState.CLASS_IN_PROGRESS).copy(
+            estimate = null, distanceMeters = null, leaveBy = null
+        )
+        val guidance = guidance(snapshot, nextClass.start.plusMinutes(6))
+        val headline = guidance.headline.english()
+        assertTrue(headline.startsWith("Class "))
+        assertTrue(headline.contains("4:00 PM"))
+        assertFalse(headline.startsWith("In class"))
+        assertEquals("CURRENT CLASS", guidance.cardLabel.english())
+        assertNull(guidance.departureLine?.english())
+        assertNull(guidance.bufferExplanation?.english())
+        assertFalse(guidance.showTravelDetails)
+        assertFalse(guidance.showWeatherCredit)
+    }
+
+    @Test
+    fun anInClassSnapshotBeforeTheStartShowsUpdatingGuidance() {
+        val guidance = guidance(snapshot(ContextState.IN_CLASS), nextClass.start.minusNanos(1))
+        assertEquals("Checking your next class", guidance.headline.english())
+        assertFalse(guidance.headline.english().startsWith("In class"))
+        assertNull(guidance.departureLine?.english())
+        assertFalse(guidance.showTravelDetails)
+    }
+
+    @Test
     fun runningLateBeforeClassPromptsDepartureAndExplainsTheTravelShortfall() {
         val guidance = guidance(snapshot(ContextState.RUNNING_LATE), nextClass.start.minusMinutes(15))
 

@@ -305,6 +305,22 @@ reminder settings. Existing course choices, legacy course fallback and notificat
 intact. The unused legacy travel-state resolver/manager and their private arrival helper have been
 removed. Chat and file subscriptions share the same capped retry backoff.
 
+Local reminder timing and delivery use the account confirmed by the sensing lifecycle. Supabase
+3.0 temporarily reports `Initializing` when background auto-refresh pauses; that temporary state
+must not disable course preferences or suppress local reminders. Actual sign-out still clears the
+account, timetable and sensing evidence. Queued reminders must still match the current engine
+snapshot; delivery and its history record finish under the account guard before a replacement or
+sign-out can clear that account.
+
+`IN_CLASS` requires both an active class time window and confirmed arrival. Entering within 75 m
+confirms arrival; the existing 200 m exit boundary prevents indoor GPS jitter from undoing it.
+The engine never infers attendance merely from an unknown position or 15 minutes passing.
+An active class without arrival evidence shows `CLASS_IN_PROGRESS` and an unconfirmed-arrival
+message. A student still away remains `RUNNING_LATE`, and an established trip remains `EN_ROUTE`,
+until arrival or class end. Those unfinished trips keep high-rate sensing after the initial
+15-minute acquisition window, without repeating audible reminders. Home rejects an in-class
+snapshot outside its occurrence's current time window.
+
 Home, the settings preview and notifications use the same leave-by time. The engine suppresses
 preparation and urgent prompts while travelling or after arrival. If the current travel estimate
 would arrive after class starts, it shows **Running late**. Lecture/tutorial/workshop switches

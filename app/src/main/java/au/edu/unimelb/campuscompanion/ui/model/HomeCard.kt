@@ -51,6 +51,7 @@ data class HomeCardUiState(
             ContextState.RUNNING_LATE -> UiText(R.string.home_status_running_late)
             ContextState.ARRIVED -> UiText(R.string.home_status_arrived)
             ContextState.IN_CLASS -> UiText(R.string.home_status_in_class)
+            ContextState.CLASS_IN_PROGRESS -> UiText(R.string.home_status_class_in_progress)
             // This pill belongs to the next class; the finished class remains available separately.
             ContextState.POST_CLASS -> if (session != null) UiText(R.string.home_status_upcoming) else UiText(R.string.home_status_post_class)
         }
@@ -63,7 +64,7 @@ data class HomeCardUiState(
             ContextState.LEAVE_SOON, ContextState.LEAVE_NOW, ContextState.RUNNING_LATE -> SessionStatus.LeaveSoon
             ContextState.EN_ROUTE -> SessionStatus.EnRoute
             ContextState.ARRIVED -> SessionStatus.Arrived
-            ContextState.IN_CLASS -> SessionStatus.InProgress
+            ContextState.IN_CLASS, ContextState.CLASS_IN_PROGRESS -> SessionStatus.InProgress
             ContextState.POST_CLASS -> if (session != null) SessionStatus.Upcoming else SessionStatus.Finished
         }
 }
@@ -95,7 +96,10 @@ fun buildHomeCardState(
             else -> snapshot.state == ContextState.NO_UPCOMING_CLASS
         }
     }
-    val current = snapshot.takeIf { matches }
+    val current = snapshot.takeIf {
+        matches && (it.state !in setOf(ContextState.IN_CLASS, ContextState.CLASS_IN_PROGRESS) ||
+            (session != null && !now.isBefore(session.start) && now.isBefore(session.end)))
+    }
     return HomeCardUiState(
         session = session,
         state = current?.state,

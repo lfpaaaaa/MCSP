@@ -225,6 +225,24 @@ class HomeCardTest {
     }
 
     @Test
+    fun aClassPeriodSnapshotCannotClaimAnActiveClassBeforeItsStart() {
+        for (state in listOf(ContextState.IN_CLASS, ContextState.CLASS_IN_PROGRESS)) {
+            val card = buildHomeCardState(listOf(nextClass), snapshot(state), nextClass.start.minusNanos(1))
+            assertUpdatingWithoutSnapshotData(card, nextClass)
+        }
+    }
+
+    @Test
+    fun aClassPeriodSnapshotIsAcceptedAtItsExactStartAcrossDisplayZones() {
+        for (state in listOf(ContextState.IN_CLASS, ContextState.CLASS_IN_PROGRESS)) {
+            val clock = nextClass.start.withZoneSameInstant(ZoneId.of("UTC"))
+            val card = buildHomeCardState(listOf(nextClass), snapshot(state), clock)
+            assertEquals(state, card.state)
+            assertFalse(card.isUpdating)
+        }
+    }
+
+    @Test
     fun sessionMatchingAndCountdownUseInstantsAcrossTimeZones() {
         val utc = ZoneId.of("UTC")
         val utcSession = nextClass.copy(

@@ -90,7 +90,9 @@ class DepartureReminders(
     private val shade: DepartureShade = DepartureShade.None,
     private val currentUserId: () -> String? = { "" },
     private val wasSent: (String, CourseSession, ContextState) -> Boolean = { _, _, _ -> false },
-    private val rememberSent: (String, CourseSession, ContextState) -> Unit = { _, _, _ -> }
+    private val rememberSent: (String, CourseSession, ContextState) -> Unit = { _, _, _ -> },
+    private val isCurrentSnapshot: (TravelSnapshot) -> Boolean = { true },
+    private val withCurrentAccount: (String, () -> DepartureReminder?) -> DepartureReminder? = { _, action -> action() }
 ) {
     private var remindedScope: ReminderScope? = null
     private val remindedStates = mutableSetOf<ContextState>()
@@ -106,13 +108,24 @@ class DepartureReminders(
     /** Brings the shade in line with [snapshot]; returns the reminder delivered with sound, or null. */
     fun consider(snapshot: TravelSnapshot): DepartureReminder? {
         if (snapshot.pending) return null
-        val session = snapshot.session
         val userId = currentUserId()
-        if (session == null || userId == null) {
+        if (userId == null) {
+            remindedScope = null
+            remindedStates.clear()
+            return null
+        }
+        return withCurrentAccount(userId) { considerForAccount(snapshot, userId) }
+    }
+
+    private fun considerForAccount(snapshot: TravelSnapshot, userId: String): DepartureReminder? {
+        // A queued result cannot borrow the replacement account's preferences or ownership.
+        if (!isCurrentSnapshot(snapshot)) return null
+        val session = snapshot.session
+        if (session == null) {
             remindedScope = null
             remindedStates.clear()
             // No class to leave for: whatever is still shown belongs to an earlier or removed class.
-            if (userId != null) withdrawAllExcept(null)
+            withdrawAllExcept(null)
             return null
         }
         val scope = ReminderScope(userId, session.id, session.start.toInstant())
@@ -135,6 +148,7 @@ class DepartureReminders(
         if (state in REMINDED_STATES && !delivered(userId, session, state)) {
             withdrawAllExcept(key)
             val reminder = reminder(snapshot, session, state, key)
+            if (!isCurrentSnapshot(snapshot)) return null
             if (!notify(reminder)) return null
             remindedStates.add(state)
             rememberSent(userId, session, state)

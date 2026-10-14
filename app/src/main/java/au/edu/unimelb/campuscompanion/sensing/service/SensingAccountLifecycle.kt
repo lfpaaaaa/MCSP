@@ -12,12 +12,22 @@ class SensingAccountLifecycle(private val travel: TravelEngine) {
     val eligible = _eligible.asStateFlow()
     private val _ready = MutableStateFlow(false)
     val ready = _ready.asStateFlow()
-    private var accountId: String? = null
+    @Volatile private var accountId: String? = null
     private var sessions: List<CourseSession> = emptyList()
-    internal val currentAccountId: String? get() = synchronized(lock) { accountId }
+    // Engine preference callbacks may hold the engine lock; avoid taking locks in reverse order.
+    internal val currentAccountId: String? get() = accountId
     internal val currentSessions: List<CourseSession> get() = synchronized(lock) { sessions }
 
-    fun replaceAccount(userId: String?, timetable: List<CourseSession>) = synchronized(lock) {
+    /** Local reminder delivery finishes before account replacement/sign-out can clear its scope. */
+    internal fun <T> withCurrentAccount(userId: String, action: () -> T): T? = synchronized(lock) {
+        if (accountId == userId) action() else null
+    }
+
+    fun replaceAccount(
+        userId: String?,
+        timetable: List<CourseSession>,
+        onAccountChanged: () -> Unit = {}
+    ) = synchronized(lock) {
         val changed = !_ready.value || accountId != userId
         // Target observers may run immediately on Main; expose the new owner before its generation.
         accountId = userId
@@ -32,6 +42,8 @@ class SensingAccountLifecycle(private val travel: TravelEngine) {
             travel.updateSessions(timetable, reset = changed)
             sessions = timetable.toList()
         }
+        // Old prompts are cleared before any guarded delivery can run for the new owner.
+        if (changed) onAccountChanged()
         _eligible.value = userId != null
         _ready.value = true
     }

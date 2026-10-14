@@ -49,7 +49,7 @@ class PostClassTimetableIntegrationTest {
         val occurrence = connected.state.value.sessions.single()
         val slotKey = occurrence.timetableGroupSpec()!!.key
         assertTrue(connected.state.value.groups.any { it.timetableKey == slotKey })
-        assertEquals(ContextState.IN_CLASS, home(connected).state)
+        assertEquals(ContextState.CLASS_IN_PROGRESS, home(connected).state)
 
         now = end.plusMinutes(4).toInstant()
         val recreated = session()
@@ -142,7 +142,7 @@ class PostClassTimetableIntegrationTest {
         assertNull(updates(pending).featuredGroup)
 
         val current = home(connected, engine)
-        assertEquals(ContextState.IN_CLASS, current.state)
+        assertEquals(ContextState.CLASS_IN_PROGRESS, current.state)
         assertNull(current.finishedSession)
         val recreated = session()
         assertEquals(corrected.end.toInstant(), recreated.state.value.sessions.single().end.toInstant())

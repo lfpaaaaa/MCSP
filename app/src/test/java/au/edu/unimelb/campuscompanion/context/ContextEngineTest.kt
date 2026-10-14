@@ -193,15 +193,53 @@ class ContextEngineTest {
     }
 
     @Test
-    fun aStudentKnownToBeAwayIsRunningLateUntilExactlyFifteenMinutesAfterTheStart() {
+    fun aStudentKnownToBeAwayRemainsRunningLateUntilTheClassEnds() {
         val trip = Trip()
         val start = at(15, 0)
         val graceEnds = at(15, 15)
 
         assertEquals(ContextState.RUNNING_LATE, trip.update(inputs(start)).state)
         assertEquals(ContextState.RUNNING_LATE, trip.update(inputs(graceEnds.minusSeconds(1))).state)
-        // At the grace boundary the student is assumed to be in class (or not going).
-        assertEquals(ContextState.IN_CLASS, trip.update(inputs(graceEnds)).state)
+        assertEquals(ContextState.RUNNING_LATE, trip.update(inputs(graceEnds)).state)
+        assertEquals(ContextState.RUNNING_LATE, trip.update(inputs(at(16, 0).minusNanos(1))).state)
+        assertEquals(ContextState.POST_CLASS, trip.update(inputs(at(16, 0))).state)
+    }
+
+    @Test
+    fun anActiveClassDoesNotImplyArrivalOutsideTheEntryRadius() {
+        for (distance in listOf(75.0001, 150.0, 200.0001, 2_000.0)) {
+            val decision = ContextEngine.decide(inputs(at(15, 30), distanceMeters = distance))
+            assertEquals(ContextState.RUNNING_LATE, decision.state)
+            assertFalse(decision.memory.arrived)
+        }
+    }
+
+    @Test
+    fun confirmedArrivalUsesTheExistingEntryAndExitHysteresisDuringClass() {
+        val trip = Trip()
+        assertEquals(ContextState.ARRIVED, trip.update(inputs(at(14, 59), distanceMeters = 75.0)).state)
+        assertEquals(ContextState.IN_CLASS, trip.update(inputs(at(15, 1), distanceMeters = 200.0)).state)
+        assertEquals(ContextState.RUNNING_LATE, trip.update(inputs(at(15, 2), distanceMeters = 200.0001)).state)
+    }
+
+    @Test
+    fun confirmedArrivalCannotClaimInClassBeforeStartOrAfterEnd() {
+        val trip = Trip()
+        assertEquals(ContextState.ARRIVED,
+            trip.update(inputs(at(15, 0).minusNanos(1), distanceMeters = 40.0)).state)
+        assertEquals(ContextState.IN_CLASS, trip.update(inputs(at(15, 0), distanceMeters = 40.0)).state)
+        assertEquals(ContextState.POST_CLASS, trip.update(inputs(at(16, 0), distanceMeters = 40.0)).state)
+    }
+
+    @Test
+    fun anEstablishedTripDoesNotBecomeInClassAtTheOldGraceBoundary() {
+        val trip = Trip()
+        trip.update(inputs(at(14, 57), distanceMeters = 2_000.0))
+        assertEquals(ContextState.EN_ROUTE,
+            trip.update(inputs(at(14, 59), distanceMeters = 1_940.0, isMoving = true)).state)
+        assertEquals(ContextState.EN_ROUTE, trip.update(inputs(at(15, 15), distanceMeters = 900.0)).state)
+        assertEquals(ContextState.EN_ROUTE, trip.update(inputs(at(15, 30), distanceMeters = 900.0)).state)
+        assertEquals(ContextState.POST_CLASS, trip.update(inputs(at(16, 0), distanceMeters = 900.0)).state)
     }
 
     @Test
@@ -213,7 +251,7 @@ class ContextEngineTest {
         assertNull(before.leaveBy)
 
         assertEquals(
-            ContextState.IN_CLASS,
+            ContextState.CLASS_IN_PROGRESS,
             trip.update(inputs(at(15, 5), travelMinutes = null, distanceMeters = null)).state
         )
         assertEquals(

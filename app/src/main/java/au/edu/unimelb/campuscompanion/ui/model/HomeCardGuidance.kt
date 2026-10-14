@@ -102,6 +102,10 @@ fun buildHomeCardGuidance(card: HomeCardUiState, now: ZonedDateTime): HomeCardGu
             card.building?.name?.takeIf(String::isNotBlank)?.let { UiText(R.string.home_at_building, it) }
         )
         ContextState.IN_CLASS -> HomeGuidanceText(UiText(R.string.home_in_class_until, guidanceTime(session.end, session)))
+        ContextState.CLASS_IN_PROGRESS -> HomeGuidanceText(
+            UiText(R.string.home_class_in_progress_until, guidanceTime(session.end, session)),
+            UiText(R.string.home_arrival_unconfirmed)
+        )
         ContextState.POST_CLASS -> HomeGuidanceText(nextClassStart(session, now))
         ContextState.NO_UPCOMING_CLASS -> HomeGuidanceText(UiText(R.string.home_no_more_today), nextClassStart(session, now))
     }

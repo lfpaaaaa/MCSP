@@ -29,8 +29,11 @@ enum class ContextState {
     /** At the class's building before it starts. */
     ARRIVED,
 
-    /** The class is in progress. */
+    /** The class is in progress and arrival at this building has been confirmed. */
     IN_CLASS,
+
+    /** The timetable says class is in progress, but the student's arrival is unconfirmed. */
+    CLASS_IN_PROGRESS,
 
     /** A class finished a few minutes ago and nothing about the next class needs attention yet. */
     POST_CLASS

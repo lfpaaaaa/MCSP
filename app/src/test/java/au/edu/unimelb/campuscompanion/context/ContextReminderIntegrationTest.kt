@@ -191,9 +191,23 @@ class ContextReminderIntegrationTest {
         assertEquals(ContextState.RUNNING_LATE, trip.reminders.consider(late)?.state)
         assertEquals(1, trip.sent.size)
 
-        val graceEnded = trip.refresh(at(11, 15))
-        assertSuppressed(trip, graceEnded, ContextState.IN_CLASS)
+        val afterFifteenMinutes = trip.refresh(at(11, 15))
+        assertEquals(ContextState.RUNNING_LATE, afterFifteenMinutes.state)
+        assertNull(trip.reminders.consider(afterFifteenMinutes))
         assertEquals(1, trip.sent.size)
+    }
+
+    @Test
+    fun unknownArrivalDuringAnActiveClassDoesNotDeliverAPersonalDepartureClaim() = runBlocking<Unit> {
+        val trip = Trip()
+        trip.now = at(11, 5)
+        trip.engine.updateOrigin(null)
+        trip.engine.refresh()
+        val current = trip.engine.snapshot.value
+        assertNull(current.distanceMeters)
+        assertNull(current.estimate)
+        assertSuppressed(trip, current, ContextState.CLASS_IN_PROGRESS)
+        assertTrue(trip.sent.isEmpty())
     }
 
     @Test

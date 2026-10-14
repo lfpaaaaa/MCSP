@@ -67,10 +67,10 @@ class TravelEngineLateGuidanceTest {
     }
 
     @Test
-    fun unknownPositionFromTheBeginningRetainsTheScheduleDerivedInClassAssumption() = runBlocking {
+    fun unknownPositionFromTheBeginningShowsCalendarProgressWithoutClaimingArrival() = runBlocking {
         val trip = Trip()
         trip.engine.refresh()
-        assertEquals(ContextState.IN_CLASS, trip.engine.snapshot.value.state)
+        assertEquals(ContextState.CLASS_IN_PROGRESS, trip.engine.snapshot.value.state)
         assertNull(trip.engine.snapshot.value.distanceMeters)
         assertNull(trip.engine.snapshot.value.estimate)
         assertNull(trip.reminders.consider(trip.engine.snapshot.value))
@@ -78,7 +78,7 @@ class TravelEngineLateGuidanceTest {
     }
 
     @Test
-    fun lastKnownAwayDoesNotExtendRunningLatePastTheFifteenMinuteGrace() = runBlocking {
+    fun lastKnownAwayKeepsRunningLateAndTheExistingPromptPastFifteenMinutes() = runBlocking {
         val trip = Trip()
         assertTrue(trip.engine.updateEvidence(trip.evidence()))
         trip.engine.refresh()
@@ -86,13 +86,22 @@ class TravelEngineLateGuidanceTest {
         val key = trip.shade.shownKeys().single()
         trip.advance(10 * 60)
         trip.engine.refresh()
-        assertEquals(ContextState.IN_CLASS, trip.engine.snapshot.value.state)
+        assertEquals(ContextState.RUNNING_LATE, trip.engine.snapshot.value.state)
         assertNull(trip.engine.snapshot.value.distanceMeters)
         trip.reminders.consider(trip.engine.snapshot.value)
+        assertTrue(trip.shade.withdrawn.isEmpty())
+        assertEquals(setOf(key), trip.shade.shownKeys())
+        assertEquals(1, trip.shade.alerts.size)
+        assertTrue(trip.engine.updateEvidence(trip.evidence()))
+        assertEquals(ContextState.RUNNING_LATE, trip.engine.snapshot.value.state)
+
+        trip.advance(45 * 60)
+        trip.engine.refresh()
+        assertEquals(ContextState.POST_CLASS, trip.engine.snapshot.value.state)
+        assertNull(trip.reminders.consider(trip.engine.snapshot.value))
         assertEquals(listOf(key), trip.shade.withdrawn)
         assertTrue(trip.shade.shownKeys().isEmpty())
-        assertTrue(trip.engine.updateEvidence(trip.evidence()))
-        assertEquals(ContextState.IN_CLASS, trip.engine.snapshot.value.state)
+        assertEquals(1, trip.shade.alerts.size)
     }
 
     @Test
@@ -100,15 +109,20 @@ class TravelEngineLateGuidanceTest {
         val trip = Trip()
         assertTrue(trip.engine.updateEvidence(trip.evidence()))
         trip.engine.refresh()
+        assertNotNull(trip.reminders.consider(trip.engine.snapshot.value))
+        val key = trip.shade.shownKeys().single()
         val oldEvidence = trip.evidence()
         trip.engine.stopSensing()
         trip.advance(1)
         trip.engine.startSensing()
         assertFalse(trip.engine.updateEvidence(oldEvidence))
         trip.engine.refresh()
-        assertEquals(ContextState.IN_CLASS, trip.engine.snapshot.value.state)
+        assertEquals(ContextState.CLASS_IN_PROGRESS, trip.engine.snapshot.value.state)
         assertNull(trip.engine.snapshot.value.distanceMeters)
         assertNull(trip.engine.snapshot.value.estimate)
+        assertNull(trip.reminders.consider(trip.engine.snapshot.value))
+        assertEquals(listOf(key), trip.shade.withdrawn)
+        assertTrue(trip.shade.shownKeys().isEmpty())
     }
 
     @Test
@@ -118,7 +132,7 @@ class TravelEngineLateGuidanceTest {
         trip.engine.refresh()
         trip.engine.updateSessions(listOf(trip.lecture.copy(room = "PAR-104")))
         trip.engine.refresh()
-        assertEquals(ContextState.IN_CLASS, trip.engine.snapshot.value.state)
+        assertEquals(ContextState.CLASS_IN_PROGRESS, trip.engine.snapshot.value.state)
         assertNull(trip.engine.snapshot.value.estimate)
         assertNull(trip.engine.snapshot.value.distanceMeters)
 
@@ -128,7 +142,7 @@ class TravelEngineLateGuidanceTest {
         assertEquals(ContextState.RUNNING_LATE, trip.engine.snapshot.value.state)
         trip.engine.updateSessions(listOf(trip.lecture.copy(room = "PAR-104")), reset = true)
         trip.engine.refresh()
-        assertEquals(ContextState.IN_CLASS, trip.engine.snapshot.value.state)
+        assertEquals(ContextState.CLASS_IN_PROGRESS, trip.engine.snapshot.value.state)
         assertNull(trip.engine.snapshot.value.estimate)
         assertNull(trip.engine.snapshot.value.distanceMeters)
     }
