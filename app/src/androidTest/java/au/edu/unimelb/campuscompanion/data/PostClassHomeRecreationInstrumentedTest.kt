@@ -115,7 +115,7 @@ class PostClassHomeRecreationInstrumentedTest {
                             travelSnapshot = TravelSnapshot(state = decision.state,
                                 session = decision.session, finishedSession = decision.finishedSession),
                             onTimetableUrlSave = session::connect,
-                            onTimetableRefresh = {}, onOpenGroup = {}, onNavigate = {},
+                            onTimetableRefresh = {}, onOpenGroup = {}, onNavigate = {}, onOpenCompass = {},
                             postClassGroupCandidates = listOf(groupFixture())
                         )
                     }

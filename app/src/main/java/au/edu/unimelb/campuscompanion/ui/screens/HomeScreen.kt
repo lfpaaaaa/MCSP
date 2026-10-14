@@ -26,6 +26,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -83,6 +84,7 @@ fun HomeScreen(
     onTimetableRefresh: () -> Unit,
     onOpenGroup: (CourseGroup) -> Unit,
     onNavigate: (CourseSession) -> Unit,
+    onOpenCompass: (CourseSession) -> Unit,
     postClassGroupCandidates: List<CourseGroup> = timetableState.groups,
     modifier: Modifier = Modifier
 ) {
@@ -170,7 +172,8 @@ fun HomeScreen(
                         session = cardSession,
                         card = homeCard,
                         guidance = guidance,
-                        onNavigate = { onNavigate(cardSession) }
+                        onNavigate = { onNavigate(cardSession) },
+                        onOpenCompass = { onOpenCompass(cardSession) }
                     )
                 } else {
                     HomeDayCard(guidance = guidance)
@@ -243,6 +246,7 @@ internal fun NextClassCard(
     card: HomeCardUiState,
     guidance: HomeCardGuidance,
     onNavigate: () -> Unit,
+    onOpenCompass: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val travel = card.estimate
@@ -319,6 +323,7 @@ internal fun NextClassCard(
                 }
             }
             Button(onClick = onNavigate, modifier = Modifier.fillMaxWidth()) { Text("Navigate with Google Maps") }
+            TextButton(onClick = onOpenCompass, modifier = Modifier.fillMaxWidth()) { Text("Direction to building") }
             if (guidance.showTravelDetails) {
                 when (travel?.source) {
                     EstimateSource.GoogleMaps -> Text("Google Maps", style = MaterialTheme.typography.bodySmall)

@@ -9,17 +9,29 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
+import android.view.Surface
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlin.math.abs
 import kotlin.math.min
 
-class CompassHeadingDetector(context: Context) : SensorEventListener {
+/**
+ * Accelerometer + magnetometer heading. [displayRotation] remaps the heading to the top edge of the
+ * current display, so a page can read the direction the phone is held in; the default keeps the
+ * device frame used by the sensing service.
+ */
+class CompassHeadingDetector(
+    context: Context,
+    private val displayRotation: () -> Int = { Surface.ROTATION_0 }
+) : SensorEventListener {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
     private val accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
     private val magnetometer = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
+    val isAvailable: Boolean get() = accelerometer != null && magnetometer != null
     private var started = false
+    private var magneticAccuracy = SensorManager.SENSOR_STATUS_UNRELIABLE
     private var activationNanos = 0L
     private var lastGravityObservationNanos = 0L
     private var lastMagneticObservationNanos = 0L
@@ -30,6 +42,7 @@ class CompassHeadingDetector(context: Context) : SensorEventListener {
     private val gravityValues = FloatArray(3)
     private val magneticValues = FloatArray(3)
     private val rotationMatrix = FloatArray(9)
+    private val displayMatrix = FloatArray(9)
     private val orientationValues = FloatArray(3)
 
     private val _sample = MutableStateFlow<CompassSample?>(null)
@@ -119,6 +132,7 @@ class CompassHeadingDetector(context: Context) : SensorEventListener {
             applyLowPassFilter(values, magneticValues, hasMagnetic)
             hasMagnetic = true
             magneticTimestampNanos = timestampNanos
+            magneticAccuracy = accuracy
         }
         calculateHeading(nowNanos)
     }
@@ -138,7 +152,15 @@ class CompassHeadingDetector(context: Context) : SensorEventListener {
             clearHeading()
             return
         }
-        SensorManager.getOrientation(rotationMatrix, orientationValues)
+        val rotation = displayRotation()
+        val (x, y) = when (rotation) {
+            Surface.ROTATION_90 -> SensorManager.AXIS_Y to SensorManager.AXIS_MINUS_X
+            Surface.ROTATION_180 -> SensorManager.AXIS_MINUS_X to SensorManager.AXIS_MINUS_Y
+            Surface.ROTATION_270 -> SensorManager.AXIS_MINUS_Y to SensorManager.AXIS_X
+            else -> SensorManager.AXIS_X to SensorManager.AXIS_Y
+        }
+        SensorManager.remapCoordinateSystem(rotationMatrix, x, y, displayMatrix)
+        SensorManager.getOrientation(displayMatrix, orientationValues)
         val heading = ((Math.toDegrees(orientationValues[0].toDouble()) + 360.0) % 360.0)
             .toFloat()
         if (!heading.isFinite()) {
@@ -149,7 +171,12 @@ class CompassHeadingDetector(context: Context) : SensorEventListener {
         // One live stream must not make an old counterpart appear newly measured.
         _sample.value = CompassSample(
             headingDegrees = heading,
-            timestampNanos = min(gravityTimestampNanos, magneticTimestampNanos)
+            timestampNanos = min(gravityTimestampNanos, magneticTimestampNanos),
+            accuracy = magneticAccuracy,
+            tiltDegrees = Math.toDegrees(
+                maxOf(abs(orientationValues[1]), abs(orientationValues[2])).toDouble()
+            ).toFloat(),
+            displayRotation = rotation
         )
     }
 
@@ -167,7 +194,12 @@ class CompassHeadingDetector(context: Context) : SensorEventListener {
             if (started && accuracy == SensorManager.SENSOR_STATUS_UNRELIABLE &&
                 (sensorType == Sensor.TYPE_ACCELEROMETER ||
                         sensorType == Sensor.TYPE_MAGNETIC_FIELD)
-            ) resetFilters()
+            ) {
+                resetFilters()
+            } else if (started && sensorType == Sensor.TYPE_MAGNETIC_FIELD) {
+                magneticAccuracy = accuracy
+                _sample.value = _sample.value?.copy(accuracy = accuracy)
+            }
         }
     }
 
@@ -185,7 +217,9 @@ class CompassHeadingDetector(context: Context) : SensorEventListener {
         gravityValues.fill(0f)
         magneticValues.fill(0f)
         rotationMatrix.fill(0f)
+        displayMatrix.fill(0f)
         orientationValues.fill(0f)
+        magneticAccuracy = SensorManager.SENSOR_STATUS_UNRELIABLE
         clearHeading()
     }
 

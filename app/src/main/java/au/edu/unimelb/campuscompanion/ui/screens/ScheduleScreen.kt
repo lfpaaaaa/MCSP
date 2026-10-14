@@ -95,6 +95,7 @@ fun ScheduleScreen(
     enabledReminderCount: Int,
     onOpenDepartureReminders: () -> Unit,
     onNavigate: (CourseSession) -> Unit,
+    onOpenCompass: (CourseSession) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var showTimetableDialog by rememberSaveable { mutableStateOf(false) }
@@ -207,6 +208,7 @@ fun ScheduleScreen(
                         item(key = "date-${day.date}") { ScheduleDateHeader(day.date, today) }
                         items(day.sessions, key = { "session-${it.id}" }) { session ->
                             ScheduleSessionCard(session, onNavigate = { onNavigate(session) },
+                                onOpenCompass = { onOpenCompass(session) },
                                 onEdit = { editorRequest = ClassEditorRequest(session) })
                         }
                     }
@@ -231,6 +233,7 @@ fun ScheduleScreen(
                     }
                     items(daySessions, key = { "session-${it.id}" }) { session ->
                         ScheduleSessionCard(session, onNavigate = { onNavigate(session) },
+                            onOpenCompass = { onOpenCompass(session) },
                             onEdit = { editorRequest = ClassEditorRequest(session) })
                     }
                 }
@@ -387,7 +390,12 @@ private fun ScheduleWeekSelector(
 }
 
 @Composable
-private fun ScheduleSessionCard(session: CourseSession, onNavigate: () -> Unit, onEdit: () -> Unit) {
+private fun ScheduleSessionCard(
+    session: CourseSession,
+    onNavigate: () -> Unit,
+    onOpenCompass: () -> Unit,
+    onEdit: () -> Unit
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
@@ -434,6 +442,7 @@ private fun ScheduleSessionCard(session: CourseSession, onNavigate: () -> Unit, 
                 }
             }
             TextButton(onClick = onNavigate) { Text("Navigate with Google Maps") }
+            TextButton(onClick = onOpenCompass) { Text("Direction to building") }
         }
     }
 }
