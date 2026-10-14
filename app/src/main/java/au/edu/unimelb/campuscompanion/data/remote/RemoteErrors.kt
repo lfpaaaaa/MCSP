@@ -26,8 +26,6 @@ fun Throwable.toDataError(): DataError = when (this) {
  */
 fun dataErrorFor(statusCode: Int, message: String?, cause: Throwable? = null): DataError =
     when (message) {
-        "pin_target_missing", "pin_target_invalid" -> DataError.Validation(UiText(R.string.pins_target_missing))
-        "pin_remove_forbidden" -> DataError.Validation(UiText(R.string.pins_remove_forbidden))
         "transcript_conflict" -> DataError.Validation(UiText(R.string.transcript_edit_conflict))
         "transcript_not_ready" -> DataError.Validation(UiText(R.string.transcript_not_ready_to_edit))
         "invalid_transcript_edit" -> DataError.Validation(UiText(R.string.transcript_edit_invalid))

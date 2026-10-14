@@ -47,10 +47,13 @@ class NavigationSession(
     private var vehicleAt = 0L
     private var inVehicle = false
 
-    @Synchronized fun open(destination: ClassDestination) {
-        if (state.value.destination == destination) return
+    @Synchronized fun open(destination: ClassDestination, mode: TravelMode = TravelMode.PublicTransport) {
+        if (state.value.destination == destination) {
+            if (state.value.mode != mode) changeMode(mode)
+            return
+        }
         stop()
-        mutableState.value = NavigationState(destination = destination)
+        mutableState.value = NavigationState(destination = destination, mode = mode)
     }
     @Synchronized fun changeMode(mode: TravelMode) {
         if (state.value.active) return

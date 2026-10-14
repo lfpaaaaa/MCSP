@@ -43,7 +43,8 @@ import androidx.lifecycle.repeatOnLifecycle
 import au.edu.unimelb.campuscompanion.R
 import au.edu.unimelb.campuscompanion.context.BuildingResolver
 import au.edu.unimelb.campuscompanion.data.AppRepositories
-import au.edu.unimelb.campuscompanion.data.TravelMode
+import au.edu.unimelb.campuscompanion.data.TravelPreferencesStore
+import au.edu.unimelb.campuscompanion.navigation.preferredNavigationMode
 import au.edu.unimelb.campuscompanion.navigation.openGoogleMaps
 import au.edu.unimelb.campuscompanion.navigation.toClassDestination
 import au.edu.unimelb.campuscompanion.sensing.orientation.CompassHeadingDetector
@@ -162,7 +163,15 @@ fun ClassCompassScreen(session: CourseSession?, loading: Boolean, modifier: Modi
         }
         Text(stringResource(R.string.compass_straight_direction), style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Button(onClick = { openGoogleMaps(context, destination, TravelMode.Walking) }, modifier = Modifier.fillMaxWidth()) {
+        Button(onClick = {
+            val mode = preferredNavigationMode(
+                destination = destination.point,
+                preferences = TravelPreferencesStore(context).load(),
+                location = fix ?: AppRepositories.navigation.location.value,
+                routeDistanceMeters = session.routeEstimate?.distanceMeters
+            )
+            openGoogleMaps(context, destination, mode)
+        }, modifier = Modifier.fillMaxWidth()) {
             Text(stringResource(R.string.campus_components_navigate_with_google_maps))
         }
     }

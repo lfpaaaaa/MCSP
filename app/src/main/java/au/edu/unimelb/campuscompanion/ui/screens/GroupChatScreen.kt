@@ -24,8 +24,6 @@ import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -103,13 +101,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import au.edu.unimelb.campuscompanion.data.AppRepositories
-import au.edu.unimelb.campuscompanion.data.model.GroupPinsState
-import au.edu.unimelb.campuscompanion.data.model.PinTarget
-import au.edu.unimelb.campuscompanion.data.model.PinKind
-import au.edu.unimelb.campuscompanion.data.model.PinVisibility
-import au.edu.unimelb.campuscompanion.data.toUserMessage
 import au.edu.unimelb.campuscompanion.data.model.ChatConnection
 import au.edu.unimelb.campuscompanion.data.model.MessageStatus
 import au.edu.unimelb.campuscompanion.data.model.SharedFile
@@ -229,27 +221,6 @@ fun GroupChatScreen(
         }
     }
     val state by session.state.collectAsState()
-    val pinsRepository = AppRepositories.groupPins
-    val pinsFlow = remember(group.id, pinsRepository) { pinsRepository.observe(group.id) }
-    val pins by pinsFlow.collectAsStateWithLifecycle(GroupPinsState())
-    val pinScope = rememberCoroutineScope()
-    var pinTarget by remember { mutableStateOf<PinTarget?>(null) }
-    var shownPins by rememberSaveable(group.id) { mutableStateOf<PinVisibility?>(null) }
-    var pinBusy by remember { mutableStateOf(false) }
-    var pinError by remember { mutableStateOf<String?>(null) }
-    fun performPinAction(closeActions: Boolean, action: suspend () -> Result<Unit>) {
-        if (pinBusy) return
-        pinBusy = true; pinError = null
-        pinScope.launch {
-            try {
-                action().onSuccess { if (closeActions) pinTarget = null }
-                    .onFailure { pinError = it.toUserMessage().body.resolve(textResources) }
-            } finally { pinBusy = false }
-        }
-    }
-    fun showPinActions(target: PinTarget) { pinError = null; pinTarget = target }
-    val personalPins = remember(pins.items) { pins.items.filter { it.visibility == PinVisibility.Personal }.mapTo(mutableSetOf()) { it.target } }
-    val sharedPins = remember(pins.items) { pins.items.filter { it.visibility == PinVisibility.Group }.mapTo(mutableSetOf()) { it.target } }
     val rows = remember(state.items) { timelineRows(state.items) }
     val sender = remember { AppRepositories.chatSender }
     val uploadQueue = remember { AppRepositories.attachmentUploads }
@@ -263,16 +234,6 @@ fun GroupChatScreen(
     state.items.filterIsInstance<ChatTimelineItem.File>().firstOrNull { it.file.id == selectedFileId }?.file?.let { file ->
         ChatAttachmentViewer(file, currentUserId, onDismiss = { selectedFileId = null })
     }
-
-    pinTarget?.let { target -> PinActionsDialog(pins, target, pinBusy, pinError,
-        onPin = { forEveryone -> performPinAction(true) { pinsRepository.pin(group.id, target, forEveryone) } },
-        onUnpin = { pin -> performPinAction(true) { pinsRepository.unpin(group.id, pin.id) } },
-        onDismiss = { pinTarget = null; pinError = null }) }
-    shownPins?.let { visibility -> PinnedItemsDialog(pins, visibility, pinBusy, pinError,
-        onUnpin = { pin -> performPinAction(false) { pinsRepository.unpin(group.id, pin.id) } },
-        onOpenFile = { selectedFileId = it.id; shownPins = null },
-        onRefresh = { pinsRepository.refresh(group.id) },
-        onDismiss = { shownPins = null; pinError = null }) }
 
     var draft by rememberSaveable(group.id) { mutableStateOf("") }
     var localAttachment by rememberSaveable(group.id, stateSaver = localAttachmentSaver) { mutableStateOf<LocalAttachment?>(null) }
@@ -450,7 +411,6 @@ fun GroupChatScreen(
             .imePadding()
     ) {
         ConnectionBanner(connection = state.connection)
-        GroupPinsBar(pins, onOpen = { shownPins = it; pinError = null }, onRetry = { pinsRepository.refresh(group.id) })
         LazyColumn(
             state = listState,
             modifier = Modifier
@@ -475,9 +435,6 @@ fun GroupChatScreen(
                     is TimelineRow.Entry -> when (val item = row.item) {
                         is ChatTimelineItem.Message -> ChatBubble(
                             item = item,
-                            personalPin = PinTarget(item.message.id, PinKind.Message) in personalPins,
-                            sharedPin = PinTarget(item.message.id, PinKind.Message) in sharedPins,
-                            onPin = { showPinActions(PinTarget(item.message.id, PinKind.Message)) },
                             onRetry = {
                                 val delivery = sender.retry(group.id, item.message.clientId)
                                 coroutineScope.launch { delivery.await().onFailure(session::report) }
@@ -486,9 +443,6 @@ fun GroupChatScreen(
                         is ChatTimelineItem.File -> FileBubble(
                             item = item,
                             images = images,
-                            personalPin = PinTarget(item.file.id, PinKind.File) in personalPins,
-                            sharedPin = PinTarget(item.file.id, PinKind.File) in sharedPins,
-                            onPin = { showPinActions(PinTarget(item.file.id, PinKind.File)) },
                             onOpen = { openFile(item.file) }
                         )
                     }
@@ -751,13 +705,9 @@ private fun DayLabel(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ChatBubble(
     item: ChatTimelineItem.Message,
-    personalPin: Boolean,
-    sharedPin: Boolean,
-    onPin: () -> Unit,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -781,9 +731,7 @@ private fun ChatBubble(
                 .semantics(mergeDescendants = true) {}
                 .then(if (isFailed) Modifier.clickable(role = Role.Button,
                     onClickLabel = textResources.getString(R.string.a11y_retry_message), onClick = onRetry)
-                else if (message.status == MessageStatus.Sent) Modifier.combinedClickable(
-                    onClick = onPin, onClickLabel = textResources.getString(R.string.pins_actions),
-                    onLongClick = onPin, onLongClickLabel = textResources.getString(R.string.pins_actions)) else Modifier),
+                else Modifier),
             shape = bubbleShape(isMine),
             color = when {
                 isFailed -> MaterialTheme.colorScheme.errorContainer
@@ -815,7 +763,6 @@ private fun ChatBubble(
                     style = MaterialTheme.typography.bodyLarge,
                     color = contentColor
                 )
-                PinBadge(personalPin, sharedPin, contentColor)
                 Text(
                     text = when (message.status) {
                         MessageStatus.Sending -> textResources.getString(R.string.group_chat_sending)
@@ -836,14 +783,10 @@ private fun ChatBubble(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun FileBubble(
     item: ChatTimelineItem.File,
     images: ChatImageLoader,
-    personalPin: Boolean,
-    sharedPin: Boolean,
-    onPin: () -> Unit,
     onOpen: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -868,8 +811,7 @@ private fun FileBubble(
         Surface(
             modifier = Modifier
                 .widthIn(min = 200.dp, max = 292.dp)
-                .combinedClickable(role = Role.Button, onClickLabel = textResources.getString(R.string.a11y_open_file, file.fileName), onClick = onOpen,
-                    onLongClick = onPin, onLongClickLabel = textResources.getString(R.string.pins_actions)),
+                .clickable(role = Role.Button, onClickLabel = textResources.getString(R.string.a11y_open_file, file.fileName), onClick = onOpen),
             shape = bubbleShape(isMine),
             color = if (isMine) {
                 MaterialTheme.colorScheme.primary
@@ -931,7 +873,6 @@ private fun FileBubble(
                         )
                     }
                 }
-                PinBadge(personalPin, sharedPin, contentColor)
                 if (!file.allowDownloads) {
                     Text(
                         text = if (isMine) textResources.getString(R.string.files_preview_only) else textResources.getString(R.string.group_chat_preview_only),
