@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -29,8 +30,10 @@ internal fun TranscriptPanel(file: SharedFile, currentUserId: String) {
     var submitting by remember(file.id) { mutableStateOf(false) }
     var error by remember(file.id) { mutableStateOf<String?>(null) }
     var refresh by remember(file.id) { mutableIntStateOf(0) }
+    var showReader by rememberSaveable(file.id) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     LaunchedEffect(file.id, refresh) {
+        loading = true
         do {
             val result = TranscriptRepository.get(file.id)
             result.onSuccess { transcript = it; error = null }.onFailure { error = it.toUserMessage().body.resolve(textResources) }
@@ -48,8 +51,10 @@ internal fun TranscriptPanel(file: SharedFile, currentUserId: String) {
         when (transcript?.status) {
             "ready" -> {
                 val text = transcript?.transcript.orEmpty().ifBlank { stringResource(R.string.transcript_empty) }
-                if (file.canDownloadBy(currentUserId)) SelectionContainer { Text(text) } else Text(text)
-                Text(stringResource(R.string.transcript_accuracy), style = MaterialTheme.typography.bodySmall)
+                val preview = if (text.length > 400) text.take(400) + "…" else text
+                if (file.canDownloadBy(currentUserId)) SelectionContainer { Text(preview) } else Text(preview)
+                Button(onClick = { showReader = true }) { Text(stringResource(R.string.transcript_read_search)) }
+                Text(stringResource(if (transcript?.editedAt != null) R.string.transcript_edited else R.string.transcript_accuracy), style = MaterialTheme.typography.bodySmall)
             }
             "queued" -> Text(stringResource(R.string.transcript_queued), modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
             "processing" -> Text(stringResource(R.string.transcript_processing), modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
@@ -67,8 +72,12 @@ internal fun TranscriptPanel(file: SharedFile, currentUserId: String) {
             }) { Text(stringResource(if (transcript?.status == "failed") R.string.transcript_retry else R.string.transcript_generate)) }
         }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
-        if (error != null || (transcript == null && file.uploaderId != currentUserId)) {
+        if (transcript?.status == "ready" || error != null || (transcript == null && file.uploaderId != currentUserId)) {
             TextButton(onClick = { refresh++ }) { Text(stringResource(R.string.action_refresh)) }
         }
+    }
+    if (showReader) transcript?.takeIf { it.status == "ready" }?.let { current ->
+        TranscriptDialog(file.fileName, current, canEdit = file.uploaderId == currentUserId,
+            canCopy = file.canDownloadBy(currentUserId), onChanged = { transcript = it }, onDismiss = { showReader = false })
     }
 }

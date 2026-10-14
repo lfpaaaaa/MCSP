@@ -17,4 +17,10 @@ class TranscriptTest {
         assertEquals("Welcome to class.", result.transcript)
         assertEquals("en", result.language)
     }
+    @Test fun manualEditMetadataDecodesAndLegacyResultsDefaultToRevisionZero() {
+        val edited = remoteJson.decodeFromString<FileTranscript>("""{"file_id":"file","status":"ready","transcript":"Corrected","revision":3,"edited_at":"2026-10-13T12:00:00Z"}""")
+        assertEquals(3, edited.revision)
+        assertNotNull(edited.editedAt)
+        assertEquals(0, remoteJson.decodeFromString<FileTranscript>("""{"file_id":"file","status":"ready"}""").revision)
+    }
 }

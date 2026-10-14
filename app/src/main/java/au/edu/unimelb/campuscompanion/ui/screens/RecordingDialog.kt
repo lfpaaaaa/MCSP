@@ -30,6 +30,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import au.edu.unimelb.campuscompanion.R
+import au.edu.unimelb.campuscompanion.ui.model.recordingLevel
 import au.edu.unimelb.campuscompanion.ui.profile.AppPermission
 import au.edu.unimelb.campuscompanion.ui.profile.AppPermissions
 import kotlinx.coroutines.delay
@@ -44,6 +45,7 @@ internal fun RecordingDialog(onDismiss: () -> Unit, onUse: (Uri, String) -> Unit
     val context = LocalContext.current
     var savedPath by rememberSaveable { mutableStateOf<String?>(null) }
     var recorder by remember { mutableStateOf<MediaRecorder?>(null) }
+    var inputLevel by remember { mutableStateOf<Float?>(0f) }
     var started by remember { mutableLongStateOf(0L) }
     var elapsed by rememberSaveable { mutableIntStateOf(0) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -52,6 +54,8 @@ internal fun RecordingDialog(onDismiss: () -> Unit, onUse: (Uri, String) -> Unit
     fun stop() {
         val active = recorder ?: return
         recorder = null
+        inputLevel = 0f
+        elapsed = ((SystemClock.elapsedRealtime() - started) / 1000).toInt()
         runCatching { active.stop() }.onFailure {
             savedPath?.let { File(it).delete() }; savedPath = null
             error = context.getString(R.string.recording_too_short)
@@ -59,7 +63,7 @@ internal fun RecordingDialog(onDismiss: () -> Unit, onUse: (Uri, String) -> Unit
         active.release()
     }
     fun start() {
-        error = null; denied = false
+        error = null; denied = false; inputLevel = 0f
         val directory = File(context.filesDir, "recordings").apply { mkdirs() }
         val file = File.createTempFile("recording-", ".m4a", directory)
         @Suppress("DEPRECATION")
@@ -92,7 +96,13 @@ internal fun RecordingDialog(onDismiss: () -> Unit, onUse: (Uri, String) -> Unit
         onDispose { lifecycle.removeObserver(observer); stopLatest() }
     }
     LaunchedEffect(recorder) {
-        while (recorder != null) { elapsed = ((SystemClock.elapsedRealtime() - started) / 1000).toInt(); delay(250) }
+        val active = recorder ?: return@LaunchedEffect
+        // Never read a recorder after stop/release; this effect is also cancelled on disposal.
+        while (recorder === active) {
+            elapsed = ((SystemClock.elapsedRealtime() - started) / 1000).toInt()
+            inputLevel = runCatching { recordingLevel(active.maxAmplitude) }.getOrNull()
+            delay(100)
+        }
     }
     AlertDialog(onDismissRequest = ::close, title = { Text(stringResource(R.string.record_audio)) },
         text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -100,6 +110,7 @@ internal fun RecordingDialog(onDismiss: () -> Unit, onUse: (Uri, String) -> Unit
             // The timer is readable on demand; only start/stop changes are live announcements.
             Text(audioTime(elapsed), style = MaterialTheme.typography.headlineLarge,
                 modifier = Modifier.semantics { contentDescription = textResources.getString(R.string.a11y_recording_duration, textResources.spokenDuration(elapsed)) })
+            RecordingLevelMeter(level = inputLevel, active = recorder != null)
             Text(stringResource(if (recorder != null) R.string.recording_active else if (savedPath != null) R.string.a11y_recording_stopped else R.string.a11y_recording_ready),
                 modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
             if (recorder == null) savedPath?.let { AudioAttachmentPlayer(File(it)) }
@@ -115,7 +126,7 @@ internal fun RecordingDialog(onDismiss: () -> Unit, onUse: (Uri, String) -> Unit
                 if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) start()
                 else permission.launch(Manifest.permission.RECORD_AUDIO)
             }) { Text(stringResource(R.string.recording_start)) }
-            else TextButton(onClick = { savedPath?.let { File(it).delete() }; savedPath = null; elapsed = 0 }) {
+            else TextButton(onClick = { savedPath?.let { File(it).delete() }; savedPath = null; elapsed = 0; inputLevel = 0f }) {
                 Text(stringResource(R.string.recording_again))
             }
         } },

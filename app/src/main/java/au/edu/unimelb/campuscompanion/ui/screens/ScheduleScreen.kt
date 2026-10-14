@@ -90,6 +90,7 @@ fun ScheduleScreen(
     enabledReminderCount: Int,
     onOpenDepartureReminders: () -> Unit,
     onNavigate: (CourseSession) -> Unit,
+    onOpenCompass: (CourseSession) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val textResources = textResources()
@@ -180,7 +181,7 @@ fun ScheduleScreen(
                     page.days.forEach { day ->
                         item(key = "date-${day.date}") { ScheduleDateHeader(day.date, today) }
                         items(day.sessions, key = { "session-${it.id}" }) { session ->
-                            ScheduleSessionCard(session, onNavigate = { onNavigate(session) })
+                            ScheduleSessionCard(session, onNavigate = { onNavigate(session) }, onOpenCompass = { onOpenCompass(session) })
                         }
                     }
                     if (page.pageCount > 1) {
@@ -203,7 +204,7 @@ fun ScheduleScreen(
                         item { NoScheduleClasses(textResources.getString(R.string.schedule_no_classes_on_this_day)) }
                     }
                     items(daySessions, key = { "session-${it.id}" }) { session ->
-                        ScheduleSessionCard(session, onNavigate = { onNavigate(session) })
+                        ScheduleSessionCard(session, onNavigate = { onNavigate(session) }, onOpenCompass = { onOpenCompass(session) })
                     }
                 }
             }
@@ -324,7 +325,7 @@ private fun ScheduleWeekSelector(
 }
 
 @Composable
-private fun ScheduleSessionCard(session: CourseSession, onNavigate: () -> Unit) {
+private fun ScheduleSessionCard(session: CourseSession, onNavigate: () -> Unit, onOpenCompass: () -> Unit) {
     val textResources = textResources()
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -358,6 +359,7 @@ private fun ScheduleSessionCard(session: CourseSession, onNavigate: () -> Unit) 
                 }
             }
             TextButton(onClick = onNavigate) { Text(textResources.getString(R.string.campus_components_navigate_with_google_maps)) }
+            TextButton(onClick = onOpenCompass) { Text(textResources.getString(R.string.compass_open)) }
         }
     }
 }
