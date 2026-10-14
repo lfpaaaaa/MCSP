@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
+    <string name="attachment_service_unavailable">Attachment sharing is not available on the server yet. Contact the app administrator, then retry.</string>
     <!-- Keep complete sentences, positional format arguments, and plurals in resources. -->
     <string name="app_name">Campus Companion</string>
     <string name="nfc_invite_service_description">Share a Campus Companion group invitation</string>

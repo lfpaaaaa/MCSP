@@ -39,7 +39,7 @@ class SupabaseFileDataSource(private val client: SupabaseClient) : FileRemoteDat
     private val bucket
         get() = client.storage.from(BUCKET)
 
-    override suspend fun fetchFiles(groupId: String): List<SharedFileRow> = remoteCall {
+    override suspend fun fetchFiles(groupId: String): List<SharedFileRow> = fileRemoteCall {
         val result = client.postgrest.rpc("group_files", buildJsonObject { put("p_group_id", groupId) })
         decodeRows(result.data, SharedFileRow.serializer())
     }
@@ -51,9 +51,9 @@ class SupabaseFileDataSource(private val client: SupabaseClient) : FileRemoteDat
                 contentType = runCatching { ContentType.parse(mimeType) }.getOrNull()
             }
             .mapNotNull { status -> (status as? UploadStatus.Progress)?.totalBytesSend }
-            .catch { error -> throw error.toDataError() }
+            .catch { error -> throw error.toFileDataError() }
 
-    override suspend fun insertFileRecord(record: NewFileRecord): SharedFileRow = remoteCall {
+    override suspend fun insertFileRecord(record: NewFileRecord): SharedFileRow = fileRemoteCall {
         val result = client.postgrest.from("shared_files").insert(
             buildJsonObject {
                 put("group_id", record.groupId)
@@ -69,7 +69,7 @@ class SupabaseFileDataSource(private val client: SupabaseClient) : FileRemoteDat
         decodeRow(result.data, SharedFileRow.serializer())
     }
 
-    override suspend fun deleteFileRecord(fileId: String): Int = remoteCall {
+    override suspend fun deleteFileRecord(fileId: String): Int = fileRemoteCall {
         val result = client.postgrest.from("shared_files").delete {
             select()
             filter { eq("id", fileId) }
@@ -78,10 +78,10 @@ class SupabaseFileDataSource(private val client: SupabaseClient) : FileRemoteDat
     }
 
     override suspend fun deleteObject(path: String) {
-        remoteCall { bucket.delete(path) }
+        fileRemoteCall { bucket.delete(path) }
     }
 
-    override suspend fun createAccessUrl(fileId: String, forDownload: Boolean): String = remoteCall {
+    override suspend fun createAccessUrl(fileId: String, forDownload: Boolean): String = fileRemoteCall {
         val response = client.functions.invoke("group-file-url", buildJsonObject {
             put("fileId", fileId)
             put("purpose", if (forDownload) "download" else "preview")
