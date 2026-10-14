@@ -38,7 +38,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -54,7 +53,6 @@ import au.edu.unimelb.campuscompanion.ui.components.SectionHeader
 import au.edu.unimelb.campuscompanion.ui.model.CourseGroup
 import au.edu.unimelb.campuscompanion.ui.model.GROUP_JOIN_CODE_LENGTH
 import au.edu.unimelb.campuscompanion.ui.model.NfcJoinUiState
-import au.edu.unimelb.campuscompanion.ui.model.StartedGroupAccess
 import au.edu.unimelb.campuscompanion.ui.model.TimetableState
 import au.edu.unimelb.campuscompanion.ui.model.isValidGroupJoinCode
 import au.edu.unimelb.campuscompanion.ui.model.normalizeGroupJoinCode
@@ -68,7 +66,8 @@ fun GroupsScreen(
     mutedGroupIds: Set<String>,
     onOpenTimetableSetup: () -> Unit,
     onOpenGroup: (CourseGroup) -> Unit,
-    onStartGroup: suspend (name: String, courseCode: String?) -> Result<StartedGroupAccess>,
+    /** Both callbacks open the new group's chat themselves once the server has confirmed it. */
+    onStartGroup: suspend (name: String, courseCode: String?) -> Result<Unit>,
     onJoinGroup: suspend (code: String) -> Result<Unit>,
     nfcJoinState: NfcJoinUiState,
     onStartNfcJoin: () -> Unit,
@@ -398,109 +397,91 @@ private fun EmptyActiveGroups(
 @Composable
 private fun StartGroupDialog(
     onDismiss: () -> Unit,
-    onStartGroup: suspend (name: String, courseCode: String?) -> Result<StartedGroupAccess>
+    onStartGroup: suspend (name: String, courseCode: String?) -> Result<Unit>
 ) {
     var name by rememberSaveable { mutableStateOf("") }
     var courseCode by rememberSaveable { mutableStateOf("") }
     var errorMessage by rememberSaveable { mutableStateOf<String?>(null) }
     var isSubmitting by rememberSaveable { mutableStateOf(false) }
-    var startedGroup by remember { mutableStateOf<StartedGroupAccess?>(null) }
     val scope = rememberCoroutineScope()
 
     AlertDialog(
         onDismissRequest = {
             if (!isSubmitting) onDismiss()
         },
-        icon = {
-            if (startedGroup != null) {
-                Icon(Icons.Outlined.CheckCircle, contentDescription = null)
-            }
-        },
-        title = { Text(if (startedGroup == null) "Start group" else "Group started") },
+        title = { Text("Start group") },
         text = {
-            val result = startedGroup
-            if (result == null) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedTextField(
-                        value = name,
-                        onValueChange = {
-                            name = it.take(60)
-                            errorMessage = null
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Group name") },
-                        singleLine = true
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = {
+                        name = it.take(60)
+                        errorMessage = null
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Group name") },
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = courseCode,
+                    onValueChange = {
+                        courseCode = it.uppercase().filterNot(Char::isWhitespace).take(9)
+                        errorMessage = null
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Course code (optional)") },
+                    placeholder = { Text("COMP90018") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
+                )
+                Text(
+                    text = "The group chat opens as soon as it is created, together with its 6-character join code. " +
+                        "The code stays in Group settings → View join code for 5 minutes.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                errorMessage?.let { error ->
+                    Text(
+                        text = error,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
                     )
-                    OutlinedTextField(
-                        value = courseCode,
-                        onValueChange = {
-                            courseCode = it.uppercase().filterNot(Char::isWhitespace).take(9)
-                            errorMessage = null
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Course code (optional)") },
-                        placeholder = { Text("COMP90018") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
-                    )
-                    errorMessage?.let { error ->
-                        Text(
-                            text = error,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error
-                        )
-                    }
-                }
-            } else {
-                Column(
-                    modifier = Modifier.verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Text("${result.groupName} is ready.")
-                    GroupJoinCodeContent(result)
                 }
             }
         },
         confirmButton = {
-            if (startedGroup == null) {
-                Button(
-                    onClick = {
-                        scope.launch {
-                            isSubmitting = true
-                            onStartGroup(name, courseCode.ifBlank { null }).fold(
-                                onSuccess = { startedGroup = it },
-                                onFailure = {
-                                    errorMessage = startGroupErrorMessage(it)
-                                }
-                            )
-                            isSubmitting = false
-                        }
-                    },
-                    enabled = name.isNotBlank() && !isSubmitting
-                ) {
-                    if (isSubmitting) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            strokeWidth = 2.dp
+            Button(
+                onClick = {
+                    scope.launch {
+                        isSubmitting = true
+                        onStartGroup(name, courseCode.ifBlank { null }).fold(
+                            // The app has already opened the new group's chat.
+                            onSuccess = { onDismiss() },
+                            onFailure = {
+                                errorMessage = startGroupErrorMessage(it)
+                            }
                         )
-                    } else {
-                        Text("Start")
+                        isSubmitting = false
                     }
-                }
-            } else {
-                TextButton(onClick = onDismiss) {
-                    Text("Done")
+                },
+                enabled = name.isNotBlank() && !isSubmitting
+            ) {
+                if (isSubmitting) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Text("Start")
                 }
             }
         },
         dismissButton = {
-            if (startedGroup == null) {
-                TextButton(
-                    onClick = onDismiss,
-                    enabled = !isSubmitting
-                ) {
-                    Text("Cancel")
-                }
+            TextButton(
+                onClick = onDismiss,
+                enabled = !isSubmitting
+            ) {
+                Text("Cancel")
             }
         }
     )
