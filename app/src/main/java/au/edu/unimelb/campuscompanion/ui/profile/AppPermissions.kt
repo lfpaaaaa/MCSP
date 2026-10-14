@@ -34,6 +34,10 @@ enum class AppPermission(val title: String, val purpose: String) {
         title = "Camera",
         purpose = "Photos for the group chat and scanning invitation QR codes."
     ),
+    Microphone(
+        title = "Microphone",
+        purpose = "Record voice messages to share with your groups."
+    ),
     PhysicalActivity(
         title = "Physical activity",
         purpose = "Helps confirm walking, running or riding toward class so departure prompts can be withdrawn."
@@ -54,6 +58,7 @@ enum class AppPermission(val title: String, val purpose: String) {
                 emptyList()
             }
             Camera -> listOf(Manifest.permission.CAMERA)
+            Microphone -> listOf(Manifest.permission.RECORD_AUDIO)
             PhysicalActivity -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 listOf(Manifest.permission.ACTIVITY_RECOGNITION)
             } else {
@@ -80,6 +85,7 @@ object AppPermissions {
             backgroundArrival(locationState),
             notifications(allowed = Notifications.canNotify(context)),
             camera(granted = context.has(Manifest.permission.CAMERA)),
+            microphone(granted = context.has(Manifest.permission.RECORD_AUDIO)),
             physicalActivity(
                 granted = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
                     context.has(Manifest.permission.ACTIVITY_RECOGNITION)
@@ -126,6 +132,12 @@ object AppPermissions {
         permission = AppPermission.PhysicalActivity,
         granted = granted,
         detail = if (granted) "Allowed" else "Not allowed; motion sensors provide the walking fallback"
+    )
+
+    internal fun microphone(granted: Boolean) = PermissionStatus(
+        permission = AppPermission.Microphone,
+        granted = granted,
+        detail = if (granted) "Allowed" else "Asked for when you start a voice recording"
     )
 
     /** Separate education before the optional background request; foreground access comes first. */

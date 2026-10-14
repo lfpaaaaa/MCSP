@@ -7,7 +7,12 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
 /** Persisted before sending so a retry addresses the same object and metadata row. */
-data class FileUploadIdentity(val id: String, val storagePath: String)
+data class FileUploadIdentity(
+    val id: String,
+    val storagePath: String,
+    val durationMillis: Long? = null,
+    val isVoiceRecording: Boolean = false
+)
 
 /** Files shared inside a group, kept in private cloud storage. */
 interface FileRepository {

@@ -70,6 +70,8 @@ class FakeFileRemoteDataSource : FileRemoteDataSource {
             sizeBytes = record.sizeBytes,
             storagePath = record.storagePath,
             allowDownloads = record.allowDownloads,
+            durationMillis = record.durationMillis,
+            isVoiceRecording = record.isVoiceRecording,
             createdAt = "2026-09-25T06:00:00Z"
         )
         stored += row

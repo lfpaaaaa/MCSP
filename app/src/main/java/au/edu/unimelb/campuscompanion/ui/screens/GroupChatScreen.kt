@@ -14,6 +14,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
@@ -23,6 +24,9 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
@@ -43,6 +47,7 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.Videocam
 import androidx.compose.material3.CircularProgressIndicator
@@ -86,16 +91,24 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import au.edu.unimelb.campuscompanion.data.AppRepositories
+import au.edu.unimelb.campuscompanion.data.AttachmentUploadQueue
+import au.edu.unimelb.campuscompanion.data.DataError
 import au.edu.unimelb.campuscompanion.data.model.ChatConnection
 import au.edu.unimelb.campuscompanion.data.model.MessageStatus
 import au.edu.unimelb.campuscompanion.data.model.SharedFile
 import au.edu.unimelb.campuscompanion.data.repository.ChatRepository
+import au.edu.unimelb.campuscompanion.data.repository.ChatMessageSender
 import au.edu.unimelb.campuscompanion.data.repository.FileRepository
+import au.edu.unimelb.campuscompanion.data.recording.RecordingController
+import au.edu.unimelb.campuscompanion.data.recording.RecordingDraft
+import au.edu.unimelb.campuscompanion.data.recording.RecordingDraftPhase
+import au.edu.unimelb.campuscompanion.data.recording.RecordingDraftStore
 import au.edu.unimelb.campuscompanion.ui.chat.ChatImageLoader
 import au.edu.unimelb.campuscompanion.ui.chat.ChatTimelineItem
 import au.edu.unimelb.campuscompanion.ui.chat.GroupChatSession
@@ -107,6 +120,9 @@ import au.edu.unimelb.campuscompanion.ui.model.CourseGroup
 import au.edu.unimelb.campuscompanion.ui.model.GroupOrigin
 import au.edu.unimelb.campuscompanion.ui.model.MAX_PENDING_DOCUMENTS
 import au.edu.unimelb.campuscompanion.ui.model.PendingDocument
+import au.edu.unimelb.campuscompanion.ui.model.formatAudioDuration
+import au.edu.unimelb.campuscompanion.ui.model.sharedAudioLabel
+import au.edu.unimelb.campuscompanion.ui.model.stopAllAudioPlayback
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -117,6 +133,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import java.io.File
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -144,7 +161,8 @@ private enum class AttachmentKind {
     File,
     Photo,
     Video,
-    Camera
+    Camera,
+    Audio
 }
 
 /**
@@ -166,13 +184,17 @@ fun GroupChatScreen(
     onCapturedCameraPhotoConsumed: () -> Unit,
     modifier: Modifier = Modifier,
     chatRepository: ChatRepository = AppRepositories.chat,
-    fileRepository: FileRepository = AppRepositories.files
+    fileRepository: FileRepository = AppRepositories.files,
+    attachmentUploadQueue: AttachmentUploadQueue = AppRepositories.attachmentUploads,
+    messageSender: ChatMessageSender = AppRepositories.chatSender,
+    recordingStore: RecordingDraftStore = AppRepositories.recordings,
+    recordingControllerFactory: ((CoroutineScope) -> RecordingController)? = null
 ) {
     val listState = rememberLazyListState()
     val focusManager = LocalFocusManager.current
     val context = LocalContext.current
-    val sessionScope = remember(group.id) { CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate) }
-    val session = remember(group.id) {
+    val sessionScope = remember(group.id, currentUserId) { CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate) }
+    val session = remember(group.id, currentUserId, chatRepository, fileRepository) {
         GroupChatSession(
             groupId = group.id,
             currentUserId = currentUserId,
@@ -183,7 +205,7 @@ fun GroupChatScreen(
             onLatency = ::logLatency
         )
     }
-    val images = remember(group.id) { ChatImageLoader(fileRepository, sessionScope) }
+    val images = remember(group.id, currentUserId, fileRepository) { ChatImageLoader(fileRepository, sessionScope) }
     DisposableEffect(sessionScope) {
         session.start()
         onDispose { sessionScope.cancel() }
@@ -209,8 +231,8 @@ fun GroupChatScreen(
     }
     val state by session.state.collectAsState()
     val rows = remember(state.items) { timelineRows(state.items) }
-    val sender = remember { AppRepositories.chatSender }
-    val uploadQueue = remember { AppRepositories.attachmentUploads }
+    val sender = messageSender
+    val uploadQueue = attachmentUploadQueue
     val allUploads by uploadQueue.uploads.collectAsState()
     val sharedIds = state.items.filterIsInstance<ChatTimelineItem.File>().mapTo(mutableSetOf()) { it.file.id }
     val uploads = allUploads.filter {
@@ -219,12 +241,28 @@ fun GroupChatScreen(
     LaunchedEffect(group.id, sharedIds) {
         runCatching { uploadQueue.acknowledge(sharedIds) }.onFailure(session::report)
     }
-    var selectedFile by remember(group.id) { mutableStateOf<SharedFile?>(null) }
-    selectedFile?.let { file -> ChatAttachmentViewer(file, currentUserId, onDismiss = { selectedFile = null }) }
+    var selectedFile by remember(group.id, currentUserId) { mutableStateOf<SharedFile?>(null) }
+    selectedFile?.let { file -> ChatAttachmentViewer(file, currentUserId, onDismiss = { selectedFile = null }, repository = fileRepository) }
 
-    var draft by rememberSaveable(group.id) { mutableStateOf("") }
-    var localAttachment by rememberSaveable(group.id, stateSaver = localAttachmentSaver) { mutableStateOf<LocalAttachment?>(null) }
-    var blockedDownloadUris by rememberSaveable(group.id) { mutableStateOf(arrayListOf<String>()) }
+    var draft by rememberSaveable(group.id, currentUserId) { mutableStateOf("") }
+    var localAttachment by rememberSaveable(group.id, currentUserId, stateSaver = localAttachmentSaver) { mutableStateOf<LocalAttachment?>(null) }
+    var blockedDownloadUris by rememberSaveable(group.id, currentUserId) { mutableStateOf(arrayListOf<String>()) }
+    var stagedRecording by remember(currentUserId, group.id, recordingStore) { mutableStateOf<RecordingDraft?>(null) }
+    var showRecording by rememberSaveable(currentUserId, group.id) { mutableStateOf(false) }
+    // Staging is durable. Reconcile the enqueue-before-markQueued crash window using its stable ID.
+    LaunchedEffect(currentUserId, group.id, recordingStore, uploadQueue) {
+        runCatching {
+            val restored = recordingStore.load(currentUserId, group.id)
+            restored.warning?.let { session.report(DataError.Validation(it)) }
+            val clip = restored.draft
+            if (clip?.phase == RecordingDraftPhase.Staged) {
+                val queued = uploadQueue.uploads.value.any {
+                    it.userId == currentUserId && it.groupId == group.id && it.uploadId == clip.id && it.isVoiceRecording
+                }
+                if (queued) recordingStore.markQueued(clip) else stagedRecording = clip
+            }
+        }.onFailure(session::report)
+    }
     fun setDownloadAllowed(uri: String, allowed: Boolean) {
         blockedDownloadUris = ArrayList(if (allowed) blockedDownloadUris - uri else (blockedDownloadUris + uri).distinct())
     }
@@ -236,15 +274,29 @@ fun GroupChatScreen(
     // Persist the URI before reading bytes; uploads survive leaving the chat and can be retried.
     fun uploadFromUri(uri: Uri, fallbackName: String, fallbackType: String = "application/octet-stream") {
         uploadQueue.enqueue(group.id, uri.toString(), fallbackName,
-            context.contentResolver.getType(uri) ?: fallbackType, allowDownloads = uri.toString() !in blockedDownloadUris)
+            context.contentResolver.getType(uri) ?: fallbackType, allowDownloads = uri.toString() !in blockedDownloadUris,
+            expectedUserId = currentUserId)
     }
 
     fun sendDraft() {
         val text = draft.trim()
         val documents = pendingDocuments
         val local = localAttachment
-        if (text.isEmpty() && documents.isEmpty() && local == null) return
+        val recording = stagedRecording
+        if (text.isEmpty() && documents.isEmpty() && local == null && recording == null) return
         try {
+            recording?.let { clip ->
+                if (clip.userId != currentUserId || clip.groupId != group.id) throw DataError.Unauthenticated()
+                stopAllAudioPlayback()
+                uploadQueue.enqueue(group.id, File(clip.localPath).toURI().toString(), clip.fileName,
+                    "audio/mp4", allowDownloads = clip.allowDownloads, durationMillis = clip.durationMillis,
+                    isVoiceRecording = true, uploadId = clip.id, expectedUserId = clip.userId)
+                stagedRecording = null
+                // The original remains available for queue retries until confirmation or dismissal.
+                runCatching { recordingStore.markQueued(clip) }.onFailure {
+                    session.report(DataError.Validation("The clip is queued for upload. Its local draft will be reconciled when chat reopens."))
+                }
+            }
             documents.forEach { document -> uploadFromUri(Uri.parse(document.uri), document.displayName) }
             local?.let {
                 uploadFromUri(it.uri, it.displayName,
@@ -263,6 +315,13 @@ fun GroupChatScreen(
         blockedDownloadUris = arrayListOf()
         onPendingDocumentsCleared()
         focusManager.clearFocus()
+    }
+
+    if (showRecording) {
+        RecordingDialog(currentUserId, group.id, recordingStore,
+            onDismiss = { showRecording = false },
+            onUse = { clip -> stagedRecording = clip; showRecording = false },
+            controllerFactory = recordingControllerFactory)
     }
 
     fun openFile(file: SharedFile) {
@@ -384,172 +443,215 @@ fun GroupChatScreen(
         }
     }
 
-    Column(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
             .imePadding()
     ) {
-        ConnectionBanner(connection = state.connection)
-        LazyColumn(
-            state = listState,
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 18.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            item(key = "group-notice") {
-                GroupNotice(
-                    group = group,
-                    isLoadingOlder = state.isLoadingOlder,
-                    isStartOfChat = !state.hasOlderMessages
-                )
-            }
-            items(
-                items = rows,
-                key = TimelineRow::key
-            ) { row ->
-                when (row) {
-                    is TimelineRow.Day -> DayLabel(label = row.label)
-                    is TimelineRow.Entry -> when (val item = row.item) {
-                        is ChatTimelineItem.Message -> ChatBubble(
-                            item = item,
-                            onRetry = {
-                                val delivery = sender.retry(group.id, item.message.clientId)
-                                coroutineScope.launch { delivery.await().onFailure(session::report) }
-                            }
-                        )
-                        is ChatTimelineItem.File -> FileBubble(
-                            item = item,
-                            images = images,
-                            onOpen = { openFile(item.file) }
-                        )
-                    }
-                }
-            }
-            items(items = uploads, key = { "upload:${it.id}" }) { upload ->
-                AttachmentUploadBubble(upload,
-                    onRetry = { runCatching { uploadQueue.retry(upload.id) }.onFailure(session::report) },
-                    onDismiss = { runCatching { uploadQueue.dismiss(upload.id) }.onFailure(session::report) })
-            }
-        }
-
-        state.notice?.let { notice ->
-            NoticeRow(text = notice, onDismiss = session::clearNotice)
-        }
-
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-        Surface(color = MaterialTheme.colorScheme.surfaceContainerLowest) {
-            Row(
+        val recordingPreviewHeight = (maxHeight * 0.4f).coerceIn(80.dp, 280.dp)
+        Column(Modifier.fillMaxSize()) {
+            ConnectionBanner(connection = state.connection)
+            LazyColumn(
+                state = listState,
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.Bottom,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 18.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                IconButton(
-                    onClick = {
-                        focusManager.clearFocus()
-                        showAttachmentSheet = true
-                    }
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.AddCircleOutline,
-                        contentDescription = "Add attachment",
-                        tint = MaterialTheme.colorScheme.primary
+                item(key = "group-notice") {
+                    GroupNotice(
+                        group = group,
+                        isLoadingOlder = state.isLoadingOlder,
+                        isStartOfChat = !state.hasOlderMessages
                     )
                 }
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    if (pendingDocuments.isNotEmpty() || localAttachment != null) {
-                        LazyRow(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            contentPadding = PaddingValues(end = 4.dp)
-                        ) {
-                            items(
-                                items = pendingDocuments,
-                                key = PendingDocument::uri
-                            ) { document ->
-                                PendingAttachment(
-                                    displayName = document.displayName,
-                                    kind = AttachmentKind.File,
-                                    sizeBytes = document.sizeBytes,
-                                    allowDownloads = document.uri !in blockedDownloadUris,
-                                    onAllowDownloadsChange = { setDownloadAllowed(document.uri, it) },
-                                    onRemove = {
-                                        setDownloadAllowed(document.uri, true)
-                                        onPendingDocumentRemoved(document.uri)
-                                    }
-                                )
-                            }
-                            localAttachment?.let { attachment ->
-                                item(key = "local-attachment") {
-                                    PendingAttachment(
-                                        displayName = attachment.displayName,
-                                        kind = attachment.kind,
-                                        sizeBytes = null,
-                                        allowDownloads = attachment.uri.toString() !in blockedDownloadUris,
-                                        onAllowDownloadsChange = { setDownloadAllowed(attachment.uri.toString(), it) },
-                                        onRemove = {
-                                            setDownloadAllowed(attachment.uri.toString(), true)
-                                            localAttachment = null
-                                        }
-                                    )
+                items(
+                    items = rows,
+                    key = TimelineRow::key
+                ) { row ->
+                    when (row) {
+                        is TimelineRow.Day -> DayLabel(label = row.label)
+                        is TimelineRow.Entry -> when (val item = row.item) {
+                            is ChatTimelineItem.Message -> ChatBubble(
+                                item = item,
+                                onRetry = {
+                                    val delivery = sender.retry(group.id, item.message.clientId)
+                                    coroutineScope.launch { delivery.await().onFailure(session::report) }
                                 }
-                            }
-                        }
-                        if (pendingDocuments.isNotEmpty()) {
-                            Text(
-                                text = "${pendingDocuments.size}/$MAX_PENDING_DOCUMENTS documents",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            is ChatTimelineItem.File -> FileBubble(
+                                item = item,
+                                images = images,
+                                onOpen = { openFile(item.file) }
                             )
                         }
                     }
-                    pendingDocumentError?.let { error ->
-                        Text(
-                            text = error,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.error
-                        )
-                    }
-                    TextField(
-                        value = draft,
-                        onValueChange = { draft = it.take(ChatRepository.MAX_MESSAGE_LENGTH) },
-                        modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("Message") },
-                        maxLines = 4,
-                        shape = RoundedCornerShape(6.dp),
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                        keyboardActions = KeyboardActions(onSend = { sendDraft() }),
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = MaterialTheme.colorScheme.surface,
-                            unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                            disabledIndicatorColor = Color.Transparent
-                        )
-                    )
                 }
-                val canSend = draft.isNotBlank() || pendingDocuments.isNotEmpty() || localAttachment != null
-                IconButton(
-                    onClick = { sendDraft() },
-                    enabled = canSend
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.Send,
-                        contentDescription = "Send message",
-                        tint = if (canSend) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        }
-                    )
+                items(items = uploads, key = { "upload:${it.id}" }) { upload ->
+                    AttachmentUploadBubble(upload,
+                        onRetry = { runCatching { uploadQueue.retry(upload.id) }.onFailure(session::report) },
+                        onDismiss = { runCatching { uploadQueue.dismiss(upload.id) }.onFailure(session::report) })
                 }
             }
+
+            state.notice?.let { notice ->
+                NoticeRow(text = notice, onDismiss = session::clearNotice)
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Surface(color = MaterialTheme.colorScheme.surfaceContainerLowest) {
+                Column(Modifier.fillMaxWidth()) {
+                    stagedRecording?.let { clip ->
+                        StagedRecording(clip, maxHeight = recordingPreviewHeight,
+                            onAllowDownloadsChange = { allowed ->
+                                runCatching { recordingStore.setDownloadAllowed(clip, allowed) }
+                                    .onSuccess { stagedRecording = it }.onFailure(session::report)
+                            },
+                            onRemove = {
+                                runCatching {
+                                    stopAllAudioPlayback()
+                                    if (!recordingStore.discard(clip)) throw DataError.Validation("This recording has already been sent or is unavailable.")
+                                    stagedRecording = null
+                                }.onFailure(session::report)
+                            })
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.Bottom,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        IconButton(
+                            onClick = {
+                                focusManager.clearFocus()
+                                showAttachmentSheet = true
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.AddCircleOutline,
+                                contentDescription = "Add attachment",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            if (pendingDocuments.isNotEmpty() || localAttachment != null) {
+                                LazyRow(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    contentPadding = PaddingValues(end = 4.dp)
+                                ) {
+                                    items(
+                                        items = pendingDocuments,
+                                        key = PendingDocument::uri
+                                    ) { document ->
+                                        PendingAttachment(
+                                            displayName = document.displayName,
+                                            kind = AttachmentKind.File,
+                                            sizeBytes = document.sizeBytes,
+                                            allowDownloads = document.uri !in blockedDownloadUris,
+                                            onAllowDownloadsChange = { setDownloadAllowed(document.uri, it) },
+                                            onRemove = {
+                                                setDownloadAllowed(document.uri, true)
+                                                onPendingDocumentRemoved(document.uri)
+                                            }
+                                        )
+                                    }
+                                    localAttachment?.let { attachment ->
+                                        item(key = "local-attachment") {
+                                            PendingAttachment(
+                                                displayName = attachment.displayName,
+                                                kind = attachment.kind,
+                                                sizeBytes = null,
+                                                allowDownloads = attachment.uri.toString() !in blockedDownloadUris,
+                                                onAllowDownloadsChange = { setDownloadAllowed(attachment.uri.toString(), it) },
+                                                onRemove = {
+                                                    setDownloadAllowed(attachment.uri.toString(), true)
+                                                    localAttachment = null
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                                if (pendingDocuments.isNotEmpty()) {
+                                    Text(
+                                        text = "${pendingDocuments.size}/$MAX_PENDING_DOCUMENTS documents",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            pendingDocumentError?.let { error ->
+                                Text(
+                                    text = error,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+                            TextField(
+                                value = draft,
+                                onValueChange = { draft = it.take(ChatRepository.MAX_MESSAGE_LENGTH) },
+                                modifier = Modifier.fillMaxWidth(),
+                                placeholder = { Text("Message", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                maxLines = 4,
+                                shape = RoundedCornerShape(6.dp),
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                                keyboardActions = KeyboardActions(onSend = { sendDraft() }),
+                                colors = TextFieldDefaults.colors(
+                                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                                    focusedIndicatorColor = Color.Transparent,
+                                    unfocusedIndicatorColor = Color.Transparent,
+                                    disabledIndicatorColor = Color.Transparent
+                                )
+                            )
+                        }
+                        IconButton(onClick = { focusManager.clearFocus(); showRecording = true }, enabled = stagedRecording == null) {
+                            Icon(Icons.Outlined.Mic, contentDescription = "Record voice message", tint = MaterialTheme.colorScheme.primary)
+                        }
+                        val canSend = draft.isNotBlank() || pendingDocuments.isNotEmpty() || localAttachment != null || stagedRecording != null
+                        IconButton(
+                            onClick = { sendDraft() },
+                            enabled = canSend
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Send,
+                                contentDescription = "Send message",
+                                tint = if (canSend) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StagedRecording(clip: RecordingDraft, maxHeight: Dp, onAllowDownloadsChange: (Boolean) -> Unit, onRemove: () -> Unit) {
+    Surface(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+        shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+        Column(Modifier.heightIn(max = maxHeight).verticalScroll(rememberScrollState()).padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Voice message · ${formatAudioDuration(clip.durationMillis)}", Modifier.weight(1f),
+                    style = MaterialTheme.typography.labelLarge)
+                IconButton(onClick = onRemove) { Icon(Icons.Outlined.Close, "Remove recording") }
+            }
+            Text("Ready to send", style = MaterialTheme.typography.labelSmall)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Allow downloads", Modifier.weight(1f), style = MaterialTheme.typography.labelSmall)
+                Switch(checked = clip.allowDownloads, onCheckedChange = onAllowDownloadsChange,
+                    modifier = Modifier.semantics { contentDescription = "Allow voice message downloads" })
+            }
+            AudioAttachmentPlayer(File(clip.localPath))
         }
     }
 }
@@ -824,7 +926,8 @@ private fun FileBubble(
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = "${fileKind(file.mimeType).label()} · ${formatFileSize(file.sizeBytes)} · " +
+                            text = "${sharedAudioLabel(file) ?: fileKind(file.mimeType).label()} · " +
+                                (file.durationMillis?.let { "${formatAudioDuration(it)} · " } ?: "") + "${formatFileSize(file.sizeBytes)} · " +
                                 "Tap to open",
                             style = MaterialTheme.typography.labelSmall,
                             color = contentColor.copy(alpha = 0.78f)
@@ -1047,6 +1150,7 @@ private fun bubbleShape(isMine: Boolean): RoundedCornerShape = if (isMine) {
 private fun fileKind(mimeType: String): AttachmentKind = when {
     mimeType.startsWith("image/") -> AttachmentKind.Photo
     mimeType.startsWith("video/") -> AttachmentKind.Video
+    mimeType.startsWith("audio/") -> AttachmentKind.Audio
     else -> AttachmentKind.File
 }
 
@@ -1055,6 +1159,7 @@ private fun AttachmentKind.icon(): ImageVector = when (this) {
     AttachmentKind.Photo -> Icons.Outlined.Image
     AttachmentKind.Video -> Icons.Outlined.Videocam
     AttachmentKind.Camera -> Icons.Outlined.PhotoCamera
+    AttachmentKind.Audio -> Icons.Outlined.Mic
 }
 
 private fun AttachmentKind.label(): String = when (this) {
@@ -1062,6 +1167,7 @@ private fun AttachmentKind.label(): String = when (this) {
     AttachmentKind.Photo -> "Photo"
     AttachmentKind.Video -> "Video"
     AttachmentKind.Camera -> "Camera photo"
+    AttachmentKind.Audio -> "Audio"
 }
 
 private fun formatFileSize(sizeBytes: Long): String = when {

@@ -399,3 +399,33 @@ This increment adds no backend migration. Upload/deletion still require the shar
 migration/functions/cleanup schedule above. See
 [`docs/group-settings-features-verification.md`](docs/group-settings-features-verification.md)
 for automated and emulator evidence and remaining active-backend acceptance checks.
+
+
+## Voice messages
+
+Tap the microphone beside the group chat composer, then **Start**. Microphone permission is
+requested on demand and can also be managed in Profile → Permissions. The timer and input
+meter use actual recorder readings. Capture uses mono AAC in M4A at 96 kbps, with a ten-minute
+limit. **Stop** opens playback/seek review; **Record again** or **Cancel → Discard** removes the
+unsent clip. **Use recording** saves a local composer draft. Choose download consent, then
+**Send** to upload through the existing durable queue.
+
+Switching apps, locking the screen or leaving the recording screen stops capture and preserves
+a valid clip for review. Returning does not restart capture. Stopped and staged drafts survive
+recreation/restart and belong to one account/group. Invalid interrupted containers are discarded
+with a visible explanation. Queued recordings retain their original bytes until confirmation or
+explicit failed-upload removal; a stable UUID avoids duplicate registration on retry. Playback
+pauses on background/audio interruption and offers Retry for unavailable audio. Members can
+preview permitted audio in chat and Group files, while original downloads keep the existing
+uploader-consent checks.
+
+Apply `20261014100000_voice_recording_metadata.sql` to the same backend as the app before using
+voice sending, after the shared delivery migration above. It adds duration/voice metadata and
+extends the idempotent finalization RPC with defaults for older clients. Use `supabase db push`
+for the linked project or `supabase migration up --local` locally. This increment adds no new
+Edge Function. Existing preview/deletion functions and cleanup scheduling remain required.
+Automatic transcription, transcript controls and worker deployment are deferred by the team;
+voice capture and playback have no transcription dependency.
+
+See [`docs/voice-messages-verification.md`](docs/voice-messages-verification.md) for validation
+results and remaining physical-phone/two-account acceptance checks.

@@ -126,6 +126,54 @@ class DefaultFileRepositoryTest {
     }
 
     @Test
+    fun voiceRecordingMetadataAtTheTenMinuteLimitSurvivesUploadAndOfflineCache() = runBlocking<Unit> {
+        val cache = InMemorySharedFileListCache()
+        val repository = repositoryWith(cache)
+        val identity = FileUploadIdentity("voice-upload", "$FILE_GROUP_ID/$SELF_ID/voice-upload", 600_000, true)
+
+        val uploaded = repository.uploadFile(FILE_GROUP_ID, "voice.m4a", "audio/mp4", ByteArray(100),
+            allowDownloads = false, identity = identity).toList().last() as UploadState.Completed
+
+        assertEquals(600_000L, uploaded.file.durationMillis)
+        assertTrue(uploaded.file.isVoiceRecording)
+        assertEquals(false, uploaded.file.allowDownloads)
+        assertEquals(600_000L, remote.finalizations.single().durationMillis)
+        remote.fetchFailure = DataError.Offline()
+        val restored = withTimeout(5_000) { repositoryWith(cache).observeFiles(FILE_GROUP_ID).first { it.isNotEmpty() } }.single()
+        assertEquals(uploaded.file, restored)
+    }
+
+    @Test
+    fun invalidVoiceMetadataFailsBeforeStorageOrMetadataLookup() = runBlocking<Unit> {
+        val identity = FileUploadIdentity("voice-upload", "$FILE_GROUP_ID/$SELF_ID/voice-upload", isVoiceRecording = true)
+        listOf(null, 0L, -1L, 600_001L).forEach { duration ->
+            val state = repository.uploadFile(FILE_GROUP_ID, "voice.m4a", "audio/mp4", ByteArray(100),
+                identity = identity.copy(durationMillis = duration)).toList().single()
+            assertTrue((state as UploadState.Failed).error is DataError.Validation)
+        }
+        val nonAudio = repository.uploadFile(FILE_GROUP_ID, "voice.jpg", "image/jpeg", ByteArray(100),
+            identity = identity.copy(durationMillis = 1000)).toList().single()
+        assertTrue((nonAudio as UploadState.Failed).error is DataError.Validation)
+        assertTrue(remote.lookups.isEmpty())
+        assertTrue(remote.uploadedPaths.isEmpty())
+    }
+
+    @Test
+    fun aRetriedVoiceIdentityCannotChangeDurationOrItsRecordingFlag() = runBlocking<Unit> {
+        val identity = FileUploadIdentity("voice-upload", "$FILE_GROUP_ID/$SELF_ID/voice-upload", 2000, true)
+        repository.uploadFile(FILE_GROUP_ID, "voice.m4a", "audio/mp4", ByteArray(100), identity = identity).toList()
+        listOf(identity.copy(durationMillis = 2001), identity.copy(isVoiceRecording = false)).forEach { changed ->
+            val state = repository.uploadFile(FILE_GROUP_ID, "voice.m4a", "audio/mp4", ByteArray(100),
+                identity = changed).toList().last()
+            assertTrue((state as UploadState.Failed).error is DataError.Validation)
+        }
+        assertEquals(1, remote.uploadedPaths.size)
+        assertEquals(1, remote.stored.size)
+        assertEquals(2000L, remote.stored.single().durationMillis)
+        assertTrue(remote.stored.single().isVoiceRecording)
+    }
+
+    @Test
     fun identitiesCannotBeReusedForAnotherAccountGroupOrPermission() = runBlocking<Unit> {
         val otherUser = FileUploadIdentity("stable-upload", "$FILE_GROUP_ID/someone-else/stable-upload")
         val denied = repository.uploadFile(FILE_GROUP_ID, "report.pdf", "application/pdf", ByteArray(100),

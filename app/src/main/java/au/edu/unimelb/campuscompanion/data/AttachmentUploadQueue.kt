@@ -38,7 +38,9 @@ data class AttachmentUpload(
     val allowDownloads: Boolean = true,
     val uploadId: String = id,
     val storagePath: String = "$groupId/$userId/$uploadId",
-    val localUri: String? = null
+    val localUri: String? = null,
+    val durationMillis: Long? = null,
+    val isVoiceRecording: Boolean = false
 )
 
 /** App-owned delivery; interrupted uploads survive restart as retryable items. */
@@ -61,10 +63,36 @@ class AttachmentUploadQueue(
     private val transferSlots = Semaphore(1) // Bound memory: existing storage API takes a byte array.
 
     @Synchronized
-    fun enqueue(groupId: String, uri: String, name: String, type: String, allowDownloads: Boolean = true) {
+    fun enqueue(
+        groupId: String,
+        uri: String,
+        name: String,
+        type: String,
+        allowDownloads: Boolean = true,
+        durationMillis: Long? = null,
+        isVoiceRecording: Boolean = false,
+        uploadId: String? = null,
+        expectedUserId: String? = null
+    ) {
         val userId = currentUserId() ?: throw DataError.Unauthenticated()
-        val task = AttachmentUpload(UUID.randomUUID().toString(), userId, groupId, uri,
-            name, type, Instant.now().toString(), allowDownloads = allowDownloads)
+        // Auth can switch before the old screen recomposes. Never assign its private draft
+        // to the new account; check ownership before persistence or starting any byte read.
+        if (expectedUserId != null && expectedUserId != userId) throw DataError.Unauthenticated()
+        val id = uploadId ?: UUID.randomUUID().toString()
+        if (id.isBlank() || id.contains('/')) throw DataError.Validation("Invalid upload identifier.")
+        state.value.firstOrNull { it.id == id || it.uploadId == id }?.let { existing ->
+            if (existing.userId != userId || existing.groupId != groupId || existing.uri != uri ||
+                existing.fileName != name || existing.mimeType != type || existing.allowDownloads != allowDownloads ||
+                existing.durationMillis != durationMillis || existing.isVoiceRecording != isVoiceRecording) {
+                throw DataError.Validation("This recording no longer matches its queued upload.")
+            }
+            // The staging record can survive a restart between enqueue and clearing the composer.
+            // Retain the same queue item, including a completed/retryable prior delivery.
+            return
+        }
+        val task = AttachmentUpload(id, userId, groupId, uri,
+            name, type, Instant.now().toString(), allowDownloads = allowDownloads,
+            durationMillis = durationMillis, isVoiceRecording = isVoiceRecording)
         publish(state.value + task)
         deliver(task)
     }
@@ -143,7 +171,7 @@ class AttachmentUploadQueue(
                     if (!isTracked(task.id)) return@withPermit
                     if (currentUserId() != task.userId) throw DataError.Unauthenticated()
                     files.uploadFile(task.groupId, task.fileName, task.mimeType, bytes, task.allowDownloads,
-                        FileUploadIdentity(task.uploadId, task.storagePath)).collect { result ->
+                        FileUploadIdentity(task.uploadId, task.storagePath, task.durationMillis, task.isVoiceRecording)).collect { result ->
                         when (result) {
                             is UploadState.InProgress -> update(pending.copy(progress = result.fraction), save = false)
                             is UploadState.Failed -> {

@@ -35,6 +35,19 @@ class FileSharedFileListCacheTest {
     }
 
     @Test
+    fun recordingMetadataSurvivesAFileCacheRestart() {
+        val directory = File(folder.root, "files")
+        val voice = fileRow(1).copy(fileName = "voice.m4a", mimeType = "audio/mp4",
+            durationMillis = 2345, isVoiceRecording = true, allowDownloads = false)
+        FileSharedFileListCache(directory).save("user-1", FILE_GROUP_ID, listOf(voice))
+
+        val restored = FileSharedFileListCache(directory).load("user-1", FILE_GROUP_ID)
+
+        assertEquals(listOf(voice), restored)
+        assertNull(FileSharedFileListCache(directory).load("user-2", FILE_GROUP_ID))
+    }
+
+    @Test
     fun legacyPrivacyFlagInSavedDataDoesNotHideExistingRecords() {
         val directory = File(folder.root, "files")
         val cache = FileSharedFileListCache(directory)

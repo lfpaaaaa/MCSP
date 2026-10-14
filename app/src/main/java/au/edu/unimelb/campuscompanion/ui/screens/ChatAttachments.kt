@@ -26,6 +26,9 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import au.edu.unimelb.campuscompanion.data.*
 import au.edu.unimelb.campuscompanion.data.model.SharedFile
 import au.edu.unimelb.campuscompanion.data.repository.FileRepository
+import au.edu.unimelb.campuscompanion.ui.model.formatAudioDuration
+import au.edu.unimelb.campuscompanion.ui.model.sharedAudioLabel
+import au.edu.unimelb.campuscompanion.ui.model.stopAllAudioPlayback
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -41,12 +44,14 @@ internal fun SharedAttachmentBubble(file: SharedFile, isMine: Boolean, onOpen: (
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(if (isMine) "You" else file.uploaderName, style = MaterialTheme.typography.labelMedium)
                 Text(file.fileName, style = MaterialTheme.typography.titleSmall)
-                val kind = when {
+                val kind = sharedAudioLabel(file) ?: when {
                     file.mimeType.startsWith("image/") -> "Photo"
                     file.mimeType.startsWith("video/") -> "Video"
                     else -> "File"
                 }
-                Text("$kind · ${"%.1f".format(file.sizeBytes / 1024.0)} KB", style = MaterialTheme.typography.bodySmall)
+                val duration = file.durationMillis?.takeIf { sharedAudioLabel(file) != null }?.let(::formatAudioDuration)
+                Text(listOfNotNull(kind, duration, "${"%.1f".format(file.sizeBytes / 1024.0)} KB").joinToString(" · "),
+                    style = MaterialTheme.typography.bodySmall)
                 Text(if (!file.allowDownloads && !isMine) "Tap to preview" else "Tap to view or download", color = MaterialTheme.colorScheme.primary)
                 Text(file.createdAt.atZone(ZoneId.systemDefault())
                     .format(DateTimeFormatter.ofPattern("MMM d, h:mm a")), style = MaterialTheme.typography.labelSmall)
@@ -88,8 +93,9 @@ internal fun ChatAttachmentViewer(
 ) {
     val context = LocalContext.current
     val canDownload = file.canDownloadBy(currentUserId)
+    val isAudio = file.mimeType.startsWith("audio/", ignoreCase = true)
     val canPreview = file.mimeType.startsWith("image/") || file.mimeType.startsWith("video/") ||
-        file.mimeType == "application/pdf" || file.mimeType.startsWith("text/")
+        file.mimeType == "application/pdf" || file.mimeType.startsWith("text/") || isAudio
     val scope = rememberCoroutineScope()
     var localFile by remember(file.id) { mutableStateOf<File?>(null) }
     var bitmap by remember(file.id) { mutableStateOf<ImageBitmap?>(null) }
@@ -160,6 +166,7 @@ internal fun ChatAttachmentViewer(
                 if (loading) CircularProgressIndicator()
                 bitmap?.let { Image(it, contentDescription = file.fileName, modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp)) }
                 localFile?.let { source ->
+                    if (isAudio) AudioAttachmentPlayer(source)
                     if (file.mimeType == "application/pdf") PdfAttachmentPreview(source) { error = it }
                     if (file.mimeType.startsWith("text/")) TextAttachmentPreview(source) { error = it }
                     if (file.mimeType.startsWith("video/")) {
@@ -168,7 +175,7 @@ internal fun ChatAttachmentViewer(
                                 player = this
                                 setMediaController(MediaController(viewContext).also { it.setAnchorView(this) })
                                 setVideoURI(Uri.fromFile(source))
-                                setOnPreparedListener { start() }
+                                setOnPreparedListener { stopAllAudioPlayback(); start() }
                                 setOnErrorListener { _, _, _ -> error = "This video cannot be played here. Try opening or downloading it."; true }
                             }
                         })

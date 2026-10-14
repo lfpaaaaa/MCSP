@@ -132,7 +132,13 @@ class DefaultFileRepository(
             emit(UploadState.Failed(DataError.Validation("This upload belongs to a different account or group.")))
             return@flow
         }
-        val record = NewFileRecord(upload.id, groupId, name, type, total, upload.storagePath, allowDownloads)
+        if (upload.durationMillis != null && upload.durationMillis <= 0 ||
+            upload.isVoiceRecording && (!type.startsWith("audio/", ignoreCase = true) || upload.durationMillis == null || upload.durationMillis > 600_000)) {
+            emit(UploadState.Failed(DataError.Validation("Voice recordings need valid audio and a duration of up to 10 minutes.")))
+            return@flow
+        }
+        val record = NewFileRecord(upload.id, groupId, name, type, total, upload.storagePath, allowDownloads,
+            upload.durationMillis, upload.isVoiceRecording)
 
         emit(UploadState.InProgress(bytesSent = 0, totalBytes = total))
         val inserted = remote.fetchFileRecord(upload.id) ?: run {
@@ -160,7 +166,8 @@ class DefaultFileRepository(
         if (inserted.id != upload.id || inserted.storagePath != upload.storagePath ||
             inserted.uploaderId != user.id || inserted.groupId != groupId ||
             inserted.fileName != name || inserted.mimeType != type || inserted.sizeBytes != total ||
-            inserted.allowDownloads != allowDownloads) {
+            inserted.allowDownloads != allowDownloads || inserted.durationMillis != upload.durationMillis ||
+            inserted.isVoiceRecording != upload.isVoiceRecording) {
             throw DataError.Validation("This upload no longer matches its original file.")
         }
         requireCurrent(session)

@@ -17,6 +17,8 @@ import au.edu.unimelb.campuscompanion.data.local.CampusDatabase
 import au.edu.unimelb.campuscompanion.data.local.AttachmentDraftStore
 import au.edu.unimelb.campuscompanion.data.local.FileGroupListCache
 import au.edu.unimelb.campuscompanion.data.local.FileSharedFileListCache
+import au.edu.unimelb.campuscompanion.data.recording.AndroidRecording
+import au.edu.unimelb.campuscompanion.data.recording.QueuedRecordingReference
 import au.edu.unimelb.campuscompanion.data.model.CurrentUser
 import au.edu.unimelb.campuscompanion.data.model.MessageStatus
 import au.edu.unimelb.campuscompanion.data.remote.GroupRemoteDataSource
@@ -222,12 +224,21 @@ object AppRepositories {
         }
     }
 
+    val recordings by lazy { AndroidRecording.createDraftStore(appContext) }
+
     val attachmentUploads: AttachmentUploadQueue by lazy {
         val preferences = appContext.getSharedPreferences("attachment-uploads", Context.MODE_PRIVATE)
         val drafts = AttachmentDraftStore(File(appContext.filesDir, "attachment-drafts"))
         val serializer = ListSerializer(AttachmentUpload.serializer())
         val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
-        val restored = runCatching { json.decodeFromString(serializer, preferences.getString("queue", "[]")!!) }.getOrDefault(emptyList())
+        val restoration = runCatching { json.decodeFromString(serializer, preferences.getString("queue", "[]")!!) }
+        val restored = restoration.getOrDefault(emptyList())
+        // An unreadable queue cannot prove a recording was acknowledged; keep its source bytes.
+        if (restoration.isSuccess) runCatching {
+            recordings.reconcileQueued(restored.filter { it.isVoiceRecording }.map {
+                QueuedRecordingReference(it.userId, it.groupId, it.uploadId)
+            })
+        }.onFailure { Log.w("RecordingDrafts", "Some recording drafts could not be reconciled.") }
         AttachmentUploadQueue(files, applicationScope,
             currentUserId = { SupabaseProvider.client?.auth?.currentUserOrNull()?.id },
             readBytes = { readAttachment(appContext, it) }, restored = restored,
@@ -242,7 +253,12 @@ object AppRepositories {
                     drafts.preserve(task.uploadId) { readAttachment(appContext, task.uri) }.toURI().toString()
                 }
             },
-            discardLocal = { task -> applicationScope.launch(Dispatchers.IO) { drafts.discard(task.uploadId) } })
+            discardLocal = { task -> applicationScope.launch(Dispatchers.IO) {
+                drafts.discard(task.uploadId)
+                if (task.isVoiceRecording) runCatching {
+                    recordings.discardQueued(task.userId, task.groupId, task.uploadId)
+                }.onFailure { Log.w("RecordingDrafts", "Recording cleanup will be retried on next startup.") }
+            } })
     }
 
     val buildings by lazy { BuildingLocationRepository(appContext) }

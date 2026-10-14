@@ -8,6 +8,16 @@ import org.junit.Test
 
 class AppPermissionsTest {
     @Test
+    fun microphoneExplainsOnDemandVoicePermissionWithoutChangingOtherPermissions() {
+        assertEquals(listOf("android.permission.RECORD_AUDIO"), AppPermission.Microphone.runtimePermissions)
+        assertEquals(AppPermission.Microphone, AppPermissions.microphone(false).permission)
+        assertFalse(AppPermissions.microphone(false).granted)
+        assertTrue(AppPermissions.microphone(false).detail.contains("start a voice recording"))
+        assertEquals("Allowed", AppPermissions.microphone(true).detail)
+        assertTrue(AppPermissions.microphone(true).granted)
+    }
+
+    @Test
     fun locationIsGrantedWithEitherAccuracyAndSaysWhichOne() {
         val precise = AppPermissions.location(fine = true, coarse = true)
         val approximate = AppPermissions.location(fine = false, coarse = true)

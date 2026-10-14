@@ -17,7 +17,9 @@ data class SharedFileRow(
     @SerialName("size_bytes") val sizeBytes: Long,
     @SerialName("storage_path") val storagePath: String,
     @SerialName("created_at") val createdAt: String,
-    @SerialName("allow_downloads") val allowDownloads: Boolean = true
+    @SerialName("allow_downloads") val allowDownloads: Boolean = true,
+    @SerialName("duration_ms") val durationMillis: Long? = null,
+    @SerialName("is_voice_recording") val isVoiceRecording: Boolean = false
 )
 
 /** An uploaded object that still needs its file record. */
@@ -28,7 +30,9 @@ data class NewFileRecord(
     val mimeType: String,
     val sizeBytes: Long,
     val storagePath: String,
-    val allowDownloads: Boolean = true
+    val allowDownloads: Boolean = true,
+    val durationMillis: Long? = null,
+    val isVoiceRecording: Boolean = false
 )
 
 /** The row as the screens use it; a missing uploader name is shown as "Group member". */
@@ -41,7 +45,9 @@ fun SharedFileRow.toModel(): SharedFile = SharedFile(
     mimeType = mimeType,
     sizeBytes = sizeBytes,
     createdAt = parseTimestamp(createdAt),
-    allowDownloads = allowDownloads
+    allowDownloads = allowDownloads,
+    durationMillis = durationMillis,
+    isVoiceRecording = isVoiceRecording
 )
 
 private const val UNKNOWN_UPLOADER_NAME = "Group member"

@@ -18,6 +18,7 @@ import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.MyLocation
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.PhotoCamera
+import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material3.Card
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CardDefaults
@@ -253,5 +254,6 @@ private fun AppPermission.icon(): ImageVector = when (this) {
     AppPermission.BackgroundArrival -> Icons.Outlined.MyLocation
     AppPermission.Notifications -> Icons.Outlined.Notifications
     AppPermission.Camera -> Icons.Outlined.PhotoCamera
+    AppPermission.Microphone -> Icons.Outlined.Mic
     AppPermission.PhysicalActivity -> Icons.AutoMirrored.Outlined.DirectionsWalk
 }

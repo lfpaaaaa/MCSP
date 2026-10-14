@@ -81,6 +81,127 @@ class AttachmentUploadQueueTest {
         assertTrue(decoded.allowDownloads)
         assertEquals("old", decoded.uploadId)
         assertEquals("g/u/old", decoded.storagePath)
+        assertNull(decoded.durationMillis)
+        assertFalse(decoded.isVoiceRecording)
+    }
+
+    @Test fun aStagedRecordingIdDeduplicatesDoubleSendAndCarriesMetadataToItsStableUpload() = runBlocking<Unit> {
+        val release = CompletableDeferred<Unit>()
+        val queue = AttachmentUploadQueue(files, this, { "student" }, { release.await(); ByteArray(4) })
+        repeat(2) {
+            queue.enqueue(FILE_GROUP_ID, "file:///recordings/staged.m4a", "voice.m4a", "audio/mp4",
+                allowDownloads = false, durationMillis = 1234, isVoiceRecording = true, uploadId = "staged-voice")
+        }
+        assertEquals(1, queue.uploads.value.size)
+        assertEquals("staged-voice", queue.uploads.value.single().id)
+        release.complete(Unit)
+        val completed = withTimeout(5000) { queue.uploads.first { it.single().phase == AttachmentPhase.Completed }.single() }
+
+        assertEquals("staged-voice", completed.fileId)
+        assertEquals("$FILE_GROUP_ID/student/staged-voice", completed.storagePath)
+        assertEquals(1234L, completed.durationMillis)
+        assertTrue(completed.isVoiceRecording)
+        assertEquals(1, remote.uploadedPaths.size)
+        assertEquals(1234L, remote.stored.single().durationMillis)
+        assertTrue(remote.stored.single().isVoiceRecording)
+        assertFalse(remote.stored.single().allowDownloads)
+    }
+
+    @Test fun reEnqueueAfterRestartRetainsTheSameRetryableRecordingAndReconcilesLostFinalization() = runBlocking<Unit> {
+        var saved: List<AttachmentUpload> = emptyList()
+        remote.recordResponseFailure = DataError.Offline()
+        val queue = AttachmentUploadQueue(files, this, { "student" }, { ByteArray(4) }, persist = { saved = it })
+        queue.enqueue(FILE_GROUP_ID, "file:///recordings/staged.m4a", "voice.m4a", "audio/mp4",
+            durationMillis = 4321, isVoiceRecording = true, uploadId = "staged-voice")
+        withTimeout(5000) { queue.uploads.first { it.single().phase == AttachmentPhase.Failed } }
+        val json = kotlinx.serialization.json.Json { encodeDefaults = true }
+        val restored = json.decodeFromString<List<AttachmentUpload>>(json.encodeToString(saved))
+        var restartedWrites = 0
+        val restarted = AttachmentUploadQueue(files, this, { "student" }, { ByteArray(4) }, restored,
+            persist = { restartedWrites++ })
+
+        // Simulates process death after the queue write but before the staged composer clears.
+        restarted.enqueue(FILE_GROUP_ID, "file:///recordings/staged.m4a", "voice.m4a", "audio/mp4",
+            durationMillis = 4321, isVoiceRecording = true, uploadId = "staged-voice")
+        assertEquals(restored, restarted.uploads.value)
+        assertEquals(0, restartedWrites)
+        assertEquals(1, remote.uploadedPaths.size)
+
+        restarted.retry("staged-voice")
+        val completed = withTimeout(5000) { restarted.uploads.first { it.single().phase == AttachmentPhase.Completed }.single() }
+        assertEquals(4321L, completed.durationMillis)
+        assertTrue(completed.isVoiceRecording)
+        assertEquals(1, remote.uploadedPaths.size)
+        assertEquals(1, remote.stored.size)
+        assertEquals(4321L, remote.stored.single().durationMillis)
+    }
+
+    @Test fun completedRecordingReEnqueueNeverReadsOrTransfersItsBytesAgain() = runBlocking<Unit> {
+        val completed = AttachmentUpload("staged-voice", "student", FILE_GROUP_ID, "file:///recordings/staged.m4a",
+            "voice.m4a", "audio/mp4", "2026-10-14T00:00:00Z", phase = AttachmentPhase.Completed,
+            fileId = "staged-voice", durationMillis = 1000, isVoiceRecording = true)
+        var writes = 0
+        val queue = AttachmentUploadQueue(files, this, { "student" }, { error("Completed clip must not transfer") },
+            listOf(completed), persist = { writes++ })
+        queue.enqueue(FILE_GROUP_ID, completed.uri, completed.fileName, completed.mimeType,
+            durationMillis = 1000, isVoiceRecording = true, uploadId = completed.uploadId)
+        yield()
+
+        assertEquals(listOf(completed), queue.uploads.value)
+        assertEquals(0, writes)
+        assertTrue(remote.uploadedPaths.isEmpty())
+    }
+
+    @Test fun aStagedRecordingIdentityCannotBeReusedForChangedMetadataOrAnotherAccountOrGroup() = runBlocking<Unit> {
+        val restored = AttachmentUpload("staged-voice", "student", FILE_GROUP_ID, "file:///recordings/staged.m4a",
+            "voice.m4a", "audio/mp4", "2026-10-14T00:00:00Z", phase = AttachmentPhase.Failed,
+            durationMillis = 1000, isVoiceRecording = true)
+        var user = "student"
+        val queue = AttachmentUploadQueue(files, this, { user }, { ByteArray(4) }, listOf(restored))
+        assertThrows(DataError.Validation::class.java) {
+            queue.enqueue(FILE_GROUP_ID, restored.uri, restored.fileName, restored.mimeType,
+                durationMillis = 1001, isVoiceRecording = true, uploadId = restored.uploadId)
+        }
+        assertThrows(DataError.Validation::class.java) {
+            queue.enqueue(FILE_GROUP_ID, restored.uri, restored.fileName, restored.mimeType,
+                durationMillis = 1000, isVoiceRecording = false, uploadId = restored.uploadId)
+        }
+        assertThrows(DataError.Validation::class.java) {
+            queue.enqueue("other-group", restored.uri, restored.fileName, restored.mimeType,
+                durationMillis = 1000, isVoiceRecording = true, uploadId = restored.uploadId)
+        }
+        user = "other-account"
+        assertThrows(DataError.Validation::class.java) {
+            queue.enqueue(FILE_GROUP_ID, restored.uri, restored.fileName, restored.mimeType,
+                durationMillis = 1000, isVoiceRecording = true, uploadId = restored.uploadId)
+        }
+        assertEquals(listOf(restored), queue.uploads.value)
+        assertTrue(remote.uploadedPaths.isEmpty())
+    }
+
+    @Test fun anOldScreenCannotAssignItsRecordingToTheNewSignedInAccount() = runBlocking<Unit> {
+        var user: String? = "someone-else"
+        var writes = 0
+        var reads = 0
+        val queue = AttachmentUploadQueue(files, this, { user }, { reads++; ByteArray(4) }, persist = { writes++ })
+        fun enqueueOldDraft() = queue.enqueue(FILE_GROUP_ID, "file:///student/recording.m4a", "voice.m4a", "audio/mp4",
+            durationMillis = 1000, isVoiceRecording = true, uploadId = "student-voice", expectedUserId = "student")
+
+        assertThrows(DataError.Unauthenticated::class.java) { enqueueOldDraft() }
+        user = null
+        assertThrows(DataError.Unauthenticated::class.java) { enqueueOldDraft() }
+        yield()
+        assertTrue(queue.uploads.value.isEmpty())
+        assertEquals(0, writes)
+        assertEquals(0, reads)
+        assertTrue(remote.uploadedPaths.isEmpty())
+
+        user = "student"
+        enqueueOldDraft()
+        withTimeout(5000) { queue.uploads.first { it.single().phase == AttachmentPhase.Completed } }
+        assertEquals("student", queue.uploads.value.single().userId)
+        assertEquals(1, reads)
+        assertEquals(1, remote.uploadedPaths.size)
     }
 
     @Test fun restartAfterLostMetadataReplyReusesIdentityAndPreservedBytes() = runBlocking<Unit> {

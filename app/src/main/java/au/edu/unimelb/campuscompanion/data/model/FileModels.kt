@@ -22,7 +22,9 @@ data class SharedFile(
     val mimeType: String,
     val sizeBytes: Long,
     val createdAt: Instant,
-    val allowDownloads: Boolean = true
+    val allowDownloads: Boolean = true,
+    val durationMillis: Long? = null,
+    val isVoiceRecording: Boolean = false
 ) {
     fun canDownloadBy(userId: String?): Boolean =
         userId != null && (allowDownloads || uploaderId == userId)

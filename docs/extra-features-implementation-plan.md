@@ -2,7 +2,7 @@
 
 14 October 2026, Australia/Melbourne. Target: the existing `feat/extra-features` branch at `95443cb80ade75c632baac89a245c5539bc2dd8c`. Reference implementation: local `main` at `f1a251e`. This is an implementation plan; no application code, migrations or deployments are changed by it.
 
-Implement Group files and View join code first, then foreground voice recording and playback, followed by automatic transcription. Add the classroom compass as an optional, independently testable phase. Adapt the relevant components from `main` while retaining the current branch's context engine, initial-location acquisition, reminder preferences, account isolation and sensing lifecycle protections.
+Implement Group files and View join code first, then foreground voice recording and playback. On 14 October 2026 the team deferred automatic transcription until a later request; it is not part of the current voice increment. Add the classroom compass as an optional, independently testable phase. Adapt the relevant components from `main` while retaining the current branch's context engine, initial-location acquisition, reminder preferences, account isolation and sensing lifecycle protections.
 
 ## Scope and project plan alignment
 
@@ -11,10 +11,10 @@ Implement Group files and View join code first, then foreground voice recording 
 | Group settings additions | Members → Group files → View join code → Share QR → Invite with NFC, followed by existing fold/mute/nickname settings and exit action. | Required. Preserve current role and timetable-group visibility rules. |
 | Group file browser | Search/filter the group's existing attachments, preview/download with current permissions and let uploaders delete their own files. | Required. Reuse existing cloud files rather than creating a second sharing system. |
 | Chat voice messages | Microphone beside the composer; Start/Stop, timer, live input meter, review, Cancel and Use recording; then Send. | Required. Maximum ten minutes, matching the supplied recording image. |
-| Speech to text | Automatically queue a transcript when a recorded clip is sent; display durable progress and the saved transcript to group members. | Recommended required phase to satisfy the written project plan. |
+| Speech to text | Automatically queue a transcript when a recorded clip is sent; display durable progress and the saved transcript to group members. | Deferred by the team on 14 October 2026; retain the design for later work. |
 | Classroom compass | Visible arrow and readable direction toward the selected teaching building, using live heading and location. | Optional P1 phase, after collaboration features are stable. |
 
-The project plan makes recording with speech to text, a live recording meter, a transcript viewer and a compass arrow P1 work. It describes **automatic transcription**. The screenshot and `main` currently use **Generate transcript** after upload. This plan recommends automatic transcription by default for app-recorded clips, with manual Retry for failures and optional Generate for older recordings. Update the recording help text accordingly.
+The project plan makes recording with speech to text, a live recording meter, a transcript viewer and a compass arrow P1 work. It describes **automatic transcription**. The screenshot and `main` currently use **Generate transcript** after upload. The team has now deferred all transcription. The current recording help describes sharing an audio clip only, with no automatic enqueue, Generate, Retry transcript or transcript viewer. The proposed transcription design below is retained for a future request.
 
 The proposed recording experience is a shared voice clip or meeting excerpt, not a live voice call. Recording stops when the app leaves the foreground or the screen locks. Extending this to long background meeting capture is a separate feature.
 
@@ -85,7 +85,7 @@ Adapt the following source from `main`: `RecordingDialog.kt`, `RecordingLevelMet
 2. Request microphone access only when recording is requested. Denial leaves chat usable and provides an explicit retry/settings path.
 3. Show Start recording, an elapsed timer and a live microphone level. While recording, offer Stop.
 4. Stop, listen/seek, then choose Record again, Cancel or Use recording.
-5. Use recording stages the clip in the composer. It does not upload immediately. Show download consent and that a transcript will be shared when automatic transcription is selected.
+5. Use recording stages the clip in the composer. It does not upload immediately. Show download consent. Sending shares the audio clip only; transcription is deferred.
 6. Send through the existing queue. Show progress, failure and retry like other attachments.
 7. Show an audio attachment with sender, duration, timestamp and delivery state. Tapping it opens in-app play/pause/seek controls. Include Audio in Group files.
 
@@ -108,9 +108,9 @@ Extract recording ownership/state into a testable controller rather than keeping
 
 **Completion check:** a real phone records audible speech, responds to quiet/loud input, stops at ten minutes and preserves a stopped draft after locking/switching apps. Denial, interruption, immediate Stop, Cancel, rotation, upload interruption and retry behave predictably. A second member receives and plays exactly one clip, including after the sender leaves chat.
 
-## Phase 3 Add automatic transcription
+## Phase 3 Deferred automatic transcription
 
-Reuse the core `file_transcripts` schema/RPC/worker design from `main`, adapting `TranscriptRepository` and a simple transcript status/viewer. Transcript search/edit and their extra migration are optional later work.
+This phase is deferred by the team and is not enabled or deployed as part of voice recording. When resumed, reuse the core `file_transcripts` schema/RPC/worker design from `main`, adapting `TranscriptRepository` and a simple transcript status/viewer. Transcript search/edit and their extra migration are optional later work.
 
 ### Durable automatic flow
 
@@ -169,16 +169,16 @@ Primary changes: new compass model/screen/tests; small detector/display-metadata
 | 0 | Upload, cleanup, join and reconnect reliability fixes | Previously reproduced regressions pass without weakening authorization. |
 | 1 | Group files and View join code | Settings draft, expiry, two-member browser and permission checks pass. |
 | 2 | Voice recording, delivery and playback | Real microphone capture, lifecycle and duplicate-free retry pass. |
-| 3 | Automatic transcript jobs, viewer and worker instructions | Real worker integration survives sender closure and worker restart. |
+| 3 | Deferred: automatic transcript jobs, viewer and worker instructions | Resume only after a future request; no transcription dependency for voice messages. |
 | 4 | Optional compass | Physical direction checks and unchanged context/sensing regressions pass. |
 | 5 | Final integration evidence | Clean builds, relevant full suites and signed-in two-device rehearsal pass. |
 
 Use separately reviewable commits for these increments. Before implementation, rerun the current baseline; after each increment run its focused tests and integration checks. At final integration run `./gradlew testDebugUnitTest assembleDebug assembleDebugAndroidTest`, the database tests against isolated fixtures and the relevant Android suites. Distinguish emulator/fake checks from real microphone, physical compass and hosted-backend acceptance. Preserve app data during device testing and do not reset the development database.
 
-The final rehearsal is: create a custom group → view code/QR → second account joins → browse a shared file → record/review/send voice → receiving account plays it → automatic transcript appears → delete with correct permissions. Then, if the optional phase is included, open a class compass from Home and Schedule while departure sensing runs and confirm the correct building, Maps action and unchanged reminders.
+The final rehearsal is: create a custom group → view code/QR → second account joins → browse a shared file → record/review/send voice → receiving account plays it → delete with correct permissions. Transcript acceptance is deferred until that phase is resumed. Then, if the optional phase is included, open a class compass from Home and Schedule while departure sensing runs and confirm the correct building, Maps action and unchanged reminders.
 
 Update README and permissions/help text, list required migrations and worker configuration, and record the tested commit/device/backend. The written plan's P1 features should be final-demo claims only after those integrated checks pass.
 
 ## Deferred work
 
-Biometric protection is a separate P1 feature; microphone permission and download consent do not implement it. This increment also excludes live voice calls, background lecture recording, recordings over ten minutes, transcript editing/search, pinned messages and a broader navigation/localization rewrite. File-catalog pagination and Room file-cache migration can be scheduled separately; the first browser uses the current repository/cache contract.
+Automatic transcription, transcript UI and worker deployment are deferred by the team. Biometric protection is a separate P1 feature; microphone permission and download consent do not implement it. This increment also excludes live voice calls, background lecture recording, recordings over ten minutes, transcript editing/search, pinned messages and a broader navigation/localization rewrite. File-catalog pagination and Room file-cache migration can be scheduled separately; the first browser uses the current repository/cache contract.

@@ -3,6 +3,7 @@ package au.edu.unimelb.campuscompanion.data.remote
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 import java.time.Instant
 
@@ -25,6 +26,19 @@ class FileRowsTest {
         assertEquals(2_000L, file.sizeBytes)
         assertEquals(Instant.parse("2026-09-25T02:00:00Z"), file.createdAt)
         assertTrue(file.allowDownloads)
+        assertNull(file.durationMillis)
+        assertFalse(file.isVoiceRecording)
+    }
+
+    @Test
+    fun voiceMetadataIsDecodedWithoutChangingDownloadConsent() {
+        val body = """{"id":"v1","group_id":"g1","uploader_id":"u1","file_name":"voice.m4a","mime_type":"audio/mp4","size_bytes":500,"storage_path":"g1/u1/v1","allow_downloads":false,"created_at":"2026-09-25T02:00:00Z","duration_ms":1250,"is_voice_recording":true}"""
+        val file = decodeRow(body, SharedFileRow.serializer()).toModel()
+
+        assertEquals(1250L, file.durationMillis)
+        assertTrue(file.isVoiceRecording)
+        assertFalse(file.canDownloadBy("u2"))
+        assertTrue(file.canDownloadBy("u1"))
     }
 
     @Test

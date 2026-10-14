@@ -16,7 +16,7 @@ INSERT INTO storage.objects (bucket_id,name,metadata) VALUES
 
 SELECT ok(NOT has_table_privilege('authenticated','public.group_file_cleanup_jobs','SELECT'), 'cleanup paths are server only');
 SELECT ok(NOT has_function_privilege('authenticated','public.finish_group_file_cleanup(uuid,text)','EXECUTE'), 'clients cannot claim cleanup succeeded');
-SELECT ok(NOT has_function_privilege('anon','public.finalize_group_file(uuid,uuid,text,text,bigint,text,boolean)','EXECUTE'), 'anonymous finalization is forbidden');
+SELECT ok(NOT has_function_privilege('anon','public.finalize_group_file(uuid,uuid,text,text,bigint,text,boolean,bigint,boolean)','EXECUTE'), 'anonymous finalization is forbidden');
 
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub','a7140000-0000-4000-8000-000000000002',true);

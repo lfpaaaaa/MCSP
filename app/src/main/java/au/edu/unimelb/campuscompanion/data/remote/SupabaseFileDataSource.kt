@@ -70,6 +70,8 @@ class SupabaseFileDataSource(private val client: SupabaseClient) : FileRemoteDat
                 put("p_size_bytes", record.sizeBytes)
                 put("p_storage_path", record.storagePath)
                 put("p_allow_downloads", record.allowDownloads)
+                put("p_duration_ms", record.durationMillis)
+                put("p_is_voice_recording", record.isVoiceRecording)
             }
         )
         decodeRow(result.data, SharedFileRow.serializer())
