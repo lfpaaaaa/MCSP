@@ -40,10 +40,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -58,6 +60,7 @@ import au.edu.unimelb.campuscompanion.ui.components.TimetableUrlDialog
 import au.edu.unimelb.campuscompanion.ui.model.TimetableState
 import au.edu.unimelb.campuscompanion.ui.profile.PermissionsSection
 import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 
 @Composable
 fun ProfileScreen(
@@ -67,7 +70,7 @@ fun ProfileScreen(
     travelPreferences: TravelPreferences,
     onTimetableUrlSave: suspend (String) -> Result<Unit>,
     onTimetableRefresh: () -> Unit,
-    onTimetableUrlRemove: () -> Unit,
+    onTimetableUrlRemove: suspend () -> Result<Unit>,
     onTravelPreferencesChange: (TravelPreferences) -> Unit,
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier
@@ -80,8 +83,12 @@ fun ProfileScreen(
     }
     var showTimetableDialog by rememberSaveable { mutableStateOf(false) }
     var showRemoveTimetableDialog by rememberSaveable { mutableStateOf(false) }
+    var removingTimetable by remember { mutableStateOf(false) }
+    var removeError by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
-    if (showTimetableDialog) {
+    if (showTimetableDialog && timetableState.isLoaded) {
         TimetableUrlDialog(
             initialUrl = timetableState.url,
             onDismiss = { showTimetableDialog = false },
@@ -89,25 +96,42 @@ fun ProfileScreen(
         )
     }
 
-    if (showRemoveTimetableDialog) {
+    if (showRemoveTimetableDialog && timetableState.isLoaded) {
         AlertDialog(
-            onDismissRequest = { showRemoveTimetableDialog = false },
+            onDismissRequest = { if (!removingTimetable) showRemoveTimetableDialog = false },
             title = { Text("Remove timetable URL?") },
             text = {
-                Text("Courses, departure reminders, and automatically joined groups will be cleared.")
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Imported classes and their changes will be removed. Added classes and reminder settings will be kept.")
+                    removeError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                }
             },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        onTimetableUrlRemove()
-                        showRemoveTimetableDialog = false
-                    }
+                        removingTimetable = true
+                        removeError = null
+                        scope.launch {
+                            try {
+                                onTimetableUrlRemove().fold(
+                                    onSuccess = {
+                                        showRemoveTimetableDialog = false
+                                        android.widget.Toast.makeText(context, "Timetable URL removed.", android.widget.Toast.LENGTH_SHORT).show()
+                                    },
+                                    onFailure = { removeError = it.message ?: "Could not remove the timetable. Try again." }
+                                )
+                            } finally {
+                                removingTimetable = false
+                            }
+                        }
+                    },
+                    enabled = !removingTimetable
                 ) {
-                    Text("Remove")
+                    Text(if (removingTimetable) "Removing…" else "Remove")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showRemoveTimetableDialog = false }) {
+                TextButton(onClick = { showRemoveTimetableDialog = false }, enabled = !removingTimetable) {
                     Text("Cancel")
                 }
             }
@@ -251,6 +275,7 @@ private fun TimetableSettingsCard(
                     )
                     Text(
                         text = when {
+                            !timetableState.isLoaded && timetableState.isLoading -> "Loading saved timetable…"
                             timetableState.isLoading && !timetableState.isConnected -> "Checking saved URL..."
                             timetableState.isCached -> "Saved timetable from $host"
                             timetableState.isConnected -> {
@@ -270,7 +295,7 @@ private fun TimetableSettingsCard(
 
             if (hasSavedUrl) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = onAddOrChange) {
+                    OutlinedButton(onClick = onAddOrChange, enabled = timetableState.isLoaded) {
                         Icon(
                             imageVector = Icons.Outlined.Edit,
                             contentDescription = null,
@@ -281,7 +306,7 @@ private fun TimetableSettingsCard(
                             modifier = Modifier.padding(start = 8.dp)
                         )
                     }
-                    TextButton(onClick = onRemove) {
+                    TextButton(onClick = onRemove, enabled = timetableState.isLoaded) {
                         Icon(
                             imageVector = Icons.Outlined.DeleteOutline,
                             contentDescription = null,
@@ -294,7 +319,7 @@ private fun TimetableSettingsCard(
                     }
                 }
             } else {
-                Button(onClick = onAddOrChange) {
+                Button(onClick = onAddOrChange, enabled = timetableState.isLoaded) {
                     Icon(
                         imageVector = Icons.Outlined.Link,
                         contentDescription = null,

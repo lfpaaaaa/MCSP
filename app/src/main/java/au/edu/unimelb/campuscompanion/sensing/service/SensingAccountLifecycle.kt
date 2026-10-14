@@ -36,10 +36,13 @@ class SensingAccountLifecycle(private val travel: TravelEngine) {
         _ready.value = true
     }
 
-    /** A disposed account's Compose import/refresh cannot overwrite a replacement account. */
-    fun updateTimetable(userId: String, sessions: List<CourseSession>): Boolean = synchronized(lock) {
+    /**
+     * A disposed account's timetable feed cannot overwrite a replacement account. [reset] restarts
+     * tracking when a newly loaded account publishes its first classes.
+     */
+    fun updateTimetable(userId: String, sessions: List<CourseSession>, reset: Boolean = false): Boolean = synchronized(lock) {
         if (!_ready.value || accountId != userId) return@synchronized false
-        travel.updateSessions(sessions)
+        travel.updateSessions(sessions, reset = reset)
         this.sessions = sessions.toList()
         true
     }

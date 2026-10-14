@@ -111,8 +111,17 @@ data class TimetableState(
     val groupSyncError: String? = null,
     val isSyncingGroups: Boolean = false,
     val isCached: Boolean = false,
-    val lastSyncedAt: Instant? = null
+    val lastSyncedAt: Instant? = null,
+    /** True only after a complete local read, including a successfully loaded empty timetable. */
+    val isLoaded: Boolean = true,
+    /** Imported classes corrected by hand; the schedule offers to restore their imported details. */
+    val editedClassIds: Set<String> = emptySet(),
+    /** Imported classes hidden by hand; the schedule offers to show them again. */
+    val hiddenClassCount: Int = 0
 ) {
+    /** Classes exist to show: from the connected URL, added by hand, or both. */
+    val hasTimetable: Boolean get() = isConnected || sessions.isNotEmpty()
+
     fun offlineNotice(zone: ZoneId = ZoneId.systemDefault()): String? {
         val saved = lastSyncedAt ?: return null
         if (!isCached || errorMessage == null) return null

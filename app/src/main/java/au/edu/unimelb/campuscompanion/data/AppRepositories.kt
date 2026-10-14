@@ -15,6 +15,7 @@ import au.edu.unimelb.campuscompanion.data.fake.FakeInviteRepository
 import au.edu.unimelb.campuscompanion.data.invite.JoinLinkInbox
 import au.edu.unimelb.campuscompanion.data.local.CampusDatabase
 import au.edu.unimelb.campuscompanion.data.local.AttachmentDraftStore
+import au.edu.unimelb.campuscompanion.data.local.TimetableDatabase
 import au.edu.unimelb.campuscompanion.data.local.FileGroupListCache
 import au.edu.unimelb.campuscompanion.data.local.FileSharedFileListCache
 import au.edu.unimelb.campuscompanion.data.recording.AndroidRecording
@@ -60,6 +61,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.StateFlow
+import au.edu.unimelb.campuscompanion.navigation.toClassDestination
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.builtins.ListSerializer
@@ -80,14 +83,41 @@ object AppRepositories {
 
     private lateinit var appContext: Context
     internal val sensingAccounts by lazy { SensingAccountLifecycle(travel) }
-    /** True only after authentication and its cached timetable have been reconciled. */
+    /** True only after authentication has been reconciled; Room then feeds the account's classes. */
     val sensingAccountEligible get() = sensingAccounts.eligible
     val sensingAccountReady get() = sensingAccounts.ready
-
-    fun updateTimetable(userId: String, sessions: List<CourseSession>): Boolean =
-        sensingAccounts.updateTimetable(userId, sessions)
     private val departureHistory by lazy { au.edu.unimelb.campuscompanion.push.DepartureReminderHistory(appContext) }
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val lifecycleScope = CoroutineScope(SupervisorJob(applicationScope.coroutineContext[kotlinx.coroutines.Job]) + Dispatchers.Main.immediate)
+    private val timetableDatabase by lazy { TimetableDatabase.create(appContext) }
+    private val timetableRepository by lazy { RoomTimetableRepository(timetableDatabase, TimetableSubscriptionStore(appContext)) }
+    private val timetableImporter by lazy { TimetableImporter() }
+    private val timetableCoordinator: TimetableSessionCoordinator by lazy {
+        TimetableSessionCoordinator(
+            scope = lifecycleScope,
+            createSession = { ownerId ->
+                TimetableSession(ownerId, timetableRepository, lifecycleScope,
+                    timetableImporter::download, timetableImporter::parse)
+            },
+            onReset = {
+                DepartureNotifier.cancelAll(appContext)
+                navigation.clear()
+                // Sign-out already cleared the engine; an account switch restarts it from an empty timetable.
+                sensingAccounts.currentAccountId?.let { sensingAccounts.updateTimetable(it, emptyList(), reset = true) }
+            },
+            onFeed = { sessions, reset ->
+                // Only the account that owns the feed may replace the engine's timetable.
+                timetableSession.value?.ownerId?.let { sensingAccounts.updateTimetable(it, sessions, reset) }
+                navigation.followTimetable(sessions) { session ->
+                    au.edu.unimelb.campuscompanion.context.BuildingResolver.resolve(session, buildings)
+                        ?.let { session.toClassDestination(it) }
+                }
+            }
+        )
+    }
+
+    /** Screens observe the app-owned session; disposing a screen leaves its work running. */
+    val timetableSession: StateFlow<TimetableSession?> get() = timetableCoordinator.current
 
     /** Work that should finish even when the screen that started it goes away, such as file uploads. */
     val backgroundScope: CoroutineScope
@@ -118,7 +148,7 @@ object AppRepositories {
             ).run()
         }
         SupabaseProvider.client?.let { client ->
-            applicationScope.launch(Dispatchers.Main.immediate) {
+            lifecycleScope.launch {
                 client.auth.sessionStatus.collect { status ->
                     when (status) {
                         is SessionStatus.Authenticated -> {
@@ -130,15 +160,17 @@ object AppRepositories {
                                     navigation.clear()
                                     files.clearSession()
                                 }
-                                sensingAccounts.replaceAccount(userId,
-                                    userId?.let { TimetableSubscriptionStore(appContext).load(it).timetable?.sessions }.orEmpty())
+                                // Room publishes the account's classes through the coordinator feed.
+                                sensingAccounts.replaceAccount(userId, emptyList())
                             }
+                            timetableCoordinator.replaceOwner(userId)
                             push.onSignedIn()
                         }
                         // Cached group data belongs to the user who was signed in.
                         is SessionStatus.NotAuthenticated -> {
                             sensingAccounts.replaceAccount(null, emptyList())
                             appContext.stopService(Intent(appContext, SensingForegroundService::class.java))
+                            timetableCoordinator.replaceOwner(null)
                             navigation.clear()
                             DepartureNotifier.cancelAll(appContext)
                             groups.clearSession()

@@ -97,11 +97,11 @@ fun HomeScreen(
             }
         }
     }
-    LaunchedEffect(timetableState.isConnected, timetableState.isLoading) {
-        if (!timetableState.isConnected && !timetableState.isLoading) showTimetableDialog = true
+    LaunchedEffect(timetableState.hasTimetable, timetableState.isLoading, timetableState.isLoaded) {
+        if (timetableState.isLoaded && !timetableState.hasTimetable && !timetableState.isLoading) showTimetableDialog = true
     }
 
-    if (showTimetableDialog) {
+    if (showTimetableDialog && timetableState.isLoaded) {
         TimetableUrlDialog(
             initialUrl = timetableState.url,
             onDismiss = { showTimetableDialog = false },
@@ -123,11 +123,14 @@ fun HomeScreen(
             )
             Text(
                 text = when {
+                    !timetableState.isLoaded && !timetableState.isLoading -> "Your saved timetable could not be loaded."
+                    !timetableState.isLoaded -> "Loading your saved timetable."
                     timetableState.isCached -> "Classes below are from your saved timetable."
                     timetableState.isLoading && !timetableState.isConnected -> "Checking your saved timetable URL."
                     timetableState.isConnected -> {
                         "Classes and course groups below come from your connected timetable."
                     }
+                    timetableState.hasTimetable -> "Classes below were added by hand. Connect a timetable URL to import the rest."
                     else -> "Connect your timetable to load classes, reminders, and course groups."
                 },
                 style = MaterialTheme.typography.bodyLarge,
@@ -139,7 +142,8 @@ fun HomeScreen(
 
         when {
             timetableState.isLoading && !timetableState.isConnected -> TimetableLoadingCard()
-            !timetableState.isConnected -> TimetableSetupPrompt(
+            !timetableState.isLoaded -> Unit
+            !timetableState.hasTimetable -> TimetableSetupPrompt(
                 errorMessage = timetableState.errorMessage,
                 onConnect = { showTimetableDialog = true }
             )

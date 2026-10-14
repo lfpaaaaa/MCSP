@@ -18,9 +18,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.ChevronLeft
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.NotificationsActive
@@ -30,6 +32,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -53,6 +56,8 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import au.edu.unimelb.campuscompanion.data.isManualClass
+import au.edu.unimelb.campuscompanion.ui.components.ClassEditorDialog
 import au.edu.unimelb.campuscompanion.ui.components.TimetableSyncStatus
 import au.edu.unimelb.campuscompanion.ui.components.TimetableUrlDialog
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
@@ -81,6 +86,11 @@ fun ScheduleScreen(
     timetableState: TimetableState,
     onTimetableUrlSave: suspend (String) -> Result<Unit>,
     onTimetableRefresh: () -> Unit,
+    onAddClass: suspend (CourseSession) -> Result<Unit>,
+    onEditClass: suspend (CourseSession) -> Result<Unit>,
+    onRemoveClass: suspend (String) -> Result<Unit>,
+    onRestoreClass: suspend (String) -> Result<Unit>,
+    onRestoreHiddenClasses: suspend () -> Result<Unit>,
     reminderCourseCount: Int,
     enabledReminderCount: Int,
     onOpenDepartureReminders: () -> Unit,
@@ -88,6 +98,8 @@ fun ScheduleScreen(
     modifier: Modifier = Modifier
 ) {
     var showTimetableDialog by rememberSaveable { mutableStateOf(false) }
+    // The class being edited, or a request to add one; null while the editor is closed.
+    var editorRequest by remember { mutableStateOf<ClassEditorRequest?>(null) }
     var view by rememberSaveable { mutableStateOf(ScheduleView.List) }
     var pageIndex by rememberSaveable(timetableState.url) { mutableIntStateOf(0) }
     val today = LocalDate.now(timetableState.sessions.firstOrNull()?.start?.zone ?: ZoneId.systemDefault())
@@ -116,11 +128,22 @@ fun ScheduleScreen(
         if (selectedDayEpoch != null) selectedDayEpoch = selectedDate.toEpochDay()
     }
 
-    if (showTimetableDialog) {
+    if (showTimetableDialog && timetableState.isLoaded) {
         TimetableUrlDialog(
             initialUrl = timetableState.url,
             onDismiss = { showTimetableDialog = false },
             onSave = onTimetableUrlSave
+        )
+    }
+    editorRequest?.let { request ->
+        val editing = request.session
+        ClassEditorDialog(
+            initial = editing,
+            isEdited = editing != null && editing.id in timetableState.editedClassIds,
+            onDismiss = { editorRequest = null },
+            onSave = { session -> if (editing == null) onAddClass(session) else onEditClass(session) },
+            onRemove = editing?.let { target -> suspend { onRemoveClass(target.id) } },
+            onRestore = editing?.takeIf { !it.isManualClass }?.let { target -> suspend { onRestoreClass(target.id) } }
         )
     }
 
@@ -134,10 +157,11 @@ fun ScheduleScreen(
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("Timetable", style = MaterialTheme.typography.headlineSmall)
                 Text(
-                    text = if (timetableState.isConnected) {
-                        timetableState.offlineNotice() ?: "Browse your upcoming classes by list or week."
-                    } else {
-                        "No classes are shown until a timetable URL is verified."
+                    text = when {
+                        timetableState.isConnected -> timetableState.offlineNotice()
+                            ?: "Browse your upcoming classes by list or week."
+                        timetableState.hasTimetable -> "Classes you added by hand are shown below. Connect a timetable URL to import the rest."
+                        else -> "No classes are shown until a timetable URL is verified."
                     },
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -147,12 +171,20 @@ fun ScheduleScreen(
         item(key = "sync") { TimetableSyncStatus(timetableState, onRefresh = onTimetableRefresh) }
         when {
             timetableState.isLoading && !timetableState.isConnected -> item { LoadingTimetableState() }
-            timetableState.isConnected -> {
+            !timetableState.isLoaded -> Unit
+            timetableState.hasTimetable -> {
                 item(key = "reminders") {
                     DepartureReminderSettingRow(
                         courseCount = reminderCourseCount,
                         enabledCount = enabledReminderCount,
                         onClick = onOpenDepartureReminders
+                    )
+                }
+                item(key = "edit") {
+                    ScheduleEditRow(
+                        hiddenClassCount = timetableState.hiddenClassCount,
+                        onAddClass = { editorRequest = ClassEditorRequest(null) },
+                        onRestoreHiddenClasses = onRestoreHiddenClasses
                     )
                 }
                 item(key = "view") {
@@ -174,7 +206,8 @@ fun ScheduleScreen(
                     page.days.forEach { day ->
                         item(key = "date-${day.date}") { ScheduleDateHeader(day.date, today) }
                         items(day.sessions, key = { "session-${it.id}" }) { session ->
-                            ScheduleSessionCard(session, onNavigate = { onNavigate(session) })
+                            ScheduleSessionCard(session, onNavigate = { onNavigate(session) },
+                                onEdit = { editorRequest = ClassEditorRequest(session) })
                         }
                     }
                     if (page.pageCount > 1) {
@@ -197,15 +230,53 @@ fun ScheduleScreen(
                         item { NoScheduleClasses("No classes on this day.") }
                     }
                     items(daySessions, key = { "session-${it.id}" }) { session ->
-                        ScheduleSessionCard(session, onNavigate = { onNavigate(session) })
+                        ScheduleSessionCard(session, onNavigate = { onNavigate(session) },
+                            onEdit = { editorRequest = ClassEditorRequest(session) })
                     }
                 }
             }
             else -> item {
                 EmptyTimetableState(
                     errorMessage = timetableState.errorMessage,
-                    onConnect = { showTimetableDialog = true }
+                    onConnect = { showTimetableDialog = true },
+                    onAddClass = { editorRequest = ClassEditorRequest(null) }
                 )
+            }
+        }
+    }
+}
+
+/** A request to open the class editor: [session] is the class to edit, or null to add one. */
+private class ClassEditorRequest(val session: CourseSession?)
+
+@Composable
+private fun ScheduleEditRow(
+    hiddenClassCount: Int,
+    onAddClass: () -> Unit,
+    onRestoreHiddenClasses: suspend () -> Result<Unit>
+) {
+    val scope = rememberCoroutineScope()
+    var restoring by remember { mutableStateOf(false) }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        OutlinedButton(onClick = onAddClass) {
+            Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+            Text("Add class", modifier = Modifier.padding(start = 6.dp))
+        }
+        if (hiddenClassCount > 0) {
+            TextButton(
+                enabled = !restoring,
+                onClick = {
+                    restoring = true
+                    scope.launch {
+                        try { onRestoreHiddenClasses() } finally { restoring = false }
+                    }
+                }
+            ) {
+                Text(if (hiddenClassCount == 1) "Show 1 hidden class" else "Show $hiddenClassCount hidden classes")
             }
         }
     }
@@ -316,19 +387,33 @@ private fun ScheduleWeekSelector(
 }
 
 @Composable
-private fun ScheduleSessionCard(session: CourseSession, onNavigate: () -> Unit) {
+private fun ScheduleSessionCard(session: CourseSession, onNavigate: () -> Unit, onEdit: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                text = "${session.startTime.format(scheduleTimeFormat)}–${session.endTime.format(scheduleTimeFormat)}" +
-                    if (session.end.toLocalDate() != session.startDate) " (${session.end.format(scheduleDateFormat)})" else "",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary
-            )
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "${session.startTime.format(scheduleTimeFormat)}–${session.endTime.format(scheduleTimeFormat)}" +
+                        if (session.end.toLocalDate() != session.startDate) " (${session.end.format(scheduleDateFormat)})" else "",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.weight(1f)
+                )
+                if (session.isManualClass) {
+                    Text(
+                        "Added by hand",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(end = 4.dp)
+                    )
+                }
+                IconButton(onClick = onEdit) {
+                    Icon(Icons.Outlined.Edit, contentDescription = "Edit class")
+                }
+            }
             Text(
                 text = listOfNotNull(
                     session.code,
@@ -389,6 +474,7 @@ private fun LoadingTimetableState(modifier: Modifier = Modifier) {
 private fun EmptyTimetableState(
     errorMessage: String?,
     onConnect: () -> Unit,
+    onAddClass: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -423,6 +509,10 @@ private fun EmptyTimetableState(
                     text = if (errorMessage == null) "Connect URL" else "Check URL",
                     modifier = Modifier.padding(start = 8.dp)
                 )
+            }
+            TextButton(onClick = onAddClass) {
+                Icon(Icons.Outlined.Add, contentDescription = null)
+                Text(text = "Add class", modifier = Modifier.padding(start = 8.dp))
             }
         }
     }

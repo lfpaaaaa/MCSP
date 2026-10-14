@@ -3,6 +3,7 @@ package au.edu.unimelb.campuscompanion.navigation
 import au.edu.unimelb.campuscompanion.data.TravelMode
 import au.edu.unimelb.campuscompanion.data.model.GeoPoint
 import au.edu.unimelb.campuscompanion.sensing.location.LocationSample
+import au.edu.unimelb.campuscompanion.ui.model.CourseSession
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -25,6 +26,13 @@ data class NavigationState(
     val route get() = routes.getOrNull(routeIndex)
     val leg get() = route?.transitLegs?.getOrNull(legIndex)
 }
+
+/** Also covers a class that has finished: the timetable lists upcoming classes only. */
+private const val CLASS_REMOVED = "This class is no longer among your upcoming classes, so its directions " +
+    "were closed. Open Home or Schedule to choose a class."
+private const val VENUE_UNKNOWN =
+    "This class no longer has a campus building to route to, so its directions were closed."
+private const val CLASS_MOVED = "This class moved to another building. Find routes again before starting a trip."
 
 /** Shared with the foreground location service, so leaving the navigation screen keeps reminders alive. */
 class NavigationSession(
@@ -50,6 +58,35 @@ class NavigationSession(
         stop()
         mutableState.value = NavigationState(destination = destination)
     }
+
+    /**
+     * Keeps the selected class current after a timetable change. [sessions] is the whole timetable;
+     * [destinationOf] gives a class's destination, or null when its building is unknown.
+     * - Only its labels changed (title, room, activity): they are updated, and the routes and any
+     *   trip in progress stay, since they lead to the same place.
+     * - It moved to another building: the routes and any trip lead to the old one, so both end.
+     * - It was removed or has finished, or its building is no longer known: the selection ends,
+     *   with the reason.
+     */
+    @Synchronized fun followTimetable(sessions: List<CourseSession>, destinationOf: (CourseSession) -> ClassDestination?) {
+        val current = state.value.destination ?: return
+        val session = sessions.firstOrNull { it.id == current.sessionId }
+        val updated = session?.let(destinationOf)
+        when {
+            updated == null -> {
+                stop()
+                mutableState.value = NavigationState(
+                    mode = state.value.mode,
+                    error = if (session == null) CLASS_REMOVED else VENUE_UNKNOWN
+                )
+            }
+            updated.point != current.point || updated.buildingCode != current.buildingCode -> {
+                stop()
+                mutableState.value = NavigationState(destination = updated, mode = state.value.mode, error = CLASS_MOVED)
+            }
+            updated != current -> mutableState.value = state.value.copy(destination = updated)
+        }
+    }
     @Synchronized fun changeMode(mode: TravelMode) {
         if (state.value.active) return
         generation++
@@ -68,15 +105,22 @@ class NavigationSession(
         val version = ++generation
         mutableState.value = before.copy(loading = true, error = null)
         request = scope.launch {
+            // Results go into the current state: the class's labels may have been corrected meanwhile.
             try {
                 val routes = repository.routes(GeoPoint(fix.latitude, fix.longitude), destination.point, before.mode)
                 synchronized(this@NavigationSession) {
-                    if (generation == version) mutableState.value = before.copy(routes = routes, loadedAt = System.currentTimeMillis(), error = if (routes.isEmpty()) "No route found." else null)
+                    if (generation == version) mutableState.value = state.value.copy(
+                        loading = false, routes = routes, routeIndex = 0, loadedAt = System.currentTimeMillis(),
+                        error = if (routes.isEmpty()) "No route found." else null
+                    )
                 }
             } catch (cancel: CancellationException) { throw cancel }
             catch (error: Exception) {
                 synchronized(this@NavigationSession) {
-                    if (generation == version) mutableState.value = before.copy(error = error.message?.takeIf { error is IllegalStateException } ?: "Could not load routes. Check your connection and try again.")
+                    if (generation == version) mutableState.value = state.value.copy(
+                        loading = false,
+                        error = error.message?.takeIf { error is IllegalStateException } ?: "Could not load routes. Check your connection and try again."
+                    )
                 }
             }
         }
@@ -86,6 +130,10 @@ class NavigationSession(
     }
     @Synchronized fun start(): Boolean {
         val current = state.value
+        // Already tracking: starting again would reset the progress made on this trip.
+        if (current.active) return true
+        // New routes are on their way and will replace the ones on screen.
+        if (current.loading) return false
         val leg = current.route?.transitLegs?.firstOrNull() ?: return false
         if (System.currentTimeMillis() - current.loadedAt > 10 * 60 * 1000) {
             mutableState.value = current.copy(routes = emptyList(), error = "This route is out of date. Find routes again before starting.")
