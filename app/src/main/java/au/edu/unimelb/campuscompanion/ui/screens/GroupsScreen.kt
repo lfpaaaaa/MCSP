@@ -223,7 +223,7 @@ fun GroupsScreen(
             ) {
                 Icon(Icons.Outlined.Archive, contentDescription = null)
                 Text(
-                    text = "已折叠 (${foldedGroups.size})",
+                    text = "Folded groups (${foldedGroups.size})",
                     modifier = Modifier.padding(horizontal = 8.dp)
                 )
                 Icon(
@@ -378,7 +378,7 @@ private fun EmptyActiveGroups(
             )
             Text(
                 text = when {
-                    hasFoldedGroups -> "Your existing group chats are in 已折叠."
+                    hasFoldedGroups -> "Your existing group chats are under Folded groups."
                     timetableConnected -> "No active groups are available."
                     errorMessage != null -> errorMessage
                     else -> "Create a group or connect your timetable on Home."

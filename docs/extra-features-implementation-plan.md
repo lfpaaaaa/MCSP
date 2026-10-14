@@ -2,7 +2,7 @@
 
 14 October 2026, Australia/Melbourne. Target: the existing `feat/extra-features` branch at `95443cb80ade75c632baac89a245c5539bc2dd8c`. Reference implementation: local `main` at `f1a251e`. This is an implementation plan; no application code, migrations or deployments are changed by it.
 
-Implement Group files and View join code first, then foreground voice recording and playback. On 14 October 2026 the team deferred automatic transcription until a later request; it is not part of the current voice increment. Add the classroom compass as an optional, independently testable phase. Adapt the relevant components from `main` while retaining the current branch's context engine, initial-location acquisition, reminder preferences, account isolation and sensing lifecycle protections.
+Implement Group files and View join code first, then foreground voice recording and playback. On 14 October 2026 the team deferred automatic transcription until a later request; it is not part of the current voice increment. The team has also deferred the classroom compass (Step 5) until a later request. Adapt the relevant components from `main` while retaining the current branch's context engine, initial-location acquisition, reminder preferences, account isolation and sensing lifecycle protections.
 
 ## Scope and project plan alignment
 
@@ -12,7 +12,7 @@ Implement Group files and View join code first, then foreground voice recording 
 | Group file browser | Search/filter the group's existing attachments, preview/download with current permissions and let uploaders delete their own files. | Required. Reuse existing cloud files rather than creating a second sharing system. |
 | Chat voice messages | Microphone beside the composer; Start/Stop, timer, live input meter, review, Cancel and Use recording; then Send. | Required. Maximum ten minutes, matching the supplied recording image. |
 | Speech to text | Automatically queue a transcript when a recorded clip is sent; display durable progress and the saved transcript to group members. | Deferred by the team on 14 October 2026; retain the design for later work. |
-| Classroom compass | Visible arrow and readable direction toward the selected teaching building, using live heading and location. | Optional P1 phase, after collaboration features are stable. |
+| Classroom compass | Visible arrow and readable direction toward the selected teaching building, using live heading and location. | Deferred by the team; retain the design for a later request. |
 
 The project plan makes recording with speech to text, a live recording meter, a transcript viewer and a compass arrow P1 work. It describes **automatic transcription**. The screenshot and `main` currently use **Generate transcript** after upload. The team has now deferred all transcription. The current recording help describes sharing an audio clip only, with no automatic enqueue, Generate, Retry transcript or transcript viewer. The proposed transcription design below is retained for a future request.
 
@@ -138,7 +138,10 @@ Required backend work: reuse/adapt `20261013090000_file_transcripts.sql` accordi
 
 **Completion check:** Send → sender closes app → second member plays audio and later reads the automatically generated transcript. One upload produces one job. Worker outage leaves a durable queued state; queued jobs resume when it starts, while interrupted processing jobs currently become reclaimable after the 30-minute lease expires. Test those cases separately, along with stale leases, duplicate finalization, removal/dissolution during processing, unauthorized access and uploader retry. Run a known speech fixture through the actual worker, then assess real recorded speech on a phone.
 
-## Phase 4 Optional classroom compass
+## Phase 4 Deferred classroom compass
+
+The team deferred Step 5 until a later request. This design is retained for future work and
+is excluded from the current Step 6 integration scope.
 
 Adapt `DestinationCompass.kt`, `ClassCompassScreen.kt` and the pure compass tests from `main`, using the current branch's building lookup, location tracker, permission handling and Google Maps callback.
 
@@ -174,15 +177,15 @@ Primary changes: new compass model/screen/tests; small detector/display-metadata
 | 1 | Group files and View join code | Settings draft, expiry, two-member browser and permission checks pass. |
 | 2 | Voice recording, delivery and playback | Real microphone capture, lifecycle and duplicate-free retry pass. |
 | 3 | Deferred: automatic transcript jobs, viewer and worker instructions | Resume only after a future request; no transcription dependency for voice messages. |
-| 4 | Optional compass | Physical direction checks and unchanged context/sensing regressions pass. |
+| 4 | Deferred: classroom compass | Resume only after a future request; physical direction and sensing checks apply then. |
 | 5 | Final integration evidence | Clean builds, relevant full suites and signed-in two-device rehearsal pass. |
 
 Use separately reviewable commits for these increments. Before implementation, rerun the current baseline; after each increment run its focused tests and integration checks. At final integration run `./gradlew testDebugUnitTest assembleDebug assembleDebugAndroidTest`, the database tests against isolated fixtures and the relevant Android suites. Distinguish emulator/fake checks from real microphone, physical compass and hosted-backend acceptance. Preserve app data during device testing and do not reset the development database.
 
-The final rehearsal is: create a custom group → view code/QR → second account joins → browse a shared file → record/review/send voice → receiving account plays it → delete with correct permissions. Transcript acceptance is deferred until that phase is resumed. Then, if the optional phase is included, open a class compass from Home and Schedule while departure sensing runs and confirm the correct building, Maps action and unchanged reminders.
+The final rehearsal is: create a custom group → view code/QR → second account joins → browse a shared file → record/review/send voice → receiving account plays it → delete with correct permissions. Transcript and compass acceptance are deferred until their phases are resumed. A future compass rehearsal should open it from Home and Schedule while departure sensing runs and confirm the correct building, Maps action and unchanged reminders.
 
 Update README and permissions/help text, list required migrations and worker configuration, and record the tested commit/device/backend. The written plan's P1 features should be final-demo claims only after those integrated checks pass.
 
 ## Deferred work
 
-Automatic transcription, transcript UI and worker deployment are deferred by the team. Biometric protection is a separate P1 feature; microphone permission and download consent do not implement it. This increment also excludes live voice calls, background lecture recording, recordings over ten minutes, transcript editing/search, pinned messages and a broader navigation/localization rewrite. File-catalog pagination and Room file-cache migration can be scheduled separately; the first browser uses the current repository/cache contract.
+Automatic transcription, transcript UI, worker deployment and the classroom compass are deferred by the team. Biometric protection is a separate P1 feature; microphone permission and download consent do not implement it. This increment also excludes live voice calls, background lecture recording, recordings over ten minutes, transcript editing/search, pinned messages and a broader navigation/localization rewrite. File-catalog pagination and Room file-cache migration can be scheduled separately; the first browser uses the current repository/cache contract.
