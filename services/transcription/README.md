@@ -32,3 +32,23 @@ Run the worker on an always-on server with the same requirements and `SUPABASE_U
 Jobs are leased transactionally with `SKIP LOCKED`; interrupted jobs become claimable after thirty minutes. A lease identifier prevents an old worker from overwriting a newer result. Users cannot claim jobs or write recognition results. Files are limited to 20 MB by the existing upload layer and audio longer than thirty minutes is rejected by the worker.
 
 Validation: `supabase test db supabase/tests/database/file_transcripts.test.sql`, Android unit tests, and an actual synthetic-speech upload/transcription/read-after-login/delete integration check. Microphone capture quality requires a physical Android device; emulator UI tests can use silent input without enabling the computer microphone.
+
+
+## Transcript editing and search
+
+Apply `supabase/migrations/20261013220000_file_transcript_edits.sql` to the same backend used by
+the app (locally: `supabase db push --local`, without a database reset). Open an audio attachment,
+then **Read and search transcript**. Members can search that recording's full transcript with
+case-insensitive literal matching, highlighting and previous/next results. Long transcripts are
+split into display chunks without truncating the searchable text. Download-disabled members
+can read/search, but text selection remains disabled.
+
+Only the uploader sees **Edit**. Save updates Postgres through `update_file_transcript`, with a
+revision check to prevent stale drafts overwriting another device's correction. Retrying an
+already-applied identical update is safe. Network errors leave the editor draft intact; leaving
+with unsaved changes asks before discarding. **Reload saved version** refreshes after a conflict.
+Drafts survive ordinary activity recreation, but only a successful save is durable across logout.
+Members see saved corrections when reopening or refreshing the transcript. Recognition jobs
+and audio files are unchanged. Database permission/conflict tests are in
+`supabase/tests/database/file_transcript_edits.test.sql`; search/serialization tests run with
+`./gradlew testDebugUnitTest`.

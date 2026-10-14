@@ -5,311 +5,111 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
-import android.util.Log
+import android.view.Surface
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlin.math.abs
 
+/** Accelerometer + magnetometer heading. The caller owns start/stop with its lifecycle. */
 class CompassHeadingDetector(
-    context: Context
+    context: Context,
+    private val displayRotation: () -> Int = { Surface.ROTATION_0 }
 ) : SensorEventListener {
+    private val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+    private val accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+    private val magnetometer = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
+    val isAvailable: Boolean get() = accelerometer != null && magnetometer != null
 
-    companion object {
+    private val gravity = FloatArray(3)
+    private val magnetic = FloatArray(3)
+    private val rotationMatrix = FloatArray(9)
+    private val displayMatrix = FloatArray(9)
+    private val orientation = FloatArray(3)
+    private var gravityAt = 0L
+    private var magneticAt = 0L
+    private var magneticAccuracy = SensorManager.SENSOR_STATUS_UNRELIABLE
+    private var running = false
+    private val mutableSample = MutableStateFlow<CompassSample?>(null)
+    val sample: StateFlow<CompassSample?> = mutableSample.asStateFlow()
+    private val mutableHeading = MutableStateFlow<Float?>(null)
+    val headingDegrees: StateFlow<Float?> = mutableHeading.asStateFlow()
 
-        /*
-         * Low-pass filter coefficient.
-         *
-         * This helps reduce sensor noise so the compass
-         * heading does not jump too much between samples.
-         */
-        private const val FILTER_ALPHA = 0.8f
+    fun start(): Boolean {
+        if (running) return true
+        if (!isAvailable) return false
+        val gravityStarted = sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_NORMAL)
+        val magneticStarted = sensorManager.registerListener(this, magnetometer, SensorManager.SENSOR_DELAY_NORMAL)
+        running = gravityStarted && magneticStarted
+        if (!running) stop()
+        return running
     }
-
-    private val sensorManager =
-        context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
-
-    private val accelerometer: Sensor? =
-        sensorManager.getDefaultSensor(
-            Sensor.TYPE_ACCELEROMETER
-        )
-
-    private val magnetometer: Sensor? =
-        sensorManager.getDefaultSensor(
-            Sensor.TYPE_MAGNETIC_FIELD
-        )
-
-    // ---------------------------------------------------------
-    // Filtered sensor values
-    // ---------------------------------------------------------
-
-    private val gravityValues =
-        FloatArray(3)
-
-    private val magneticValues =
-        FloatArray(3)
-
-    private var hasGravity =
-        false
-
-    private var hasMagnetic =
-        false
-
-    // ---------------------------------------------------------
-    // Rotation / orientation arrays
-    // ---------------------------------------------------------
-
-    private val rotationMatrix =
-        FloatArray(9)
-
-    private val orientationValues =
-        FloatArray(3)
-
-    // ---------------------------------------------------------
-    // Output state
-    // ---------------------------------------------------------
-
-    private val _sample =
-        MutableStateFlow<CompassSample?>(null)
-
-    val sample: StateFlow<CompassSample?> =
-        _sample.asStateFlow()
-
-    private val _headingDegrees =
-        MutableStateFlow<Float?>(null)
-
-    val headingDegrees: StateFlow<Float?> =
-        _headingDegrees.asStateFlow()
-
-    // ---------------------------------------------------------
-    // Start
-    // ---------------------------------------------------------
-
-    fun start() {
-
-        if (accelerometer == null) {
-
-            Log.w(
-                "CompassHeading",
-                "Accelerometer is not available on this device"
-            )
-
-            return
-        }
-
-        if (magnetometer == null) {
-
-            Log.w(
-                "CompassHeading",
-                "Magnetometer is not available on this device"
-            )
-
-            return
-        }
-
-        sensorManager.registerListener(
-            this,
-            accelerometer,
-            SensorManager.SENSOR_DELAY_NORMAL
-        )
-
-        sensorManager.registerListener(
-            this,
-            magnetometer,
-            SensorManager.SENSOR_DELAY_NORMAL
-        )
-
-        Log.d(
-            "CompassHeading",
-            "Compass heading detector started"
-        )
-    }
-
-    // ---------------------------------------------------------
-    // Stop
-    // ---------------------------------------------------------
 
     fun stop() {
-
         sensorManager.unregisterListener(this)
-
-        hasGravity =
-            false
-
-        hasMagnetic =
-            false
-
-        _headingDegrees.value =
-            null
-
-        _sample.value =
-            null
-
-        Log.d(
-            "CompassHeading",
-            "Compass heading detector stopped"
-        )
+        running = false
+        gravityAt = 0L
+        magneticAt = 0L
+        magneticAccuracy = SensorManager.SENSOR_STATUS_UNRELIABLE
+        mutableHeading.value = null
+        mutableSample.value = null
     }
 
-    // ---------------------------------------------------------
-    // Sensor events
-    // ---------------------------------------------------------
-
-    override fun onSensorChanged(
-        event: SensorEvent?
-    ) {
-
-        if (event == null) {
-            return
-        }
-
+    override fun onSensorChanged(event: SensorEvent?) {
+        if (event == null || !running) return
         when (event.sensor.type) {
-
             Sensor.TYPE_ACCELEROMETER -> {
-
-                applyLowPassFilter(
-                    input = event.values,
-                    output = gravityValues
-                )
-
-                hasGravity =
-                    true
+                filter(event.values, gravity, gravityAt == 0L)
+                gravityAt = event.timestamp
             }
-
             Sensor.TYPE_MAGNETIC_FIELD -> {
-
-                applyLowPassFilter(
-                    input = event.values,
-                    output = magneticValues
-                )
-
-                hasMagnetic =
-                    true
+                filter(event.values, magnetic, magneticAt == 0L)
+                magneticAt = event.timestamp
+                magneticAccuracy = event.accuracy
             }
-
-            else -> {
-                return
-            }
+            else -> return
         }
-
-        calculateHeading(
-            event.timestamp
-        )
-    }
-
-    // ---------------------------------------------------------
-    // Calculate heading
-    // ---------------------------------------------------------
-
-    private fun calculateHeading(
-        timestampNanos: Long
-    ) {
-
-        if (
-            !hasGravity ||
-            !hasMagnetic
-        ) {
+        if (gravityAt == 0L || magneticAt == 0L) return
+        if (!SensorManager.getRotationMatrix(rotationMatrix, null, gravity, magnetic)) {
+            mutableSample.value = null
+            mutableHeading.value = null
             return
         }
-
-        /*
-         * Build the rotation matrix using:
-         *
-         * accelerometer gravity vector
-         * +
-         * Earth's magnetic field vector
-         */
-        val success =
-            SensorManager.getRotationMatrix(
-                rotationMatrix,
-                null,
-                gravityValues,
-                magneticValues
-            )
-
-        if (!success) {
-
-            Log.w(
-                "CompassHeading",
-                "Unable to calculate rotation matrix"
-            )
-
-            return
+        val rotation = displayRotation()
+        val (x, y) = when (rotation) {
+            Surface.ROTATION_90 -> SensorManager.AXIS_Y to SensorManager.AXIS_MINUS_X
+            Surface.ROTATION_180 -> SensorManager.AXIS_MINUS_X to SensorManager.AXIS_MINUS_Y
+            Surface.ROTATION_270 -> SensorManager.AXIS_MINUS_Y to SensorManager.AXIS_X
+            else -> SensorManager.AXIS_X to SensorManager.AXIS_Y
         }
-
-        /*
-         * orientationValues:
-         *
-         * [0] = azimuth
-         * [1] = pitch
-         * [2] = roll
-         */
-        SensorManager.getOrientation(
-            rotationMatrix,
-            orientationValues
-        )
-
-        val azimuthRadians =
-            orientationValues[0]
-
-        var heading =
-            Math.toDegrees(
-                azimuthRadians.toDouble()
-            ).toFloat()
-
-        /*
-         * Android can return:
-         *
-         * -180° ... +180°
-         *
-         * Convert this into:
-         *
-         * 0° ... 360°
-         */
-        if (heading < 0f) {
-            heading += 360f
-        }
-
-        _headingDegrees.value =
-            heading
-
-        _sample.value =
-            CompassSample(
-                headingDegrees = heading,
-                timestampNanos = timestampNanos
-            )
-
-        Log.d(
-            "CompassHeading",
-            "heading=${heading.toInt()}°"
+        SensorManager.remapCoordinateSystem(rotationMatrix, x, y, displayMatrix)
+        SensorManager.getOrientation(displayMatrix, orientation)
+        val heading = ((Math.toDegrees(orientation[0].toDouble()).toFloat() % 360f) + 360f) % 360f
+        mutableHeading.value = heading
+        mutableSample.value = CompassSample(
+            headingDegrees = heading,
+            // A stream from just one sensor must not keep an old reading looking fresh.
+            timestampNanos = minOf(gravityAt, magneticAt),
+            accuracy = magneticAccuracy,
+            tiltDegrees = Math.toDegrees(maxOf(abs(orientation[1]), abs(orientation[2])).toDouble()).toFloat(),
+            displayRotation = rotation
         )
     }
 
-    // ---------------------------------------------------------
-    // Low-pass filter
-    // ---------------------------------------------------------
-
-    private fun applyLowPassFilter(
-        input: FloatArray,
-        output: FloatArray
-    ) {
-
-        output[0] =
-            FILTER_ALPHA * output[0] +
-                    (1f - FILTER_ALPHA) * input[0]
-
-        output[1] =
-            FILTER_ALPHA * output[1] +
-                    (1f - FILTER_ALPHA) * input[1]
-
-        output[2] =
-            FILTER_ALPHA * output[2] +
-                    (1f - FILTER_ALPHA) * input[2]
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
+        if (sensor?.type == Sensor.TYPE_MAGNETIC_FIELD) {
+            magneticAccuracy = accuracy
+            mutableSample.value = mutableSample.value?.copy(accuracy = accuracy)
+        }
     }
 
-    override fun onAccuracyChanged(
-        sensor: Sensor?,
-        accuracy: Int
-    ) {
-        // No action required for the current prototype.
+    private fun filter(input: FloatArray, output: FloatArray, first: Boolean) {
+        for (index in 0..2) {
+            output[index] = if (first) input[index] else FILTER_ALPHA * output[index] + (1f - FILTER_ALPHA) * input[index]
+        }
+    }
+
+    private companion object {
+        const val FILTER_ALPHA = 0.8f
     }
 }

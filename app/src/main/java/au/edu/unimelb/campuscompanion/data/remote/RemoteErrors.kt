@@ -26,6 +26,12 @@ fun Throwable.toDataError(): DataError = when (this) {
  */
 fun dataErrorFor(statusCode: Int, message: String?, cause: Throwable? = null): DataError =
     when (message) {
+        "pin_target_missing", "pin_target_invalid" -> DataError.Validation(UiText(R.string.pins_target_missing))
+        "pin_remove_forbidden" -> DataError.Validation(UiText(R.string.pins_remove_forbidden))
+        "transcript_conflict" -> DataError.Validation(UiText(R.string.transcript_edit_conflict))
+        "transcript_not_ready" -> DataError.Validation(UiText(R.string.transcript_not_ready_to_edit))
+        "invalid_transcript_edit" -> DataError.Validation(UiText(R.string.transcript_edit_invalid))
+        "not_file_uploader" -> DataError.Forbidden(cause)
         "invalid_nickname" -> DataError.Validation(UiText(R.string.validation_group_nicknames_need_1_to_40_characters))
         "join_code_expired" -> DataError.Validation(UiText(R.string.validation_the_6_character_code_expired_5_minutes_after))
         "invite_not_found" -> DataError.InvalidInvite(DataError.InvalidInvite.Reason.Unknown, cause)

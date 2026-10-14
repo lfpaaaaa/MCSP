@@ -39,7 +39,7 @@
     <string name="files_audio">Audio</string>
     <string name="files_documents">Documents</string>
     <string name="transcript_title">Transcript</string>
-    <string name="transcript_empty">No speech was detected.</string>
+    <string name="transcript_empty">This transcript is empty.</string>
     <string name="transcript_accuracy">Automatically generated. Check the recording for accuracy.</string>
     <string name="transcript_queued">Waiting for the transcription service. You can close this screen; the request is saved.</string>
     <string name="transcript_processing">Transcribing… You can return later to view the result.</string>
@@ -709,4 +709,79 @@
         <item quantity="one">%1$d minute</item>
         <item quantity="other">%1$d minutes</item>
     </plurals>
+
+    <string name="compass_open">Direction to building</string>
+    <string name="compass_title">Building compass</string>
+    <string name="compass_class_unavailable">This class is no longer in your timetable. Return to Schedule and choose a class.</string>
+    <string name="compass_building_unavailable">This classroom could not be matched to a campus building. Check its location in your timetable.</string>
+    <string name="compass_location_permission">Allow precise location to point toward your teaching building.</string>
+    <string name="compass_location_off">Turn on your phone\'s location to find the building direction.</string>
+    <string name="compass_tracking_failed">Location tracking could not start. Keep this page open and try again.</string>
+    <string name="compass_enable_location">Enable location</string>
+    <string name="compass_waiting_location">Waiting for a recent, accurate location. Try moving to an open area.</string>
+    <string name="compass_no_sensor">This phone cannot provide compass directions. You can still navigate with Google Maps.</string>
+    <string name="compass_waiting_heading">Waiting for compass readings. Hold your phone flat, with its screen facing up.</string>
+    <string name="compass_calibrate">Compass accuracy is low. Move away from magnets and metal, then move your phone in a figure eight.</string>
+    <string name="compass_hold_flat">Hold your phone flat with its screen facing up to see the direction.</string>
+    <string name="compass_near_building">You are near the teaching building. Check your room number and the building entrance.</string>
+    <string name="compass_straight_direction">Hold your phone flat with its top edge pointing ahead. The arrow points straight toward the building. Use Google Maps for paths and walking directions.</string>
+    <string name="compass_ahead">The building is ahead of you.</string>
+    <string name="compass_ahead_right">The building is ahead and to your right.</string>
+    <string name="compass_right">The building is to your right.</string>
+    <string name="compass_behind_right">The building is behind you and to your right.</string>
+    <string name="compass_behind">The building is behind you.</string>
+    <string name="compass_behind_left">The building is behind you and to your left.</string>
+    <string name="compass_left">The building is to your left.</string>
+    <string name="compass_ahead_left">The building is ahead and to your left.</string>
+
+    <string name="recording_input_level">Microphone level</string>
+    <string name="recording_input_inactive">Microphone inactive</string>
+    <string name="recording_input_unavailable">Input level unavailable</string>
+    <string name="recording_input_quiet">Quiet</string>
+    <string name="recording_input_detected">Sound detected</string>
+    <string name="recording_input_high">High input — move farther from the microphone</string>
+
+    <string name="transcript_read_search">Read and search transcript</string>
+    <string name="transcript_edit">Edit transcript</string>
+    <string name="transcript_edit_action">Edit</string>
+    <string name="transcript_text">Transcript text</string>
+    <string name="transcript_edit_shared">Saved corrections are visible to everyone in this group.</string>
+    <string name="transcript_edited">Edited by the recording uploader. Check the recording for accuracy.</string>
+    <string name="transcript_saved">Transcript saved</string>
+    <string name="transcript_search">Search this transcript</string>
+    <string name="transcript_clear_search">Clear transcript search</string>
+    <string name="transcript_no_matches">No matches</string>
+    <string name="transcript_match_count">Match %1$d of %2$d</string>
+    <string name="transcript_previous_match">Previous match</string>
+    <string name="transcript_next_match">Next match</string>
+    <string name="transcript_edit_conflict">This transcript changed on another device. Your draft is kept here. Copy any edits you need, then use Reload saved version to review the latest text.</string>
+    <string name="transcript_not_ready_to_edit">This transcript is not ready for editing. Refresh and try again.</string>
+    <string name="transcript_edit_invalid">A transcript can contain up to 200,000 characters. Shorten the text and try again.</string>
+    <string name="transcript_reload">Reload saved version</string>
+    <string name="transcript_discard_title">Discard transcript changes?</string>
+    <string name="transcript_discard_body">Your unsaved edits will be discarded. The saved transcript will stay available.</string>
+    <string name="transcript_keep_editing">Keep editing</string>
+
+    <string name="pins_actions">Message pinning</string>
+    <string name="pins_loading">Loading pinned messages</string>
+    <string name="pins_load_failed">Pinned messages could not be refreshed.</string>
+    <string name="pins_personal">Pinned for you</string>
+    <string name="pins_shared">Pinned for everyone</string>
+    <string name="pins_both">Pinned for you and everyone</string>
+    <plurals name="pins_personal_count">
+        <item quantity="one">Your pinned message (%1$d)</item>
+        <item quantity="other">Your pinned messages (%1$d)</item>
+    </plurals>
+    <string name="pins_personal_help">Personal pins are visible only to you and are saved to your account.</string>
+    <string name="pins_shared_help">As the group owner, you can also pin one message for everyone. This replaces the current group pin.</string>
+    <string name="pins_pin_personal">Pin for me</string>
+    <string name="pins_unpin_personal">Unpin for me</string>
+    <string name="pins_pin_shared">Pin for everyone</string>
+    <string name="pins_unpin_shared">Remove group pin</string>
+    <string name="pins_empty">No pinned messages.</string>
+    <string name="pins_attribution">Pinned by %1$s · %2$s</string>
+    <string name="pins_open_attachment">Open attachment</string>
+    <string name="pins_target_missing">This message or attachment is no longer available. Refresh the group and try again.</string>
+    <string name="pins_remove_forbidden">You can remove only your own personal pins. Only the current group owner can remove the group pin.</string>
+    <string name="pins_backend_required">Message pinning needs a connected backend.</string>
 </resources>

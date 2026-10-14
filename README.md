@@ -339,3 +339,37 @@ as Android `values-<language>` resources.
 
 The JVM resource tests read the actual catalog to check formatting, percentage signs, nested
 labels and singular/plural counts. Run `./gradlew testDebugUnitTest assembleDebug`.
+
+
+## Building compass
+
+Home's next-class card and each Schedule class have a **Direction to building** action.
+The compass page resolves the class building from the bundled campus locations and combines
+fresh precise location with accelerometer/magnetometer heading. It corrects magnetic declination and display
+rotation, animates the shortest turn across north, and replaces the arrow with a nearby-building
+message within 75 m. No map API key or route request is needed for the compass.
+The arrow shows straight-line direction; the existing Google Maps button supplies walking routes.
+
+Only the visible compass page requests its location and heading updates; leaving it or locking
+the screen stops both without changing the app's independent trip/reminder service. Low
+magnetic accuracy, a tilted phone, missing sensors and stale/denied location have explicit states.
+All compass copy is resource-backed, with a text direction for TalkBack. Unit tests cover bearings,
+declination, wraparound, sensor/location freshness, display rotation and destination changes.
+Physical-device checks should include portrait/landscape rotation, outdoor pointing, calibration,
+background/resume, permission denial and Google Maps return.
+
+
+## Pinned messages
+
+Apply `supabase/migrations/20261013230000_group_pins.sql` to the app's backend. Tap or long-press
+a sent text message, or long-press an attachment, for **Message pinning**. **Pin for me** creates
+an account-backed personal pin; other members (including the owner) cannot read or remove it.
+The current owner additionally sees **Pin for everyone**. A group has one shared pin, replaced
+atomically when the owner picks another message. Personal and shared pins are independent,
+appear separately above the timeline, and open their full contents even outside loaded history.
+Attachments retain their original preview/download permissions. Pending or failed messages
+cannot be pinned. Pins refresh through Realtime, after reconnect, and periodically while the
+screen is active. Saved pins survive logout; offline operations show an error instead of saving
+only on the device. Deleting a message/file or dissolving a group removes its related pins.
+A transferred owner can replace/remove the existing group pin; the former owner's personal pins
+remain private. Backend privacy/role tests cover both the RPCs and direct-table RLS.

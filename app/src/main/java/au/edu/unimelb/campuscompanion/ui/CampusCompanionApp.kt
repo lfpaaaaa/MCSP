@@ -141,6 +141,7 @@ private fun isGroupRoute(route: String?): Boolean = route in setOf(
 )
 private fun groupRoute(route: String, groupId: String): String = route.replace("{groupId}", Uri.encode(groupId))
 private const val CLASS_NAVIGATION_ROUTE = "class_navigation"
+private const val CLASS_COMPASS_ROUTE = "class_compass/{sessionId}"
 private const val EDIT_PROFILE_ROUTE = "edit_profile"
 private const val COURSE_REMINDERS_ROUTE = "course_reminders"
 
@@ -551,6 +552,9 @@ private fun AuthenticatedCampusApp(
     val homeDestination = CampusDestination.Home
     var groupNavigationRestored by remember { mutableStateOf(false) }
     val backStackEntry by navController.currentBackStackEntryAsState()
+    fun openClassCompass(session: CourseSession) {
+        navController.navigate(CLASS_COMPASS_ROUTE.replace("{sessionId}", Uri.encode(session.id))) { launchSingleTop = true }
+    }
     fun navigateToClass(session: CourseSession) {
         val building = au.edu.unimelb.campuscompanion.context.BuildingResolver.resolve(session, AppRepositories.buildings)
         if (building == null) {
@@ -879,6 +883,7 @@ private fun AuthenticatedCampusApp(
                     preferences = groupPreferences
                 ),
                 onNavigate = ::navigateToClass,
+                onOpenCompass = ::openClassCompass,
                 onTimetableUrlSave = connectTimetable,
                 onTimetableRefresh = refreshTimetable,
                 onOpenGroup = { group ->
@@ -892,6 +897,7 @@ private fun AuthenticatedCampusApp(
                 onTimetableUrlSave = connectTimetable,
                 onTimetableRefresh = refreshTimetable,
                 onNavigate = ::navigateToClass,
+                onOpenCompass = ::openClassCompass,
                 reminderCourseCount = reminderCourses.size,
                 enabledReminderCount = courseReminderPreferences.values.count { it.enabled },
                 onOpenDepartureReminders = {
@@ -900,6 +906,10 @@ private fun AuthenticatedCampusApp(
                     }
                 }
             )
+        }
+        campusPage(CLASS_COMPASS_ROUTE, arguments = listOf(navArgument("sessionId") { type = NavType.StringType })) { entry ->
+            val session = displayedTimetable.sessions.firstOrNull { it.id == entry.arguments?.getString("sessionId") }
+            au.edu.unimelb.campuscompanion.ui.screens.ClassCompassScreen(session, displayedTimetable.isLoading)
         }
         campusPage(CLASS_NAVIGATION_ROUTE) {
             au.edu.unimelb.campuscompanion.ui.screens.ClassNavigationScreen()
@@ -1127,7 +1137,8 @@ private fun CampusScreenScaffold(
     val currentScreen = destinations.firstOrNull { it.route == route } ?: CampusDestination.Home
     val isGroupChat = route == GROUP_CHAT_ROUTE
     val isCourseReminderSettings = route == COURSE_REMINDERS_ROUTE
-    val isClassNavigation = route == CLASS_NAVIGATION_ROUTE
+    val isClassCompass = route == CLASS_COMPASS_ROUTE
+    val isClassNavigation = route == CLASS_NAVIGATION_ROUTE || isClassCompass
     val isEditingProfile = route == EDIT_PROFILE_ROUTE
     val isDetailScreen = isGroupChat || isCourseReminderSettings || isClassNavigation || isEditingProfile
     Scaffold(
@@ -1160,7 +1171,7 @@ private fun CampusScreenScaffold(
                     } else if (isEditingProfile) {
                         Text(textResources.getString(R.string.campus_companion_app_edit_profile))
                     } else if (isClassNavigation) {
-                        Text(textResources.getString(R.string.campus_companion_app_class_navigation))
+                        Text(textResources.getString(if (isClassCompass) R.string.compass_title else R.string.campus_companion_app_class_navigation))
                     } else if (isCourseReminderSettings) {
                         Text(textResources.getString(R.string.campus_companion_app_departure_reminders))
                     } else {

@@ -186,6 +186,12 @@ object AppRepositories {
         }
     }
 
+    val groupPins by lazy {
+        au.edu.unimelb.campuscompanion.data.repository.GroupPinsRepository(
+            SupabaseProvider.client?.let { au.edu.unimelb.campuscompanion.data.remote.SupabaseGroupPinsDataSource(it) }
+        )
+    }
+
     val chatSender: ChatMessageSender by lazy {
         ChatMessageSender(
             repository = chat,

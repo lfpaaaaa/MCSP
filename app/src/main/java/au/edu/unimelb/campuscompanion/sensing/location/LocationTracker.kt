@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
+import com.google.android.gms.tasks.Task
 import com.google.android.gms.location.Priority
 import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationCallback
@@ -70,8 +71,8 @@ class LocationTracker(
     @SuppressLint("MissingPermission")
     fun startTracking(
         mode: LocationTrackingMode = LocationTrackingMode.NORMAL
-    ) {
-        fusedLocationClient.requestLocationUpdates(
+    ): Task<Void> {
+        return fusedLocationClient.requestLocationUpdates(
             createLocationRequest(mode),
             locationCallback,
             null
