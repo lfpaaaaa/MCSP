@@ -331,3 +331,47 @@ supabase functions deploy group-file-url
 For local development use `supabase migration up --local` and `supabase functions serve`. No extra secret is required beyond the standard Supabase function environment. The endpoint verifies the caller through Auth and calls `group_file_access` with that user's JWT. Download requests check group membership and the uploader's consent; preview requests check membership. Only the server uses the service credential to sign a short-lived preview URL. Storage RLS also blocks recipients from obtaining direct object/download URLs when consent is off. Uploaders can retrieve their own originals while still in the group. Consent is chosen at upload time; recipients cannot edit it.
 
 The UI rechecks server permission before exporting cached bytes or sharing a FileProvider URI. Preview necessarily sends content to a device; this restriction is not DRM and cannot prevent screenshots or extraction by a modified client. Unsupported document formats are not passed to external viewers when downloads are disabled.
+
+## Shared delivery reliability
+
+Before running the updated Android client, apply `20261014090000_shared_delivery_reliability.sql`
+and deploy the deletion and cleanup functions to the same backend as the app:
+
+```sh
+supabase db push
+supabase functions deploy group-file-delete
+supabase functions deploy group-file-cleanup
+```
+
+For local development, use `supabase migration up --local` and `supabase functions serve`.
+These are additive migrations; do not reset a database containing app data. Upload finalization
+uses the queue's persisted UUID and immutable object path, checks current membership and the
+stored object's size/type, and returns the existing file after a lost response. Queued bytes
+are copied into private app storage and retained until confirmation or explicit removal.
+Older queued items acquire their stable identity from the existing queue ID.
+
+The uploader can delete from the attachment viewer. `group-file-delete` verifies the caller,
+creates a durable cleanup job, removes the object through the Storage API, then removes the
+file record. Failure keeps the attachment visible with **Retry deletion**. Open chats reconcile
+their file catalog every 30 seconds so other members also see deletions. Group dissolution
+and direct metadata deletion also queue cleanup, including unregistered uploads in a dissolved
+group. Storage download-consent policies remain in effect. Deleting metadata directly from
+`storage.objects` does not remove stored bytes; cleanup must use the Storage API
+([Supabase deletion guidance](https://supabase.com/docs/guides/storage/management/delete-objects)).
+
+Schedule a server-side POST to `/functions/v1/group-file-cleanup` every minute with
+`Authorization: Bearer <service-role-key>`. Store this credential in the scheduler's secret
+store (for example Supabase Vault); never put it in Android configuration or source control.
+The worker accepts only that credential, handles at most 50 jobs per invocation, and retries
+pending jobs on subsequent invocations. Deployment alone does not set up this schedule.
+For a local/manual run, POST to the same endpoint with the local server credential.
+Monitor `public.group_file_cleanup_jobs` as an administrator: `state`, `attempts` and
+`last_error` expose failures without logging filenames or signed URLs. Keep completed job
+records as tombstones so a delayed upload or deletion retry cannot recreate a removed file.
+
+Successful code/QR/NFC joins publish and cache the joined group before the summary refresh.
+Chat reconnects advance their recovery cursor only after successful history synchronization;
+after process restart they reconcile the retained cache rather than trusting a newer live row.
+
+Validation for this increment is recorded in
+[`docs/shared-delivery-verification.md`](docs/shared-delivery-verification.md).

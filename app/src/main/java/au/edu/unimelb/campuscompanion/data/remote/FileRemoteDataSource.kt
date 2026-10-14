@@ -22,6 +22,7 @@ data class SharedFileRow(
 
 /** An uploaded object that still needs its file record. */
 data class NewFileRecord(
+    val uploadId: String,
     val groupId: String,
     val fileName: String,
     val mimeType: String,
@@ -53,11 +54,17 @@ interface FileRemoteDataSource {
     /** Files of [groupId], newest first, with the uploaders' names. */
     suspend fun fetchFiles(groupId: String): List<SharedFileRow>
 
+    /** Reconciles a prior finalization whose response may have been lost. */
+    suspend fun fetchFileRecord(fileId: String): SharedFileRow?
+
     /** Uploads an object and emits the number of bytes sent so far. Completes once it is stored. */
     fun uploadObject(path: String, bytes: ByteArray, mimeType: String): Flow<Long>
 
     /** Records an uploaded object as a file of its group, uploaded by the signed-in user. */
-    suspend fun insertFileRecord(record: NewFileRecord): SharedFileRow
+    suspend fun finalizeFileRecord(record: NewFileRecord): SharedFileRow
+
+    /** Owner-authorized deletion; server retains durable cleanup work until storage is removed. */
+    suspend fun deleteFile(fileId: String)
 
     /** Deletes one of the signed-in user's file records and returns how many were deleted. */
     suspend fun deleteFileRecord(fileId: String): Int

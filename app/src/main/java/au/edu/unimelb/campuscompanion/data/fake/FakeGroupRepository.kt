@@ -5,6 +5,7 @@ import au.edu.unimelb.campuscompanion.data.model.TimetableGroupSpec
 import au.edu.unimelb.campuscompanion.data.slotLabel
 import au.edu.unimelb.campuscompanion.data.DataError
 import au.edu.unimelb.campuscompanion.data.model.Group
+import au.edu.unimelb.campuscompanion.data.model.GroupInvite
 import au.edu.unimelb.campuscompanion.data.model.GroupMember
 import au.edu.unimelb.campuscompanion.data.model.GroupRole
 import au.edu.unimelb.campuscompanion.data.model.GroupSummary
@@ -80,6 +81,16 @@ class FakeGroupRepository(
                 latestFileName = null
             )
         }
+        return Result.success(group)
+    }
+
+    override suspend fun joinWithToken(token: String): Result<Group> {
+        delay(latencyMillis)
+        val group = when (token) {
+            FakeData.DEMO_INVITE_TOKEN -> findGroup(FakeData.JOINABLE_GROUP_ID)
+            else -> GroupInvite.joinCodeFromText(token)?.let(::findGroupByJoinCode)
+        } ?: return Result.failure(DataError.InvalidInvite(DataError.InvalidInvite.Reason.Unknown))
+        addCurrentUser(group)
         return Result.success(group)
     }
 

@@ -69,13 +69,78 @@ class DefaultFileRepositoryTest {
     }
 
     @Test
-    fun anUnsavedRecordRemovesTheUploadedObject() = runBlocking<Unit> {
+    fun anUnconfirmedRecordKeepsTheUploadedObjectForRecovery() = runBlocking<Unit> {
         remote.recordFailure = DataError.Offline()
 
         val last = repository.uploadFile(FILE_GROUP_ID, "report.pdf", "application/pdf", ByteArray(100)).toList().last()
 
         assertTrue((last as UploadState.Failed).error is DataError.Offline)
-        assertEquals(remote.uploadedPaths, remote.deletedPaths)
+        assertTrue(remote.deletedPaths.isEmpty())
+        assertEquals(remote.uploadedPaths.single(), remote.objects.keys.single())
+    }
+
+    @Test
+    fun lostFinalizationResponseIsRecoveredByIdentityWithoutUploadingAgain() = runBlocking<Unit> {
+        val identity = FileUploadIdentity("stable-upload", "$FILE_GROUP_ID/$SELF_ID/stable-upload")
+        remote.recordResponseFailure = DataError.Offline()
+        val first = repository.uploadFile(FILE_GROUP_ID, "report.pdf", "application/pdf", ByteArray(100),
+            allowDownloads = false, identity = identity).toList().last()
+        assertTrue(first is UploadState.Failed)
+        assertEquals(1, remote.stored.size)
+        assertTrue(remote.deletedPaths.isEmpty())
+
+        val restarted = repositoryWith(InMemorySharedFileListCache())
+        val recovered = restarted.uploadFile(FILE_GROUP_ID, "report.pdf", "application/pdf", ByteArray(100),
+            allowDownloads = false, identity = identity).toList().last()
+        assertEquals(identity.id, (recovered as UploadState.Completed).file.id)
+        assertEquals(1, remote.uploadedPaths.size)
+        assertEquals(1, remote.stored.size)
+        assertTrue(remote.deletedPaths.isEmpty())
+    }
+
+    @Test
+    fun retryFinalizesTheSameObjectAfterMetadataWasNeverSaved() = runBlocking<Unit> {
+        val identity = FileUploadIdentity("stable-upload", "$FILE_GROUP_ID/$SELF_ID/stable-upload")
+        remote.recordFailure = DataError.Offline()
+        repository.uploadFile(FILE_GROUP_ID, "report.pdf", "application/pdf", ByteArray(100),
+            identity = identity).toList()
+        remote.recordFailure = null
+        val retried = repositoryWith(InMemorySharedFileListCache()).uploadFile(FILE_GROUP_ID, "report.pdf",
+            "application/pdf", ByteArray(100), identity = identity).toList().last()
+
+        assertTrue(retried is UploadState.Completed)
+        assertEquals(listOf(identity.storagePath, identity.storagePath), remote.uploadedPaths)
+        assertEquals(1, remote.objects.size)
+        assertEquals(identity.id, remote.stored.single().id)
+        assertTrue(remote.deletedPaths.isEmpty())
+    }
+
+    @Test
+    fun lostStorageResponseIsReconciledByServerFinalization() = runBlocking<Unit> {
+        remote.uploadResponseFailure = DataError.Offline()
+        val completed = repository.uploadFile(FILE_GROUP_ID, "report.pdf", "application/pdf", ByteArray(100))
+            .toList().last()
+        assertTrue(completed is UploadState.Completed)
+        assertEquals(1, remote.objects.size)
+        assertEquals(1, remote.stored.size)
+    }
+
+    @Test
+    fun identitiesCannotBeReusedForAnotherAccountGroupOrPermission() = runBlocking<Unit> {
+        val otherUser = FileUploadIdentity("stable-upload", "$FILE_GROUP_ID/someone-else/stable-upload")
+        val denied = repository.uploadFile(FILE_GROUP_ID, "report.pdf", "application/pdf", ByteArray(100),
+            identity = otherUser).toList().last()
+        assertTrue((denied as UploadState.Failed).error is DataError.Validation)
+        assertTrue(remote.uploadedPaths.isEmpty())
+
+        val identity = FileUploadIdentity("stable-upload", "$FILE_GROUP_ID/$SELF_ID/stable-upload")
+        repository.uploadFile(FILE_GROUP_ID, "report.pdf", "application/pdf", ByteArray(100),
+            allowDownloads = false, identity = identity).toList()
+        val changed = repository.uploadFile(FILE_GROUP_ID, "report.pdf", "application/pdf", ByteArray(100),
+            allowDownloads = true, identity = identity).toList().last()
+        assertTrue((changed as UploadState.Failed).error is DataError.Validation)
+        assertEquals(false, remote.stored.single().allowDownloads)
+        assertEquals(1, remote.uploadedPaths.size)
     }
 
     @Test
@@ -131,6 +196,54 @@ class DefaultFileRepositoryTest {
 
         assertEquals(listOf("file-1"), remote.deletedRecords)
         assertEquals(listOf(fileRow(1, uploaderId = SELF_ID).storagePath), remote.deletedPaths)
+        assertTrue(repository.deleteFile("file-1").isSuccess) // Server tombstone confirms a retry after cache removal.
+    }
+
+    @Test
+    fun failedDeletionRemainsVisibleAndCanBeRetriedAfterRestart() = runBlocking<Unit> {
+        val cache = InMemorySharedFileListCache()
+        val first = repositoryWith(cache)
+        val row = fileRow(1, uploaderId = SELF_ID)
+        remote.stored += row
+        withTimeout(5_000) { first.observeFiles(FILE_GROUP_ID).first { it.size == 1 } }
+        remote.objectDeletionFailure = DataError.Offline()
+
+        assertTrue(first.deleteFile(row.id).exceptionOrNull() is DataError.Offline)
+        assertEquals(listOf(row.id), cache.load(SELF_ID, FILE_GROUP_ID)?.map { it.id })
+        assertEquals(listOf(row), remote.stored)
+
+        remote.objectDeletionFailure = null
+        val restarted = repositoryWith(cache)
+        withTimeout(5_000) { restarted.observeFiles(FILE_GROUP_ID).first { it.size == 1 } }
+        assertTrue(restarted.deleteFile(row.id).isSuccess)
+        assertTrue(cache.load(SELF_ID, FILE_GROUP_ID).orEmpty().isEmpty())
+        assertTrue(remote.stored.isEmpty())
+    }
+
+    @Test
+    fun serverRefusalDoesNotRemoveCachedAttachment() = runBlocking<Unit> {
+        val row = fileRow(1, uploaderId = SELF_ID)
+        remote.stored += row
+        withTimeout(5_000) { repository.observeFiles(FILE_GROUP_ID).first { it.size == 1 } }
+        remote.objectDeletionFailure = DataError.Forbidden()
+
+        assertTrue(repository.deleteFile(row.id).exceptionOrNull() is DataError.Forbidden)
+        assertEquals(listOf(row.id), repository.observeFiles(FILE_GROUP_ID).first().map { it.id })
+    }
+
+    @Test
+    fun anotherMembersDeletionIsReconciledWithoutARealtimeInsert() = runBlocking<Unit> {
+        remote.stored += fileRow(1)
+        val polling = DefaultFileRepository(remote, { CurrentUser(SELF_ID, "Cedric") },
+            reconciliationIntervalMillis = 5)
+        val observed = async {
+            var sawFile = false
+            polling.observeFiles(FILE_GROUP_ID).first { files ->
+                if (files.isNotEmpty()) { sawFile = true; remote.stored.clear() }
+                sawFile && files.isEmpty()
+            }
+        }
+        assertTrue(withTimeout(5_000) { observed.await() }.isEmpty())
     }
 
     @Test

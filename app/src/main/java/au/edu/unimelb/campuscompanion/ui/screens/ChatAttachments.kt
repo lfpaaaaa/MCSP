@@ -93,6 +93,9 @@ internal fun ChatAttachmentViewer(file: SharedFile, currentUserId: String, onDis
     var saved by remember(file.id) { mutableStateOf(false) }
     var attempt by remember(file.id) { mutableIntStateOf(0) }
     var player by remember(file.id) { mutableStateOf<VideoView?>(null) }
+    var confirmingDelete by remember(file.id) { mutableStateOf(false) }
+    var deleting by remember(file.id) { mutableStateOf(false) }
+    var deleteError by remember(file.id) { mutableStateOf<String?>(null) }
     val saveDocument = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(file.mimeType)) { uri ->
         val source = localFile
         if (uri != null && source != null) scope.launch {
@@ -141,7 +144,7 @@ internal fun ChatAttachmentViewer(file: SharedFile, currentUserId: String, onDis
     }
 
     AlertDialog(
-        onDismissRequest = { if (!saving) onDismiss() },
+        onDismissRequest = { if (!saving && !deleting) onDismiss() },
         title = { Text(file.fileName) },
         text = {
             Column(Modifier.fillMaxWidth().heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
@@ -183,10 +186,16 @@ internal fun ChatAttachmentViewer(file: SharedFile, currentUserId: String, onDis
                     TextButton(onClick = { attempt++ }) { Text("Retry") }
                 }
                 if (saved) Text("Saved")
+                if (file.uploaderId == currentUserId) {
+                    deleteError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    TextButton(enabled = !saving && !deleting, onClick = { confirmingDelete = true }) {
+                        Text(if (deleting) "Deleting…" else if (deleteError != null) "Retry deletion" else "Delete attachment")
+                    }
+                }
             }
         },
         confirmButton = {
-            if (canDownload) TextButton(enabled = localFile != null && !saving, onClick = {
+            if (canDownload) TextButton(enabled = localFile != null && !saving && !deleting, onClick = {
                 scope.launch {
                     try {
                         AppRepositories.files.createDownloadUrl(file.id).getOrThrow()
@@ -196,6 +205,28 @@ internal fun ChatAttachmentViewer(file: SharedFile, currentUserId: String, onDis
                 }
             }) { Text(if (saving) "Saving…" else "Download") }
         },
-        dismissButton = { TextButton(enabled = !saving, onClick = onDismiss) { Text("Close") } }
+        dismissButton = { TextButton(enabled = !saving && !deleting, onClick = onDismiss) { Text("Close") } }
+    )
+    if (confirmingDelete) AlertDialog(
+        onDismissRequest = { confirmingDelete = false },
+        title = { Text("Delete attachment?") },
+        text = { Text("This removes the shared attachment for everyone in the group.") },
+        confirmButton = {
+            TextButton(onClick = {
+                confirmingDelete = false
+                deleting = true
+                deleteError = null
+                scope.launch {
+                    try {
+                        AppRepositories.files.deleteFile(file.id).getOrThrow()
+                        player?.stopPlayback()
+                        onDismiss()
+                    } catch (e: CancellationException) { throw e }
+                    catch (e: Exception) { deleteError = "Deletion could not finish. Tap Retry deletion. ${e.toUserMessage().body}" }
+                    finally { deleting = false }
+                }
+            }) { Text("Delete") }
+        },
+        dismissButton = { TextButton(onClick = { confirmingDelete = false }) { Text("Cancel") } }
     )
 }

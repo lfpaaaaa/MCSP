@@ -4,6 +4,7 @@ import au.edu.unimelb.campuscompanion.data.DataError
 import au.edu.unimelb.campuscompanion.data.model.SharedFile
 import au.edu.unimelb.campuscompanion.data.model.UploadState
 import au.edu.unimelb.campuscompanion.data.repository.FileRepository
+import au.edu.unimelb.campuscompanion.data.repository.FileUploadIdentity
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,19 +32,26 @@ class FakeFileRepository(
         fileName: String,
         mimeType: String,
         bytes: ByteArray,
-        allowDownloads: Boolean
+        allowDownloads: Boolean,
+        identity: FileUploadIdentity?
     ): Flow<UploadState> = flow {
         if (bytes.isEmpty() || bytes.size > FileRepository.MAX_FILE_SIZE_BYTES) {
             emit(UploadState.Failed(DataError.Validation("Files must be between 1 byte and 20 MB.")))
             return@flow
         }
         val total = bytes.size.toLong()
+        identity?.let { upload ->
+            files.value.firstOrNull { it.id == upload.id }?.let {
+                emit(UploadState.Completed(it))
+                return@flow
+            }
+        }
         for (step in 1..PROGRESS_STEPS) {
             delay(latencyMillis / PROGRESS_STEPS)
             emit(UploadState.InProgress(bytesSent = total * step / PROGRESS_STEPS, totalBytes = total))
         }
         val file = SharedFile(
-            id = UUID.randomUUID().toString(),
+            id = identity?.id ?: UUID.randomUUID().toString(),
             groupId = groupId,
             uploaderId = currentUserId,
             uploaderName = currentUserName,

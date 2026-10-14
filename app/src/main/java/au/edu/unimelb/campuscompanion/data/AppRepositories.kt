@@ -14,6 +14,7 @@ import au.edu.unimelb.campuscompanion.data.fake.FakeGroupRepository
 import au.edu.unimelb.campuscompanion.data.fake.FakeInviteRepository
 import au.edu.unimelb.campuscompanion.data.invite.JoinLinkInbox
 import au.edu.unimelb.campuscompanion.data.local.CampusDatabase
+import au.edu.unimelb.campuscompanion.data.local.AttachmentDraftStore
 import au.edu.unimelb.campuscompanion.data.local.FileGroupListCache
 import au.edu.unimelb.campuscompanion.data.local.FileSharedFileListCache
 import au.edu.unimelb.campuscompanion.data.model.CurrentUser
@@ -56,6 +57,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.builtins.ListSerializer
@@ -220,14 +222,25 @@ object AppRepositories {
 
     val attachmentUploads: AttachmentUploadQueue by lazy {
         val preferences = appContext.getSharedPreferences("attachment-uploads", Context.MODE_PRIVATE)
+        val drafts = AttachmentDraftStore(File(appContext.filesDir, "attachment-drafts"))
         val serializer = ListSerializer(AttachmentUpload.serializer())
-        val json = Json { ignoreUnknownKeys = true }
+        val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
         val restored = runCatching { json.decodeFromString(serializer, preferences.getString("queue", "[]")!!) }.getOrDefault(emptyList())
         AttachmentUploadQueue(files, applicationScope,
             currentUserId = { SupabaseProvider.client?.auth?.currentUserOrNull()?.id },
             readBytes = { readAttachment(appContext, it) }, restored = restored,
-            persist = { preferences.edit().putString("queue", json.encodeToString(serializer, it)).apply() },
-            onCompleted = { groups.refresh() })
+            persist = {
+                if (!preferences.edit().putString("queue", json.encodeToString(serializer, it)).commit()) {
+                    throw DataError.Unexpected()
+                }
+            },
+            onCompleted = { groups.refresh() },
+            preserveLocally = { task ->
+                withContext(Dispatchers.IO) {
+                    drafts.preserve(task.uploadId) { readAttachment(appContext, task.uri) }.toURI().toString()
+                }
+            },
+            discardLocal = { task -> applicationScope.launch(Dispatchers.IO) { drafts.discard(task.uploadId) } })
     }
 
     val buildings by lazy { BuildingLocationRepository(appContext) }

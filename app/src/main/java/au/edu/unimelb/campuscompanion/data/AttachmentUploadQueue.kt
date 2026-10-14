@@ -2,11 +2,11 @@ package au.edu.unimelb.campuscompanion.data
 
 import au.edu.unimelb.campuscompanion.data.model.UploadState
 import au.edu.unimelb.campuscompanion.data.repository.FileRepository
+import au.edu.unimelb.campuscompanion.data.repository.FileUploadIdentity
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -35,7 +35,10 @@ data class AttachmentUpload(
     val progress: Float = 0f,
     val fileId: String? = null,
     val error: String? = null,
-    val allowDownloads: Boolean = true
+    val allowDownloads: Boolean = true,
+    val uploadId: String = id,
+    val storagePath: String = "$groupId/$userId/$uploadId",
+    val localUri: String? = null
 )
 
 /** App-owned delivery; interrupted uploads survive restart as retryable items. */
@@ -46,7 +49,9 @@ class AttachmentUploadQueue(
     private val readBytes: suspend (String) -> ByteArray,
     restored: List<AttachmentUpload> = emptyList(),
     private val persist: (List<AttachmentUpload>) -> Unit = {},
-    private val onCompleted: suspend () -> Unit = {}
+    private val onCompleted: suspend () -> Unit = {},
+    private val preserveLocally: suspend (AttachmentUpload) -> String = { it.uri },
+    private val discardLocal: (AttachmentUpload) -> Unit = {}
 ) {
     private val state = MutableStateFlow(restored.map {
         if (it.phase == AttachmentPhase.Uploading) it.copy(phase = AttachmentPhase.Failed,
@@ -60,8 +65,7 @@ class AttachmentUploadQueue(
         val userId = currentUserId() ?: throw DataError.Unauthenticated()
         val task = AttachmentUpload(UUID.randomUUID().toString(), userId, groupId, uri,
             name, type, Instant.now().toString(), allowDownloads = allowDownloads)
-        state.update { it + task }
-        persist(state.value)
+        publish(state.value + task)
         deliver(task)
     }
 
@@ -75,46 +79,100 @@ class AttachmentUploadQueue(
 
     @Synchronized
     fun dismiss(id: String) {
-        state.update { list -> list.filterNot { it.id == id && it.userId == currentUserId() && it.phase == AttachmentPhase.Failed } }
-        persist(state.value)
+        val discarded = state.value.filter { it.id == id && it.userId == currentUserId() && it.phase == AttachmentPhase.Failed }
+        if (discarded.isEmpty()) return
+        publish(state.value - discarded.toSet())
+        discarded.forEach(discardLocal)
     }
 
     @Synchronized
     fun acknowledge(fileIds: Set<String>) {
-        state.update { list -> list.filterNot { it.userId == currentUserId() && it.fileId in fileIds } }
-        persist(state.value)
+        // Observing the stable metadata id is also confirmation when finalization's reply was lost.
+        val completed = state.value.filter { it.userId == currentUserId() && (it.fileId in fileIds || it.uploadId in fileIds) }
+        if (completed.isEmpty()) return
+        publish(state.value - completed.toSet())
+        completed.forEach(discardLocal)
     }
 
     @Synchronized
-    private fun update(task: AttachmentUpload, save: Boolean = true) {
-        state.update { list -> list.map { if (it.id == task.id) task else it } }
-        if (save) persist(state.value)
+    private fun update(task: AttachmentUpload, save: Boolean = true): Boolean {
+        if (state.value.none { it.id == task.id }) return false
+        publish(state.value.map { if (it.id == task.id) task else it }, save)
+        return true
+    }
+
+    /** Called while holding this queue's monitor; no network starts before a durable write. */
+    private fun publish(next: List<AttachmentUpload>, save: Boolean = true) {
+        if (save) persist(next)
+        state.value = next
+    }
+
+    @Synchronized
+    private fun isTracked(id: String): Boolean = state.value.any { it.id == id }
+
+    /**
+     * Keep an asynchronous result usable when the device cannot save it. The previous durable
+     * item still has its identity and original URI; restart restores it as retryable and the
+     * deterministic draft path recovers its bytes. A confirmed server success stays completed.
+     */
+    private fun finishDelivery(task: AttachmentUpload) {
+        try {
+            update(task)
+        } catch (_: Exception) {
+            update(task, save = false)
+        }
     }
 
     private fun deliver(task: AttachmentUpload) {
         scope.launch {
+            var pending = task
             try {
                 transferSlots.withPermit {
+                    if (!isTracked(task.id)) return@withPermit
                     if (currentUserId() != task.userId) throw DataError.Unauthenticated()
-                    val bytes = readBytes(task.uri)
+                    if (pending.localUri == null) {
+                        pending = pending.copy(localUri = preserveLocally(pending))
+                        if (!update(pending)) {
+                            // An observed durable file can acknowledge an old attempt while its
+                            // local copy is still in progress. Remove the newly returned draft.
+                            discardLocal(pending)
+                            return@withPermit
+                        }
+                    }
+                    val bytes = readBytes(pending.localUri!!)
+                    if (!isTracked(task.id)) return@withPermit
                     if (currentUserId() != task.userId) throw DataError.Unauthenticated()
-                    files.uploadFile(task.groupId, task.fileName, task.mimeType, bytes, task.allowDownloads).collect { result ->
+                    files.uploadFile(task.groupId, task.fileName, task.mimeType, bytes, task.allowDownloads,
+                        FileUploadIdentity(task.uploadId, task.storagePath)).collect { result ->
                         when (result) {
-                            is UploadState.InProgress -> update(task.copy(progress = result.fraction), save = false)
-                            is UploadState.Failed -> update(task.copy(phase = AttachmentPhase.Failed,
-                                error = result.error.toUserMessage().body))
+                            is UploadState.InProgress -> update(pending.copy(progress = result.fraction), save = false)
+                            is UploadState.Failed -> {
+                                pending = pending.copy(phase = AttachmentPhase.Failed, error = result.error.toUserMessage().body)
+                                finishDelivery(pending)
+                            }
                             is UploadState.Completed -> {
-                                update(task.copy(phase = AttachmentPhase.Completed, progress = 1f, fileId = result.file.id))
-                                onCompleted()
+                                pending = pending.copy(phase = AttachmentPhase.Completed, progress = 1f, fileId = result.file.id)
+                                finishDelivery(pending)
+                                // A failed summary refresh must not turn a durable delivery into
+                                // a failed upload or make Send retry it.
+                                try {
+                                    onCompleted()
+                                } catch (cancellation: CancellationException) {
+                                    throw cancellation
+                                } catch (_: Exception) { }
                             }
                         }
                     }
                 }
             } catch (error: CancellationException) {
-                update(task.copy(phase = AttachmentPhase.Failed, error = "Upload interrupted. Tap Retry."))
+                if (pending.phase != AttachmentPhase.Completed) {
+                    finishDelivery(pending.copy(phase = AttachmentPhase.Failed, error = "Upload interrupted. Tap Retry."))
+                }
                 throw error
             } catch (error: Exception) {
-                update(task.copy(phase = AttachmentPhase.Failed, error = error.toUserMessage().body))
+                if (pending.phase != AttachmentPhase.Completed) {
+                    finishDelivery(pending.copy(phase = AttachmentPhase.Failed, error = error.toUserMessage().body))
+                }
             }
         }
     }

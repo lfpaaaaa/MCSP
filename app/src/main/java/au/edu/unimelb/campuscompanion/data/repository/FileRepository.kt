@@ -4,6 +4,9 @@ import au.edu.unimelb.campuscompanion.data.model.SharedFile
 import au.edu.unimelb.campuscompanion.data.model.UploadState
 import kotlinx.coroutines.flow.Flow
 
+/** Persisted before sending so a retry addresses the same object and metadata row. */
+data class FileUploadIdentity(val id: String, val storagePath: String)
+
 /** Files shared inside a group, kept in private cloud storage. */
 interface FileRepository {
     fun observeFiles(groupId: String): Flow<List<SharedFile>>
@@ -14,7 +17,8 @@ interface FileRepository {
         fileName: String,
         mimeType: String,
         bytes: ByteArray,
-        allowDownloads: Boolean = true
+        allowDownloads: Boolean = true,
+        identity: FileUploadIdentity? = null
     ): Flow<UploadState>
 
     /** Creates a member-only link for rendering an attachment within the app. */

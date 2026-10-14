@@ -216,7 +216,9 @@ fun GroupChatScreen(
     val uploads = allUploads.filter {
         it.userId == currentUserId && it.groupId == group.id && it.fileId !in sharedIds
     }
-    LaunchedEffect(group.id, sharedIds) { uploadQueue.acknowledge(sharedIds) }
+    LaunchedEffect(group.id, sharedIds) {
+        runCatching { uploadQueue.acknowledge(sharedIds) }.onFailure(session::report)
+    }
     var selectedFile by remember(group.id) { mutableStateOf<SharedFile?>(null) }
     selectedFile?.let { file -> ChatAttachmentViewer(file, currentUserId, onDismiss = { selectedFile = null }) }
 
@@ -427,8 +429,8 @@ fun GroupChatScreen(
             }
             items(items = uploads, key = { "upload:${it.id}" }) { upload ->
                 AttachmentUploadBubble(upload,
-                    onRetry = { uploadQueue.retry(upload.id) },
-                    onDismiss = { uploadQueue.dismiss(upload.id) })
+                    onRetry = { runCatching { uploadQueue.retry(upload.id) }.onFailure(session::report) },
+                    onDismiss = { runCatching { uploadQueue.dismiss(upload.id) }.onFailure(session::report) })
             }
         }
 

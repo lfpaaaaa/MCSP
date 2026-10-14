@@ -26,6 +26,9 @@ class FakeChatRemoteDataSource(private val selfId: String) : ChatRemoteDataSourc
     /** Runs at the start of every insert, for example to hold a message in the sending state. */
     var beforeInsert: suspend (clientId: String) -> Unit = {}
 
+    /** Controls history reads to reproduce interrupted and concurrent reconnects. */
+    var beforeFetchAfter: suspend (after: MessageCursor) -> Unit = {}
+
     /** Server clock for new messages; it advances one second per insert. */
     var serverTime: Instant = Instant.parse("2026-09-25T06:00:00Z")
 
@@ -49,6 +52,7 @@ class FakeChatRemoteDataSource(private val selfId: String) : ChatRemoteDataSourc
     override suspend fun fetchAfter(groupId: String, after: MessageCursor, limit: Int): List<MessageRow> {
         fetchFailure?.let { throw it }
         fetchAfterCursors += after
+        beforeFetchAfter(after)
         return timeline(groupId).filter { it.isAfter(after) }.take(limit)
     }
 

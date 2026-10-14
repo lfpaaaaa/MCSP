@@ -35,8 +35,7 @@ import java.util.UUID
  * [FileRepository] for files kept in private cloud storage. While a group's files are observed,
  * the list is refreshed whenever a member adds a file; the last list of each group is kept in
  * [cache], so an open chat still shows what was shared when there is no connection. An upload
- * stores the object first and then its record; if the record cannot be saved, the object is
- * removed again.
+ * uses a stable object path and idempotent finalization so retries survive lost responses.
  */
 class DefaultFileRepository(
     private val remote: FileRemoteDataSource,
@@ -44,7 +43,8 @@ class DefaultFileRepository(
     private val cache: SharedFileListCache? = null,
     private val newObjectId: () -> String = { UUID.randomUUID().toString() },
     private val firstRetryDelayMillis: Long = FIRST_RETRY_DELAY_MILLIS,
-    private val maxRetryDelayMillis: Long = MAX_RETRY_DELAY_MILLIS
+    private val maxRetryDelayMillis: Long = MAX_RETRY_DELAY_MILLIS,
+    private val reconciliationIntervalMillis: Long = RECONCILIATION_INTERVAL_MILLIS
 ) : FileRepository {
 
     private val filesByGroup = MutableStateFlow<Map<String, List<SharedFileRow>>>(emptyMap())
@@ -65,7 +65,8 @@ class DefaultFileRepository(
         fileName: String,
         mimeType: String,
         bytes: ByteArray,
-        allowDownloads: Boolean
+        allowDownloads: Boolean,
+        identity: FileUploadIdentity?
     ): Flow<UploadState> = flow {
         val name = fileName.trim()
         if (bytes.isEmpty() || bytes.size > FileRepository.MAX_FILE_SIZE_BYTES) {
@@ -84,25 +85,50 @@ class DefaultFileRepository(
         val type = mimeType.trim().takeIf { it.contains('/') && it.length <= MAX_MIME_TYPE_LENGTH }
             ?: DEFAULT_MIME_TYPE
         val total = bytes.size.toLong()
-        val path = "$groupId/${user.id}/${newObjectId()}"
+        val upload = identity ?: newObjectId().let { FileUploadIdentity(it, "$groupId/${user.id}/$it") }
+        if (upload.storagePath != "$groupId/${user.id}/${upload.id}" || upload.id.contains('/')) {
+            emit(UploadState.Failed(DataError.Validation("This upload belongs to a different account or group.")))
+            return@flow
+        }
+        val record = NewFileRecord(upload.id, groupId, name, type, total, upload.storagePath, allowDownloads)
 
         emit(UploadState.InProgress(bytesSent = 0, totalBytes = total))
-        remote.uploadObject(path, bytes, type).collect { sent ->
-            emit(UploadState.InProgress(bytesSent = sent.coerceIn(0, total), totalBytes = total))
-        }
-        val inserted = try {
-            remote.insertFileRecord(NewFileRecord(groupId, name, type, total, path, allowDownloads))
-        } catch (error: Throwable) {
-            if (error !is CancellationException) {
-                // Without a record nobody could reach the object, so it is removed again.
-                dataResult { remote.deleteObject(path) }
+        val inserted = remote.fetchFileRecord(upload.id) ?: run {
+            var uploadError: Throwable? = null
+            try {
+                remote.uploadObject(upload.storagePath, bytes, type).collect { sent ->
+                    emit(UploadState.InProgress(bytesSent = sent.coerceIn(0, total), totalBytes = total))
+                }
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Throwable) {
+                // Storage may have committed before its reply was lost. The server checks that
+                // the owned object exists with the expected size before finalizing it.
+                uploadError = error
             }
-            throw error
+            try {
+                remote.finalizeFileRecord(record)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Throwable) {
+                // Never delete here: finalization may already have committed on the server.
+                throw uploadError ?: error
+            }
         }
+        if (inserted.id != upload.id || inserted.storagePath != upload.storagePath ||
+            inserted.uploaderId != user.id || inserted.groupId != groupId ||
+            inserted.fileName != name || inserted.mimeType != type || inserted.sizeBytes != total ||
+            inserted.allowDownloads != allowDownloads) {
+            throw DataError.Validation("This upload no longer matches its original file.")
+        }
+        if (currentUser()?.id != user.id) throw DataError.Unauthenticated()
         val row = inserted.copy(uploaderName = user.displayName)
         storeList(groupId) { rows -> listOf(row) + rows.filterNot { it.id == row.id } }
         emit(UploadState.Completed(row.toModel()))
-    }.catch { error -> emit(UploadState.Failed(error.toDataError())) }
+    }.catch { error ->
+        if (error is CancellationException) throw error
+        emit(UploadState.Failed(error.toDataError()))
+    }
 
     override suspend fun createPreviewUrl(fileId: String): Result<String> {
         if (currentUser() == null) return Result.failure(DataError.Unauthenticated())
@@ -121,18 +147,16 @@ class DefaultFileRepository(
     }
 
     override suspend fun deleteFile(fileId: String): Result<Unit> {
-        val row = cachedRow(fileId) ?: return Result.failure(DataError.NotFound())
+        val row = cachedRow(fileId)
         val user = currentUser() ?: return Result.failure(DataError.Unauthenticated())
-        if (row.uploaderId != user.id) {
+        if (row != null && row.uploaderId != user.id) {
             return Result.failure(DataError.Forbidden())
         }
         return dataResult {
-            if (remote.deleteFileRecord(fileId) == 0) {
-                throw DataError.NotFound()
-            }
-            storeList(row.groupId) { rows -> rows.filterNot { it.id == fileId } }
-            // The record is gone, so a failure here only leaves an unreachable object behind.
-            dataResult { remote.deleteObject(row.storagePath) }
+            // The server keeps a durable job and removes metadata only after Storage succeeds.
+            // A failure leaves the cached row visible so the uploader can retry.
+            remote.deleteFile(fileId)
+            if (row != null) storeList(row.groupId) { rows -> rows.filterNot { it.id == fileId } }
             Unit
         }
     }
@@ -140,7 +164,14 @@ class DefaultFileRepository(
     /** Keeps the file list of [groupId] up to date for as long as the caller is active. */
     private suspend fun keepFresh(groupId: String) {
         coroutineScope {
-            launch { refreshUntilSuccessful(groupId) }
+            launch {
+                while (true) {
+                    refreshUntilSuccessful(groupId)
+                    // Realtime DELETE filtering/RLS does not reliably identify a group. Reconcile
+                    // while observed so another member's deletion also disappears locally.
+                    delay(reconciliationIntervalMillis.coerceAtLeast(1))
+                }
+            }
             var attempt = 0
             while (true) {
                 try {
@@ -213,5 +244,6 @@ class DefaultFileRepository(
         const val DEFAULT_MIME_TYPE = "application/octet-stream"
         const val FIRST_RETRY_DELAY_MILLIS = 2_000L
         const val MAX_RETRY_DELAY_MILLIS = 30_000L
+        const val RECONCILIATION_INTERVAL_MILLIS = 30_000L
     }
 }

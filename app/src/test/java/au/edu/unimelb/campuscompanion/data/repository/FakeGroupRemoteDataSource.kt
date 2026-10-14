@@ -33,6 +33,7 @@ class FakeGroupRemoteDataSource : GroupRemoteDataSource {
     val joinedTokens = mutableListOf<String>()
     val resetGroups = mutableListOf<String>()
     var nextJoinCode = "NEWC0D"
+    var joinRequest: (suspend () -> GroupRow)? = null
 
     val dissolvedGroups = mutableListOf<String>()
     override suspend fun transferAndLeave(groupId: String, newOwnerId: String) { failIfRequested() }
@@ -90,7 +91,7 @@ class FakeGroupRemoteDataSource : GroupRemoteDataSource {
     override suspend fun joinWithToken(token: String): GroupRow {
         failIfRequested()
         joinedTokens += token
-        return groupRow(id = "joined-group", name = "Library study session")
+        return joinRequest?.invoke() ?: groupRow(id = "joined-group", name = "Library study session")
     }
 
     private fun failIfRequested() {

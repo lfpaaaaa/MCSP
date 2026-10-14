@@ -34,7 +34,7 @@ class DefaultGroupRepository(
     private class Session(val userId: String)
     private data class GroupState(val session: Session? = null, val rows: List<GroupSummaryRow>? = null)
     private val state = MutableStateFlow(GroupState())
-    // A refresh begun before a successful create/leave must not overwrite that newer change.
+    // A refresh begun before a successful create/join/leave must not overwrite that newer change.
     private val listMutex = Mutex()
 
     override fun clearSession() {
@@ -84,6 +84,22 @@ class DefaultGroupRepository(
             dataResult { refresh(session) }
             group.toModel()
         }
+    }
+
+    override suspend fun joinWithToken(token: String): Result<Group> = withSession { session ->
+        val group = remote.joinWithToken(token)
+        requireCurrent(session)
+        val existing = state.value.rows.orEmpty().firstOrNull { it.id == group.id }
+        // Joining an existing membership must preserve its role, unread count and activity.
+        val summary = existing?.copy(
+            name = group.name, courseCode = group.courseCode, createdBy = group.createdBy,
+            createdAt = group.createdAt, joinCode = group.joinCode,
+            timetableKey = group.timetableKey, timetableSlot = group.timetableSlot
+        ) ?: group.summary("member")
+        publish(session, listOf(summary) + state.value.rows.orEmpty().filterNot { it.id == group.id })
+        dataResult { refresh(session) }
+        requireCurrent(session)
+        group.toModel()
     }
 
     override suspend fun setMyNickname(groupId: String, nickname: String): Result<String> {
