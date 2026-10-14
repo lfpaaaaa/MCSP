@@ -1,6 +1,5 @@
 package au.edu.unimelb.campuscompanion.ui.model
 
-import au.edu.unimelb.campuscompanion.english
 import au.edu.unimelb.campuscompanion.context.ContextState
 import au.edu.unimelb.campuscompanion.context.TravelSnapshot
 import au.edu.unimelb.campuscompanion.data.TravelMode
@@ -55,8 +54,8 @@ class HomeCardTest {
 
         val card = buildHomeCardState(listOf(imported), snapshot().copy(session = imported, building = destination), now)
 
-        assertTrue(card.destinationText.english().contains(imported.location))
-        assertTrue(card.destinationText.english().contains(destination.name.trim()))
+        assertTrue(card.destinationText.contains(imported.location))
+        assertTrue(card.destinationText.contains(destination.name.trim()))
     }
 
     @Test

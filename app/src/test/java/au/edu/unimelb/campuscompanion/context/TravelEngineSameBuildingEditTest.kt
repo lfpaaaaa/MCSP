@@ -1,7 +1,5 @@
 package au.edu.unimelb.campuscompanion.context
 
-import au.edu.unimelb.campuscompanion.english
-
 import au.edu.unimelb.campuscompanion.data.TravelMode
 import au.edu.unimelb.campuscompanion.data.TravelPreferences
 import au.edu.unimelb.campuscompanion.data.model.EstimateSource
@@ -109,8 +107,8 @@ class TravelEngineSameBuildingEditTest {
         assertEquals(FakeBuildingLookup.ALAN_GILBERT, after.building)
         assertEquals(ContextState.LEAVE_SOON, after.state)
         val reminder = reminders().consider(after)
-        assertTrue(reminder?.text?.english().orEmpty().contains(FakeBuildingLookup.ALAN_GILBERT.name))
-        assertFalse(reminder?.text?.english().orEmpty().contains(FakeBuildingLookup.PETER_HALL.name))
+        assertTrue(reminder?.text.orEmpty().contains(FakeBuildingLookup.ALAN_GILBERT.name))
+        assertFalse(reminder?.text.orEmpty().contains(FakeBuildingLookup.PETER_HALL.name))
     }
 
     private suspend fun assertArrivalSurvives(now: Instant, edited: CourseSession, expected: ContextState) {

@@ -15,21 +15,24 @@ sealed interface CourseReminderTiming {
     data object MissingTravelTime : CourseReminderTiming
 }
 
-/** Preview the engine's live deadline only for this occurrence and the currently selected preparation lead. */
+/** Show live times only after the engine has applied both choices to this occurrence. */
 fun CourseSession.reminderTiming(
     snapshot: TravelSnapshot,
-    preparationMinutes: Int
+    arrivalBufferMinutes: Int,
+    preparationMinutes: Int = DEFAULT_COURSE_REMINDER_PREPARATION_MINUTES
 ): CourseReminderTiming {
     val tracked = snapshot.session
     if (tracked == null || !tracked.matchesTimetableSession(this)) {
         return CourseReminderTiming.NotTracked
     }
-    if (snapshot.leadMinutes != preparationMinutes) return CourseReminderTiming.Updating
+    if (snapshot.leadMinutes != arrivalBufferMinutes || snapshot.preparationMinutes != preparationMinutes) {
+        return CourseReminderTiming.Updating
+    }
     val leaveBy = snapshot.leaveBy ?: return CourseReminderTiming.MissingTravelTime
     val estimate = snapshot.estimate ?: return CourseReminderTiming.MissingTravelTime
     return CourseReminderTiming.Ready(
         leaveBy = leaveBy,
-        warningAt = leaveBy.minusMinutes(preparationMinutes.coerceIn(0, MAX_COURSE_REMINDER_LEAD_MINUTES).toLong()),
+        warningAt = leaveBy.minusMinutes(preparationMinutes.toLong()),
         travelMinutes = estimate.durationMinutes
     )
 }

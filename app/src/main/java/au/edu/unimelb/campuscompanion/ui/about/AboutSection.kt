@@ -1,11 +1,5 @@
 package au.edu.unimelb.campuscompanion.ui.about
 
-import androidx.compose.runtime.setValue
-
-import androidx.compose.runtime.getValue
-
-import au.edu.unimelb.campuscompanion.ui.text.textResources
-import au.edu.unimelb.campuscompanion.R
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -41,7 +35,6 @@ import au.edu.unimelb.campuscompanion.BuildConfig
  */
 @Composable
 fun AboutSection(modifier: Modifier = Modifier) {
-    val textResources = textResources()
     val uriHandler = LocalUriHandler.current
 
     Column(
@@ -55,7 +48,8 @@ fun AboutSection(modifier: Modifier = Modifier) {
             )
         }
         Text(
-            text = textResources.getString(R.string.about_section_campus_companion_a_comp90018_project_at_the_university, BuildConfig.VERSION_NAME),
+            text = "Campus Companion ${BuildConfig.VERSION_NAME}, a COMP90018 project at the " +
+                "University of Melbourne. The app's own code is released under the MIT Licence.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -69,7 +63,6 @@ private fun DataSourceCard(
     onOpenLink: (DataSourceLink) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val textResources = textResources()
     Card(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
@@ -80,15 +73,15 @@ private fun DataSourceCard(
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Text(
-                text = source.name.resolve(textResources),
+                text = source.name,
                 style = MaterialTheme.typography.titleMedium
             )
             Text(
-                text = source.credit.resolve(textResources),
+                text = source.credit,
                 style = MaterialTheme.typography.bodyMedium
             )
             Text(
-                text = source.usage.resolve(textResources),
+                text = source.usage,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -96,7 +89,7 @@ private fun DataSourceCard(
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     source.links.forEach { link ->
                         TextButton(onClick = { onOpenLink(link) }) {
-                            Text(link.label.resolve(textResources))
+                            Text(link.label)
                             Icon(
                                 imageVector = Icons.AutoMirrored.Outlined.OpenInNew,
                                 contentDescription = null,
@@ -118,16 +111,15 @@ private fun DataSourceCard(
  */
 @Composable
 fun RoutingCredit(modifier: Modifier = Modifier) {
-    val textResources = textResources()
     val linkStyle = TextLinkStyles(style = SpanStyle(textDecoration = TextDecoration.Underline))
     val text = buildAnnotatedString {
-        append(textResources.getString(R.string.about_section_travel_times))
+        append("Travel times ")
         withLink(LinkAnnotation.Url(DataSources.OSM_COPYRIGHT_URL, linkStyle)) {
-            append(DataSources.OSM_CREDIT.resolve(textResources))
+            append(DataSources.OSM_CREDIT)
         }
         append("  ·  ")
         withLink(LinkAnnotation.Url(DataSources.OSM_FIX_THE_MAP_URL, linkStyle)) {
-            append(textResources.getString(R.string.about_section_fix_the_map))
+            append("Fix the map")
         }
     }
     Text(

@@ -5,994 +5,578 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
-import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import au.edu.unimelb.campuscompanion.BuildConfig
 import au.edu.unimelb.campuscompanion.R
+import au.edu.unimelb.campuscompanion.context.TravelSnapshot
 import au.edu.unimelb.campuscompanion.data.AppRepositories
-import au.edu.unimelb.campuscompanion.data.building.BuildingLocation
 import au.edu.unimelb.campuscompanion.data.geo.GeoMath
 import au.edu.unimelb.campuscompanion.data.model.GeoPoint
 import au.edu.unimelb.campuscompanion.sensing.activity.ActivityRecognitionManager
-import au.edu.unimelb.campuscompanion.sensing.location.DistanceTrend
 import au.edu.unimelb.campuscompanion.sensing.location.DistanceTrendDetector
 import au.edu.unimelb.campuscompanion.sensing.location.EnRouteFusionDetector
+import au.edu.unimelb.campuscompanion.sensing.location.EvidenceFreshness
 import au.edu.unimelb.campuscompanion.sensing.location.GeofenceManager
 import au.edu.unimelb.campuscompanion.sensing.location.LocationTracker
 import au.edu.unimelb.campuscompanion.sensing.location.LocationTrackingMode
-import au.edu.unimelb.campuscompanion.sensing.location.hasLocationPermission
+import au.edu.unimelb.campuscompanion.sensing.location.MovementObservation
+import au.edu.unimelb.campuscompanion.sensing.location.SensingEvidence
+import au.edu.unimelb.campuscompanion.sensing.location.SensingTarget
 import au.edu.unimelb.campuscompanion.sensing.location.bearingDegrees
 import au.edu.unimelb.campuscompanion.sensing.motion.GyroscopeDetector
 import au.edu.unimelb.campuscompanion.sensing.motion.MotionDetector
 import au.edu.unimelb.campuscompanion.sensing.orientation.CompassHeadingDetector
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import java.time.Instant
 import kotlin.math.abs
 
 class SensingForegroundService : Service() {
 
     companion object {
-
-        /** Call while the app is visible, including after returning from permission settings. */
-        fun startIfLocationAllowed(context: Context) {
-            if (!hasLocationPermission(context)) return
-            try {
-                ContextCompat.startForegroundService(context,
-                    Intent(context, SensingForegroundService::class.java).setAction(ACTION_PRE_CLASS_MODE))
-            } catch (error: SecurityException) {
-                Log.w("SensingService", "Location permission changed before sensing could start", error)
-            } catch (error: IllegalStateException) {
-                Log.w("SensingService", "Sensing must start while the app is visible", error)
-            }
-        }
-
-        private const val CHANNEL_ID =
-            "campus_companion_sensing"
-
-        private const val NOTIFICATION_ID =
-            1001
-
-        const val ACTION_START =
-            "au.edu.unimelb.campuscompanion.action.START_SENSING"
-
-        const val ACTION_STOP =
-            "au.edu.unimelb.campuscompanion.action.STOP_SENSING"
-
-        const val ACTION_NORMAL_MODE =
-            "au.edu.unimelb.campuscompanion.action.NORMAL_MODE"
-
-        const val ACTION_PRE_CLASS_MODE =
-            "au.edu.unimelb.campuscompanion.action.PRE_CLASS_MODE"
+        private const val CHANNEL_ID = "campus_companion_sensing"
+        private const val NOTIFICATION_ID = 1001
+        const val ACTION_START = "au.edu.unimelb.campuscompanion.action.START_SENSING"
+        const val ACTION_RECONCILE = "au.edu.unimelb.campuscompanion.action.RECONCILE_SENSING"
+        const val ACTION_STOP = "au.edu.unimelb.campuscompanion.action.STOP_SENSING"
+        const val ACTION_NORMAL_MODE = "au.edu.unimelb.campuscompanion.action.NORMAL_MODE"
+        const val ACTION_PRE_CLASS_MODE = "au.edu.unimelb.campuscompanion.action.PRE_CLASS_MODE"
+        private const val NAVIGATION_REQUEST_NANOS = 2 * 60 * 1_000_000_000L
+        private const val NAVIGATION_TRIP_NANOS = 4 * 60 * 60 * 1_000_000_000L
+        private const val MODE_NOTIFICATION_INTERVAL_NANOS = 500_000_000L
     }
 
-    // ---------------------------------------------------------
-    // Coroutine scope owned by the Service
-    // ---------------------------------------------------------
+    // Service commands, sensor registrations and both collectors share the main dispatcher.
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val travel = AppRepositories.travel
+    private lateinit var locationTracker: LocationTracker
+    private lateinit var motionDetector: MotionDetector
+    private lateinit var gyroscopeDetector: GyroscopeDetector
+    private lateinit var compassHeadingDetector: CompassHeadingDetector
+    private lateinit var activityRecognitionManager: ActivityRecognitionManager
+    private lateinit var geofenceManager: GeofenceManager
+    private val distanceTrendDetector = DistanceTrendDetector()
+    private val enRouteFusionDetector = EnRouteFusionDetector()
 
-    private val serviceScope =
-        CoroutineScope(
-            SupervisorJob() +
-                    Dispatchers.Default
-        )
-
-    // ---------------------------------------------------------
-    // Sensing components
-    // ---------------------------------------------------------
-
-    private lateinit var locationTracker:
-            LocationTracker
-
-    private lateinit var motionDetector:
-            MotionDetector
-
-    private lateinit var gyroscopeDetector:
-            GyroscopeDetector
-
-    private lateinit var compassHeadingDetector:
-            CompassHeadingDetector
-
-    private lateinit var activityRecognitionManager:
-            ActivityRecognitionManager
-
-    private lateinit var geofenceManager:
-            GeofenceManager
-
-    // ---------------------------------------------------------
-    // Travel engine
-    //
-    // AppRepositories.travel joins the timetable, these sensors and
-    // the routing service. It decides which building to travel to
-    // and owns the travel state; this service feeds it the position
-    // and movement and runs the EN_ROUTE fusion for that building.
-    // ---------------------------------------------------------
-
-    private val travel =
-        AppRepositories.travel
-
-    /** The building whose arrival geofence is registered. */
-    @Volatile
-    private var geofenceBuilding: BuildingLocation? =
-        null
-
-    /** The building the fusion history belongs to. */
-    private var fusionBuildingCode: String? =
-        null
-
-    // ---------------------------------------------------------
-    // Fusion components
-    // ---------------------------------------------------------
-
-    private val distanceTrendDetector =
-        DistanceTrendDetector()
-
-    private val enRouteFusionDetector =
-        EnRouteFusionDetector()
-
-    // ---------------------------------------------------------
-    // Latest sensor state
-    // ---------------------------------------------------------
-
-    private var latestIsMoving =
-        false
-
-    private var latestIsRotating =
-        false
-
-    private var latestHeadingDegrees: Float? =
-        null
-
-    private var latestDistanceTrend =
-        DistanceTrend.UNKNOWN
-
-    private var latestStableEnRoute =
-        false
-
-    // ---------------------------------------------------------
-    // Current sensing mode
-    // ---------------------------------------------------------
-
-    private var currentMode =
-        LocationTrackingMode.NORMAL
-
-    private var trackingStarted = false
-    private var trackingGeneration = 0
-
-    private fun startLocationTracking(mode: LocationTrackingMode) {
-        val generation = ++trackingGeneration
-        locationTracker.stopTracking()
-        trackingStarted = true
-        try {
-            locationTracker.startTracking(mode).addOnFailureListener { error ->
-                if (generation == trackingGeneration) {
-                    trackingStarted = false
-                    Log.w("SensingService", "Location updates could not start", error)
-                }
-            }
-        } catch (error: SecurityException) {
-            trackingStarted = false
-            Log.w("SensingService", "Location permission is no longer available", error)
-        }
-    }
-
-    // ---------------------------------------------------------
-    // onCreate
-    // ---------------------------------------------------------
+    private var target: SensingTarget? = null
+    private var sensingRunning = false
+    private var launchAuthorized = false
+    private var activationRequested = false
+    private var foregroundPromoted = false
+    private var currentMode = LocationTrackingMode.NORMAL
+    private var navigationRequestUntilNanos = 0L
+    private var navigationTripStartedAtNanos = 0L
+    private var policySnapshot = TravelSnapshot.PENDING
+    private var observedAccount = false
+    private var observedAccountId: String? = null
+    private var skipModeResetLocation = false
+    private var sensorActivatedAtNanos = 0L
+    private var lastLocationNanos = 0L
+    private var lastNotificationPublishedAtNanos = 0L
+    private var pendingModeNotificationText: String? = null
+    private var modeNotificationJob: Job? = null
 
     override fun onCreate() {
-
         super.onCreate()
-
         createNotificationChannel()
+        locationTracker = LocationTracker(this)
+        motionDetector = MotionDetector(this)
+        gyroscopeDetector = GyroscopeDetector(this)
+        compassHeadingDetector = CompassHeadingDetector(this)
+        activityRecognitionManager = ActivityRecognitionManager(this)
+        geofenceManager = GeofenceManager(this)
 
-        // ---------------------------------------------------------
-        // Initialise sensing
-        // ---------------------------------------------------------
-
-        locationTracker =
-            LocationTracker(this)
-
-        motionDetector =
-            MotionDetector(this)
-
-        gyroscopeDetector =
-            GyroscopeDetector(this)
-
-        compassHeadingDetector =
-            CompassHeadingDetector(this)
-
-        activityRecognitionManager =
-            ActivityRecognitionManager(this)
-
-        geofenceManager =
-            GeofenceManager(this)
-
-        // ---------------------------------------------------------
-        // Start collectors
-        // ---------------------------------------------------------
-
-        observeMotion()
-
-        observeGyroscope()
-
-        observeCompass()
-
+        serviceScope.launch {
+            // PENDING network results do not remove the independently published class target.
+            combine(travel.sensingTarget, travel.sensingSession, travel.snapshot,
+                AppRepositories.sensingAccountEligible, AppRepositories.navigation.state
+            ) { _, _, _, _, _ -> Unit }
+                .combine(AppRepositories.sensingAccountReady) { _, _ -> Unit }
+                .collect { reconcilePolicy() }
+        }
         observeLocation()
-
-        observeArrivalGeofence()
-
-        Log.d(
-            "SensingService",
-            "Foreground sensing service created"
-        )
+        observeActivity()
+        // Clock boundaries, expired navigation requests and revocation need no location callback.
+        serviceScope.launch {
+            while (true) {
+                delay(5_000L)
+                reconcilePolicy()
+            }
+        }
     }
 
-    // ---------------------------------------------------------
-    // Commands
-    // ---------------------------------------------------------
-
-    override fun onStartCommand(
-        intent: Intent?,
-        flags: Int,
-        startId: Int
-    ): Int {
-
-        /*
-         * Promote to foreground immediately.
-         */
-        startForeground(
-            NOTIFICATION_ID,
-            buildNotification(
-                getString(R.string.sensing_preparing_sensing)
-            )
-        )
-
-        when (
-            intent?.action
-        ) {
-
-            ACTION_STOP -> {
-
-                Log.d(
-                    "SensingService",
-                    "STOP command received"
-                )
-
-                stopSensing()
-
-                stopForeground(
-                    STOP_FOREGROUND_REMOVE
-                )
-
-                stopSelf()
-
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        try {
+            // A foreground launch must be promoted even if permissions change before delivery.
+            // Coarse access permits location promotion, but this demo samples only precise fixes.
+            // With all location access revoked, shortService permits terminal cleanup on API 34+.
+            if (!foregroundPromoted) {
+                val foregroundType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
+                    !hasAnyLocationPermission()) ServiceInfo.FOREGROUND_SERVICE_TYPE_SHORT_SERVICE
+                else ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+                ServiceCompat.startForeground(this, NOTIFICATION_ID,
+                    buildNotification("Preparing sensing..."), foregroundType)
+                foregroundPromoted = true
+                lastNotificationPublishedAtNanos = SystemClock.elapsedRealtimeNanos()
+            }
+            if (intent?.action == ACTION_STOP) {
+                stopServiceRun()
                 return START_NOT_STICKY
             }
-
-            ACTION_NORMAL_MODE -> {
-
-                startNormalMode()
+            // Existing directions callers get a renewable, bounded acquisition request. A sticky
+            // restart has no old command/override and selects the timetable policy afresh.
+            when (intent?.action) {
+                ACTION_PRE_CLASS_MODE -> navigationRequestUntilNanos =
+                    SystemClock.elapsedRealtimeNanos() + NAVIGATION_REQUEST_NANOS
+                ACTION_NORMAL_MODE -> navigationRequestUntilNanos = 0L
             }
-
-            ACTION_PRE_CLASS_MODE -> {
-
-                startPreClassMode()
-            }
-
-            else -> {
-
-                /*
-                 * Safe default.
-                 */
-                startNormalMode()
-            }
+            launchAuthorized = true
+            activationRequested = true
+            reconcilePolicy()
+        } catch (exception: SecurityException) {
+            Log.w("SensingService", "Sensing permission unavailable", exception)
+            stopForPermissionLoss()
+            return START_NOT_STICKY
         }
+        return if (launchAuthorized) START_STICKY else START_NOT_STICKY
+    }
 
+    private fun reconcilePolicy() {
+        // Only an already delivered visible-activity launch (or Android's sticky restart) can
+        // authorize this instance. Observers never start another foreground service.
+        if (!launchAuthorized) return
+        try {
+            if (!hasPreciseLocationPermission()) {
+                stopForPermissionLoss()
+                return
+            }
+            // Cached authentication/timetable restoration may finish after onStartCommand.
+            if (!AppRepositories.sensingAccountReady.value) return
+            if (!AppRepositories.sensingAccountEligible.value) {
+                stopServiceRun()
+                return
+            }
+            val accountId = AppRepositories.sensingAccounts.currentAccountId
+            if (observedAccount && accountId != observedAccountId) {
+                navigationRequestUntilNanos = 0L
+                navigationTripStartedAtNanos = 0L
+            }
+            observedAccount = true
+            observedAccountId = accountId
+            val nextTarget = if (activationRequested) travel.startSensing() else travel.sensingTarget.value
+            activationRequested = false
+            synchronizeTarget(nextTarget)
+            if (!nextTarget.active) {
+                stopServiceRun()
+                return
+            }
+            val nowNanos = SystemClock.elapsedRealtimeNanos()
+            val navigating = AppRepositories.navigation.state.value.active
+            if (!navigating) navigationTripStartedAtNanos = 0L
+            else if (navigationTripStartedAtNanos == 0L) navigationTripStartedAtNanos = nowNanos
+            val navigationOverride = nowNanos < navigationRequestUntilNanos ||
+                (navigating && nowNanos - navigationTripStartedAtNanos < NAVIGATION_TRIP_NANOS)
+            // A temporary PENDING result while routing refreshes cannot erase a resolved policy
+            // for this generation. The pure policy also checks occurrence times and destination.
+            val snapshot = travel.snapshot.value
+            if (!snapshot.pending) policySnapshot = snapshot
+            when (SensingPolicy.mode(
+                accountEligible = AppRepositories.sensingAccountEligible.value,
+                precisePermission = hasPreciseLocationPermission(),
+                session = travel.sensingSession.value,
+                target = nextTarget,
+                snapshot = policySnapshot,
+                now = Instant.now(),
+                highRateOverride = navigationOverride
+            )) {
+                SensingMode.STOP -> stopServiceRun()
+                SensingMode.NORMAL -> startMode(LocationTrackingMode.NORMAL)
+                SensingMode.PRE_CLASS -> startMode(LocationTrackingMode.PRE_CLASS)
+            }
+        } catch (exception: SecurityException) {
+            Log.w("SensingService", "Permission changed during sensing reconciliation", exception)
+            stopForPermissionLoss()
+        }
+    }
+
+    private fun startMode(mode: LocationTrackingMode) {
+        if (sensingRunning && currentMode == mode) {
+            // Adapters preserve live windows/subscriptions and can retry a failed registration.
+            locationTracker.startTracking(mode)
+            startHighRateSensorsIfNeeded()
+            startActivityRecognitionIfAllowed()
+            registerArrivalGeofenceIfAllowed()
+            return
+        }
+        sensingRunning = false
+        skipModeResetLocation = true
+        locationTracker.stopTracking()
+        resetSensorHistories()
+        activityRecognitionManager.stop()
+        currentMode = mode
+        sensingRunning = true
+        // Clear full fusion and departure memory, keeping current position/guidance and arrival.
+        travel.clearSensingEvidence()
+        locationTracker.startTracking(mode)
+        startHighRateSensorsIfNeeded()
         startActivityRecognitionIfAllowed()
-
         registerArrivalGeofenceIfAllowed()
-
-        return START_STICKY
+        updateModeNotification()
+        if (BuildConfig.DEBUG) Log.d("SensingService", "mode=$mode, generation=${target?.generation}")
     }
 
-    // ---------------------------------------------------------
-    // NORMAL battery mode
-    // ---------------------------------------------------------
-
-    private fun startNormalMode() {
-        if (trackingStarted && currentMode == LocationTrackingMode.NORMAL) {
-            updateNotification(getString(R.string.sensing_background_sensing_battery_saving_mode))
-            return
+    private fun startHighRateSensorsIfNeeded() {
+        if (sensingRunning && currentMode == LocationTrackingMode.PRE_CLASS && sensorActivatedAtNanos == 0L) {
+            sensorActivatedAtNanos = SystemClock.elapsedRealtimeNanos()
+            motionDetector.start()
+            gyroscopeDetector.start()
+            compassHeadingDetector.start()
         }
+    }
 
-        currentMode =
-            LocationTrackingMode.NORMAL
-
-        Log.d(
-            "SensingService",
-            "Starting NORMAL sensing mode"
-        )
-
-        /*
-         * Battery policy:
-         *
-         * NORMAL
-         * - lower-frequency location
-         * - accelerometer OFF
-         * - gyroscope OFF
-         * - compass OFF
-         */
-
-        startLocationTracking(LocationTrackingMode.NORMAL)
-
+    private fun resetSensorHistories() {
         motionDetector.stop()
-
         gyroscopeDetector.stop()
-
         compassHeadingDetector.stop()
-
-        /*
-         * Old high-frequency fusion history should not
-         * affect a future PRE_CLASS session.
-         */
-        latestIsMoving =
-            false
-
-        latestIsRotating =
-            false
-
-        latestHeadingDegrees =
-            null
-
-        latestDistanceTrend =
-            DistanceTrend.UNKNOWN
-
-        latestStableEnRoute =
-            false
-
+        sensorActivatedAtNanos = 0L
         distanceTrendDetector.reset()
-
         enRouteFusionDetector.reset()
-
-        travel.updateMoving(
-            false
-        )
-
-        updateNotification(
-            getString(R.string.sensing_background_sensing_battery_saving_mode)
-        )
     }
 
-    // ---------------------------------------------------------
-    // PRE_CLASS battery mode
-    // ---------------------------------------------------------
-
-    private fun startPreClassMode() {
-        if (trackingStarted && currentMode == LocationTrackingMode.PRE_CLASS) {
-            updateNotification(getString(R.string.sensing_monitoring_your_trip_to_class))
+    private fun synchronizeTarget(next: SensingTarget) {
+        if (target?.generation == next.generation) return
+        if (BuildConfig.DEBUG) {
+            Log.d(
+                "SensingFusion",
+                "Reset sensing generation=${target?.generation}->${next.generation}, active=${next.active}, " +
+                    "target=${next.sessionId}/${next.building?.locCode}"
+            )
+        }
+        target = next
+        policySnapshot = TravelSnapshot.PENDING
+        lastLocationNanos = 0L
+        // A pending initial fix belongs to the old sensing period. Restart acquisition so a
+        // pre-activation result cannot consume the new target's one-shot without locating it.
+        sensingRunning = false
+        locationTracker.stopTracking()
+        resetSensorHistories()
+        activityRecognitionManager.stop()
+        removeArrivalGeofence()
+        if (!next.active) {
+            stopComponents()
             return
         }
-
-        currentMode =
-            LocationTrackingMode.PRE_CLASS
-
-        Log.d(
-            "SensingService",
-            "Starting PRE_CLASS sensing mode"
-        )
-
-        /*
-         * PRE_CLASS
-         * - high-frequency location
-         * - accelerometer ON
-         * - gyroscope ON
-         * - compass ON
-         *
-         * These signals are needed for EN_ROUTE fusion.
-         */
-
-        startLocationTracking(LocationTrackingMode.PRE_CLASS)
-
-        motionDetector.start()
-
-        gyroscopeDetector.start()
-
-        compassHeadingDetector.start()
-
-        updateNotification(
-            getString(R.string.sensing_monitoring_your_trip_to_class)
-        )
     }
 
-    // ---------------------------------------------------------
-    // Accelerometer collector
-    // ---------------------------------------------------------
-
-    private fun observeMotion() {
-
+    private fun observeActivity() {
         serviceScope.launch {
-
-            motionDetector
-                .isMoving
-                .collectLatest { isMoving ->
-
-                    latestIsMoving =
-                        isMoving
-
-                    // The context engine combines movement with progress toward the building.
-                    travel.updateMoving(isMoving)
-
-                    Log.d(
-                        "SensingService",
-                        "Motion: isMoving=$isMoving"
-                    )
-                }
+            activityRecognitionManager.observations.collect {
+                if (!sensingRunning || currentMode != LocationTrackingMode.PRE_CLASS) return@collect
+                reconcilePolicy()
+                if (!sensingRunning || currentMode != LocationTrackingMode.PRE_CLASS) return@collect
+                val currentTarget = target?.takeIf { it.active } ?: return@collect
+                // EXIT, STILL and registration interruption must invalidate the old bundle even
+                // between GPS callbacks. Confirmed trips and last-known guidance survive this.
+                enRouteFusionDetector.reset()
+                travel.updateEvidence(SensingEvidence(generation = currentTarget.generation, location = null))
+            }
         }
     }
-
-    // ---------------------------------------------------------
-    // Gyroscope collector
-    // ---------------------------------------------------------
-
-    private fun observeGyroscope() {
-
-        serviceScope.launch {
-
-            gyroscopeDetector
-                .isRotating
-                .collectLatest { isRotating ->
-
-                    latestIsRotating =
-                        isRotating
-
-                    Log.d(
-                        "SensingService",
-                        "Gyroscope: isRotating=$isRotating"
-                    )
-                }
-        }
-    }
-
-    // ---------------------------------------------------------
-    // Compass collector
-    // ---------------------------------------------------------
-
-    private fun observeCompass() {
-
-        serviceScope.launch {
-
-            compassHeadingDetector
-                .headingDegrees
-                .collectLatest { heading ->
-
-                    if (
-                        heading == null
-                    ) {
-                        return@collectLatest
-                    }
-
-                    latestHeadingDegrees =
-                        heading
-
-                    Log.d(
-                        "SensingService",
-                        "Compass: heading=${heading.toInt()}°"
-                    )
-                }
-        }
-    }
-
-    // ---------------------------------------------------------
-    // Location + fusion collector
-    // ---------------------------------------------------------
 
     private fun observeLocation() {
-
         serviceScope.launch {
-
-            locationTracker
-                .location
-                .collectLatest { location ->
-
-                    if (
-                        location == null
-                    ) {
-                        return@collectLatest
+            locationTracker.location.collect { location ->
+                if (!sensingRunning) return@collect
+                if (!hasPreciseLocationPermission()) {
+                    stopForPermissionLoss()
+                    return@collect
+                }
+                // The target is independent of PENDING snapshots and network request completion.
+                reconcilePolicy()
+                if (!sensingRunning) return@collect
+                val currentTarget = target ?: return@collect
+                if (location == null) {
+                    if (skipModeResetLocation) {
+                        skipModeResetLocation = false
+                        return@collect
                     }
+                    distanceTrendDetector.reset()
+                    enRouteFusionDetector.reset()
+                    if (currentTarget.active) {
+                        travel.updateEvidence(SensingEvidence(generation = currentTarget.generation, location = null))
+                    }
+                    return@collect
+                }
+                skipModeResetLocation = false
+                val now = SystemClock.elapsedRealtimeNanos()
+                if (!EvidenceFreshness.accepts(location, currentTarget, now, lastLocationNanos)) {
+                    if (BuildConfig.DEBUG) {
+                        val reason = if (!currentTarget.active) "inactive" else
+                            EvidenceFreshness.rejectionReason(location, now, lastLocationNanos, currentTarget.activatedAtNanos)
+                        Log.d("SensingFusion", "rejected reason=$reason, generation=${currentTarget.generation}, " +
+                            "ageMs=${(now - location.elapsedRealtimeNanos) / 1_000_000L}, accuracyM=${location.accuracyMeters}")
+                    }
+                    return@collect
+                }
 
-                    // -------------------------------------------------
-                    // Current location -> travel engine
-                    // -------------------------------------------------
+                val point = GeoPoint(location.latitude, location.longitude)
+                val highRate = currentMode == LocationTrackingMode.PRE_CLASS
+                val movement = motionDetector.classification.value?.takeIf {
+                    highRate && isFreshSensor(it.timestampNanos, currentTarget, now)
+                }
+                val rotation = gyroscopeDetector.classification.value?.takeIf {
+                    highRate && isFreshSensor(it.timestampNanos, currentTarget, now)
+                }
+                val heading = compassHeadingDetector.sample.value?.takeIf {
+                    highRate && isFreshSensor(it.timestampNanos, currentTarget, now) &&
+                        it.headingDegrees.isFinite()
+                }?.headingDegrees
+                val activity = activityRecognitionManager.observation?.takeIf {
+                    highRate && hasActivityPermission() && activityRecognitionManager.isAvailable &&
+                        it.observedAtNanos > currentTarget.activatedAtNanos && it.observedAtNanos <= now
+                }
 
-                    val currentPoint =
-                        GeoPoint(
-                            latitude =
-                                location.latitude,
-                            longitude =
-                                location.longitude
-                        )
-
-                    AppRepositories.navigation.updateLocation(location)
-
-                    travel.updateOrigin(
-                        currentPoint,
-                        java.time.Instant.ofEpochMilli(location.timestampMillis),
-                        accuracyMeters = location.accuracyMeters
+                var verdict: Boolean? = null
+                var progressConfirmed = false
+                var distanceMeters: Int? = null
+                var trendName = "unavailable"
+                var headingDifference: Double? = null
+                currentTarget.building?.takeIf { highRate }?.let { building ->
+                    val distance = GeoMath.distanceMeters(point, building.location)
+                    val trend = distanceTrendDetector.update(distance, location.elapsedRealtimeNanos)
+                    distanceMeters = distance.toInt()
+                    trendName = trend.name
+                    val closing = distanceTrendDetector.closingMeters()
+                    val bearing = bearingDegrees(
+                        location.latitude, location.longitude,
+                        building.location.latitude, building.location.longitude
                     )
-
-                    // -------------------------------------------------
-                    // Destination: the building of the next class
-                    // -------------------------------------------------
-
-                    val building =
-                        travel.snapshot.value.building
-
-                    if (
-                        building == null
-                    ) {
-
-                        Log.d(
-                            "SensingFusion",
-                            "No class to travel to; fusion idle"
-                        )
-
-                        return@collectLatest
+                    headingDifference = heading?.let {
+                        calculateHeadingDifference(it.toDouble(), bearing)
                     }
-
-                    if (
-                        building.locCode != fusionBuildingCode
-                    ) {
-
-                        /*
-                         * A new destination: the trend and fusion
-                         * history of the previous one does not apply.
-                         */
-                        fusionBuildingCode =
-                            building.locCode
-
-                        distanceTrendDetector.reset()
-
-                        enRouteFusionDetector.reset()
-                    }
-
-                    // -------------------------------------------------
-                    // Distance
-                    // -------------------------------------------------
-
-                    val distance =
-                        GeoMath.distanceMeters(
-                            from =
-                                currentPoint,
-                            to =
-                                building.location
-                        )
-
-                    // -------------------------------------------------
-                    // Travel state (owned by the engine)
-                    // -------------------------------------------------
-
-                    val state =
-                        travel.snapshot.value.state
-
-                    // -------------------------------------------------
-                    // Distance trend
-                    // -------------------------------------------------
-
-                    latestDistanceTrend =
-                        if (
-                            currentMode ==
-                            LocationTrackingMode.PRE_CLASS
-                        ) {
-
-                            distanceTrendDetector.update(
-                                distanceMeters =
-                                    distance
-                            )
-
-                        } else {
-
-                            /*
-                             * Distance trend fusion is not needed
-                             * in battery-saving NORMAL mode.
-                             */
-                            DistanceTrend.UNKNOWN
+                    verdict = enRouteFusionDetector.update(
+                        isMoving = movement?.isMoving,
+                        isRotating = rotation?.isRotating,
+                        distanceTrend = trend,
+                        headingDifferenceDegrees = headingDifference,
+                        closingMeters = closing,
+                        observedAtNanos = location.elapsedRealtimeNanos,
+                        activity = activity?.state
+                    ).verdict
+                    progressConfirmed = distanceTrendDetector.sustainedApproach() && closing >= 50.0
+                }
+                // Position and its current-target verdict reach the engine in one update.
+                val stateBefore = travel.snapshot.value.state
+                val accepted = travel.updateEvidence(
+                    SensingEvidence(
+                        generation = currentTarget.generation,
+                        location = location,
+                        movement = movement?.let { MovementObservation(it.isMoving, it.timestampNanos) },
+                        enRoute = verdict,
+                        progressConfirmed = progressConfirmed,
+                        activity = activity
+                    )
+                )
+                if (accepted) {
+                    lastLocationNanos = location.elapsedRealtimeNanos
+                    AppRepositories.navigation.updateLocation(location)
+                    if (BuildConfig.DEBUG) {
+                        val source = when {
+                            activity?.state?.isMoving != null -> "gps+activity"
+                            movement != null -> "gps+accelerometer"
+                            else -> "gps"
                         }
-
-                    // -------------------------------------------------
-                    // Bearing
-                    // -------------------------------------------------
-
-                    val bearing =
-                        bearingDegrees(
-                            location.latitude,
-                            location.longitude,
-                            building.location.latitude,
-                            building.location.longitude
-                        )
-
-                    // -------------------------------------------------
-                    // Heading difference
-                    // -------------------------------------------------
-
-                    val heading =
-                        latestHeadingDegrees
-
-                    val headingDifference =
-                        if (
-                            heading != null
-                        ) {
-
-                            calculateHeadingDifference(
-                                headingDegrees =
-                                    heading.toDouble(),
-                                bearingDegrees =
-                                    bearing
-                            )
-
-                        } else {
-
-                            null
-                        }
-
-                    // -------------------------------------------------
-                    // EN_ROUTE fusion
-                    // -------------------------------------------------
-
-                    if (
-                        currentMode ==
-                        LocationTrackingMode.PRE_CLASS
-                    ) {
-
-                        val fusionResult =
-                            enRouteFusionDetector.update(
-                                isMoving =
-                                    latestIsMoving,
-                                isRotating =
-                                    latestIsRotating,
-                                distanceTrend =
-                                    latestDistanceTrend,
-                                headingDifferenceDegrees =
-                                    headingDifference
-                            )
-
-                        latestStableEnRoute =
-                            fusionResult.stableEnRoute
-
+                        val ageMillis = (now - location.elapsedRealtimeNanos) / 1_000_000L
+                        val stateAfter = travel.snapshot.value.state
+                        // One compact line per accepted GPS observation, with no raw coordinates.
                         Log.d(
                             "SensingFusion",
-                            "distance=${distance.toInt()}m, " +
-                                    "trend=$latestDistanceTrend, " +
-                                    "bearing=${bearing.toInt()}°, " +
-                                    "heading=" +
-                                    "${heading?.toInt() ?: "unknown"}°, " +
-                                    "headingDifference=" +
-                                    "${headingDifference?.toInt() ?: "unknown"}°, " +
-                                    "moving=$latestIsMoving, " +
-                                    "rotating=$latestIsRotating, " +
-                                    "rawEnRoute=${fusionResult.rawEnRoute}, " +
-                                    "stableEnRoute=${fusionResult.stableEnRoute}, " +
-                                    "state=$state"
-                        )
-
-                    } else {
-
-                        Log.d(
-                            "SensingFusion",
-                            "NORMAL mode: " +
-                                    "distance=${distance.toInt()}m, " +
-                                    "state=$state"
+                            "accepted source=$source, ageMs=$ageMillis, generation=${currentTarget.generation}, " +
+                                "target=${currentTarget.sessionId}/${currentTarget.building?.locCode}, " +
+                                "distanceM=$distanceMeters, trend=$trendName, moving=${movement?.isMoving}, " +
+                                "activity=${activity?.state}, activityAvailable=${activityRecognitionManager.isAvailable}, " +
+                                "headingDelta=$headingDifference, headingFresh=${heading != null}, rotating=${rotation?.isRotating}, " +
+                                "verdict=$verdict, progressConfirmed=$progressConfirmed, " +
+                                "state=$stateBefore->$stateAfter"
                         )
                     }
                 }
+            }
         }
     }
 
-    // ---------------------------------------------------------
-    // Heading difference
-    // ---------------------------------------------------------
+    private fun isFreshSensor(observedAtNanos: Long, currentTarget: SensingTarget, now: Long): Boolean =
+        observedAtNanos >= currentTarget.activatedAtNanos &&
+            observedAtNanos >= sensorActivatedAtNanos &&
+            EvidenceFreshness.isFresh(observedAtNanos, now, EvidenceFreshness.SENSOR_MAX_AGE_NANOS)
 
-    private fun calculateHeadingDifference(
-        headingDegrees: Double,
-        bearingDegrees: Double
-    ): Double {
-
-        var difference =
-            headingDegrees -
-                    bearingDegrees
-
-        while (
-            difference >
-            180.0
-        ) {
-
-            difference -=
-                360.0
-        }
-
-        while (
-            difference <
-            -180.0
-        ) {
-
-            difference +=
-                360.0
-        }
-
-        return abs(
-            difference
-        )
+    private fun calculateHeadingDifference(headingDegrees: Double, bearingDegrees: Double): Double {
+        var difference = (headingDegrees - bearingDegrees) % 360.0
+        if (difference > 180.0) difference -= 360.0
+        if (difference < -180.0) difference += 360.0
+        return abs(difference)
     }
 
-    // ---------------------------------------------------------
-    // Activity Recognition
-    // ---------------------------------------------------------
+    private fun hasPreciseLocationPermission(): Boolean =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED
+
+    private fun hasAnyLocationPermission(): Boolean = hasPreciseLocationPermission() ||
+        ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED
 
     private fun startActivityRecognitionIfAllowed() {
-
-        if (
-            Build.VERSION.SDK_INT <
-            Build.VERSION_CODES.Q
-        ) {
-
-            activityRecognitionManager.start()
-
-            return
-        }
-
-        val granted =
-            ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACTIVITY_RECOGNITION
-            ) ==
-                    PackageManager.PERMISSION_GRANTED
-
-        if (granted) {
-
-            activityRecognitionManager.start()
-
-            Log.d(
-                "SensingService",
-                "Activity Recognition started"
-            )
-
+        val currentTarget = target?.takeIf {
+            it.active && sensingRunning && currentMode == LocationTrackingMode.PRE_CLASS
+        } ?: return
+        if (hasActivityPermission()) {
+            try {
+                activityRecognitionManager.start(maxOf(currentTarget.activatedAtNanos, sensorActivatedAtNanos))
+            } catch (exception: SecurityException) {
+                Log.w("SensingService", "Activity recognition unavailable; retaining walking sensors", exception)
+            }
         } else {
-
-            Log.w(
-                "SensingService",
-                "Activity Recognition permission unavailable"
-            )
+            activityRecognitionManager.stop()
         }
     }
 
-    // ---------------------------------------------------------
-    // Arrival geofence
-    // ---------------------------------------------------------
-
-    /*
-     * The geofence moves with the building of the next class.
-     */
-    private fun observeArrivalGeofence() {
-
-        serviceScope.launch {
-
-            travel.snapshot
-                .map { snapshot ->
-                    snapshot.building
-                }
-                .distinctUntilChanged { previous, next ->
-                    previous?.locCode == next?.locCode
-                }
-                .collectLatest { building ->
-
-                    geofenceBuilding?.let { previous ->
-                        geofenceManager.removeArrivalGeofence(
-                            previous.locCode
-                        )
-                    }
-
-                    geofenceBuilding =
-                        building
-
-                    registerArrivalGeofenceIfAllowed()
-                }
-        }
-    }
+    private fun hasActivityPermission(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACTIVITY_RECOGNITION) ==
+            PackageManager.PERMISSION_GRANTED
 
     private fun registerArrivalGeofenceIfAllowed() {
-
-        val fineGranted =
-            ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            ) ==
-                    PackageManager.PERMISSION_GRANTED
-
-        if (
-            !fineGranted
-        ) {
-
-            Log.w(
-                "SensingService",
-                "Fine location unavailable; geofence not registered"
-            )
-
-            return
-        }
-
-        val building =
-            geofenceBuilding
-                ?: return
-
-        geofenceManager
-            .addArrivalGeofence(
-                id =
-                    building.locCode,
-                latitude =
-                    building.location.latitude,
-                longitude =
-                    building.location.longitude
-            )
-
-        Log.d(
-            "SensingService",
-            "Arrival geofence registered: ${building.locCode}"
-        )
+        geofenceManager.setTarget(target?.takeIf { sensingRunning && it.active })
     }
 
-    // ---------------------------------------------------------
-    // Notification
-    // ---------------------------------------------------------
+    private fun removeArrivalGeofence() {
+        geofenceManager.setTarget(null)
+    }
 
-    private fun buildNotification(
-        text: String
-    ): Notification {
+    private fun stopComponents() {
+        sensingRunning = false
+        runCatching { locationTracker.stopTracking() }
+            .onFailure { Log.w("SensingService", "Location cleanup failed", it) }
+        resetSensorHistories()
+        // Remove the PendingIntent subscription even when this instance did not create it.
+        runCatching { activityRecognitionManager.stop() }
+            .onFailure { Log.w("SensingService", "Activity cleanup failed", it) }
+        removeArrivalGeofence()
+    }
 
-        return NotificationCompat.Builder(
-            this,
-            CHANNEL_ID
-        )
-            .setContentTitle(
-                getString(R.string.app_name)
-            )
-            .setContentText(
-                text
-            )
-            .setSmallIcon(
-                R.mipmap.ic_launcher
-            )
+    private fun stopSensing() {
+        stopComponents()
+        travel.stopSensing()
+        target = travel.sensingTarget.value
+        lastLocationNanos = 0L
+    }
+
+    private fun stopForPermissionLoss() {
+        Log.w("SensingService", "Precise location unavailable; stopping sensing")
+        stopServiceRun()
+    }
+
+    private fun stopServiceRun() {
+        launchAuthorized = false
+        activationRequested = false
+        cancelPendingModeNotification()
+        navigationRequestUntilNanos = 0L
+        navigationTripStartedAtNanos = 0L
+        AppRepositories.navigation.stop()
+        stopSensing()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        foregroundPromoted = false
+        stopSelf()
+    }
+
+    private fun updateModeNotification() = updateNotification(
+        if (currentMode == LocationTrackingMode.PRE_CLASS) "Monitoring your trip to class"
+        else "Background sensing — battery saving mode"
+    )
+
+    private fun buildNotification(text: String): Notification =
+        NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("Campus Companion")
+            .setContentText(text)
+            .setSmallIcon(R.mipmap.ic_launcher)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .setPriority(
-                NotificationCompat.PRIORITY_LOW
-            )
+            // Monitoring should be visible immediately, including the resolved sampling mode.
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
+
+    private fun updateNotification(text: String) {
+        // Android can shed burst notification updates. Keep one pending latest mode, separate
+        // from the mandatory immediate promotion, and publish at most once per 500 ms.
+        pendingModeNotificationText = text
+        if (modeNotificationJob?.isActive == true) return
+        modeNotificationJob = serviceScope.launch {
+            val remainingNanos = (MODE_NOTIFICATION_INTERVAL_NANOS -
+                (SystemClock.elapsedRealtimeNanos() - lastNotificationPublishedAtNanos)).coerceAtLeast(0L)
+            if (remainingNanos > 0L) delay((remainingNanos + 999_999L) / 1_000_000L)
+            val latest = pendingModeNotificationText ?: return@launch
+            pendingModeNotificationText = null
+            modeNotificationJob = null
+            // A stopped/replaced service must never publish a queued mode or promote itself again.
+            if (!launchAuthorized || !sensingRunning || !foregroundPromoted ||
+                !travel.sensingTarget.value.active || !AppRepositories.sensingAccountEligible.value) return@launch
+            try {
+                if (!hasPreciseLocationPermission()) {
+                    stopForPermissionLoss()
+                    return@launch
+                }
+                // Keep mode updates on the same service notification path and owner.
+                ServiceCompat.startForeground(this@SensingForegroundService, NOTIFICATION_ID,
+                    buildNotification(latest), ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+                lastNotificationPublishedAtNanos = SystemClock.elapsedRealtimeNanos()
+            } catch (exception: SecurityException) {
+                Log.w("SensingService", "Permission changed during notification publication", exception)
+                stopForPermissionLoss()
+            }
+        }
     }
 
-    private fun updateNotification(
-        text: String
-    ) {
-
-        val manager =
-            getSystemService(
-                NotificationManager::class.java
-            )
-
-        manager.notify(
-            NOTIFICATION_ID,
-            buildNotification(
-                text
-            )
-        )
+    private fun cancelPendingModeNotification() {
+        pendingModeNotificationText = null
+        modeNotificationJob?.cancel()
+        modeNotificationJob = null
     }
 
     private fun createNotificationChannel() {
-
-        if (
-            Build.VERSION.SDK_INT >=
-            Build.VERSION_CODES.O
-        ) {
-
-            val channel =
-                NotificationChannel(
-                    CHANNEL_ID,
-                    getString(R.string.sensing_campus_companion_sensing),
-                    NotificationManager.IMPORTANCE_LOW
-                )
-
-            channel.description =
-                getString(R.string.sensing_keeps_location_and_motion_sensing_active)
-
-            val manager =
-                getSystemService(
-                    NotificationManager::class.java
-                )
-
-            manager.createNotificationChannel(
-                channel
-            )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                CHANNEL_ID, "Campus Companion sensing", NotificationManager.IMPORTANCE_LOW
+            ).apply { description = "Keeps location and motion sensing active" }
+            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
     }
 
-    // ---------------------------------------------------------
-    // Stop sensing
-    // ---------------------------------------------------------
-
-    private fun stopSensing() {
-        trackingStarted = false
-        trackingGeneration++
-
-        Log.d(
-            "SensingService",
-            "Stopping all sensing"
-        )
-
-        locationTracker.stopTracking()
-
-        motionDetector.stop()
-
-        gyroscopeDetector.stop()
-
-        compassHeadingDetector.stop()
-
-        activityRecognitionManager.stop()
-
-        distanceTrendDetector.reset()
-
-        enRouteFusionDetector.reset()
-
-        travel.updateMoving(
-            false
-        )
-
-        latestIsMoving =
-            false
-
-        latestIsRotating =
-            false
-
-        latestHeadingDegrees =
-            null
-
-        latestDistanceTrend =
-            DistanceTrend.UNKNOWN
-
-        latestStableEnRoute =
-            false
-    }
-
-    // ---------------------------------------------------------
-    // Cleanup
-    // ---------------------------------------------------------
-
     override fun onDestroy() {
+        launchAuthorized = false
+        activationRequested = false
+        cancelPendingModeNotification()
         AppRepositories.navigation.stop()
-
         stopSensing()
-
         serviceScope.cancel()
-
-        Log.d(
-            "SensingService",
-            "Foreground sensing service destroyed"
-        )
-
         super.onDestroy()
     }
 
-    override fun onBind(
-        intent: Intent?
-    ): IBinder? {
-
-        return null
-    }
+    override fun onBind(intent: Intent?): IBinder? = null
 }

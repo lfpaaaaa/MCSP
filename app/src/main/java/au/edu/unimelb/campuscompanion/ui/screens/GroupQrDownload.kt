@@ -1,15 +1,5 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
-import androidx.compose.runtime.setValue
-
-import androidx.compose.runtime.getValue
-
-import au.edu.unimelb.campuscompanion.ui.text.textResources
-import au.edu.unimelb.campuscompanion.R
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.liveRegion
-import androidx.compose.ui.semantics.LiveRegionMode
 import android.graphics.Bitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -18,13 +8,16 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.google.zxing.BarcodeFormat
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -33,7 +26,6 @@ import kotlinx.coroutines.withContext
 /** Uses the system save picker so downloads work without broad storage permissions. */
 @Composable
 internal fun GroupQrDownload(code: String) {
-    val textResources = textResources()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var saving by remember { mutableStateOf(false) }
@@ -56,11 +48,11 @@ internal fun GroupQrDownload(code: String) {
                             bitmap.recycle()
                         }
                     }
-                    message = textResources.getString(R.string.presentation_qr_code_saved)
+                    message = "QR code saved."
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {
-                    message = textResources.getString(R.string.group_qr_download_could_not_save_the_qr_code_please_try)
+                    message = "Could not save the QR code. Please try again."
                 } finally {
                     saving = false
                 }
@@ -81,10 +73,10 @@ internal fun GroupQrDownload(code: String) {
                     save.launch("campus-group-invite.png")
                 } catch (_: Exception) {
                     pendingCode = null
-                    message = textResources.getString(R.string.group_qr_download_no_file_saving_app_is_available_on_this)
+                    message = "No file saving app is available on this device."
                 }
             }
-        ) { Text(if (saving) textResources.getString(R.string.chat_attachments_saving) else textResources.getString(R.string.group_qr_download_download_qr_code)) }
-        message?.let { Text(it, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
+        ) { Text(if (saving) "Saving…" else "Download QR code") }
+        message?.let { Text(it) }
     }
 }

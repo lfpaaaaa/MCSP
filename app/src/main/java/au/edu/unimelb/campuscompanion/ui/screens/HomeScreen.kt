@@ -1,11 +1,5 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
-import androidx.compose.runtime.setValue
-
-import androidx.compose.runtime.getValue
-
-import au.edu.unimelb.campuscompanion.ui.text.textResources
-import au.edu.unimelb.campuscompanion.R
 import au.edu.unimelb.campuscompanion.ui.model.trimTrailingCommas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -32,12 +26,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -46,7 +41,6 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
@@ -89,11 +83,9 @@ fun HomeScreen(
     onTimetableRefresh: () -> Unit,
     onOpenGroup: (CourseGroup) -> Unit,
     onNavigate: (CourseSession) -> Unit,
-    onOpenCompass: (CourseSession) -> Unit,
     postClassGroupCandidates: List<CourseGroup> = timetableState.groups,
     modifier: Modifier = Modifier
 ) {
-    val textResources = textResources()
     var showTimetableDialog by rememberSaveable { mutableStateOf(false) }
     var now by remember { mutableStateOf(ZonedDateTime.now()) }
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -126,17 +118,17 @@ fun HomeScreen(
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(
-                text = textResources.getString(R.string.home_overview),
+                text = "Overview",
                 style = MaterialTheme.typography.headlineSmall
             )
             Text(
                 text = when {
-                    timetableState.isCached -> textResources.getString(R.string.home_classes_below_are_from_your_saved_timetable)
-                    timetableState.isLoading && !timetableState.isConnected -> textResources.getString(R.string.home_checking_your_saved_timetable_url)
+                    timetableState.isCached -> "Classes below are from your saved timetable."
+                    timetableState.isLoading && !timetableState.isConnected -> "Checking your saved timetable URL."
                     timetableState.isConnected -> {
-                        textResources.getString(R.string.home_classes_and_course_groups_below_come_from_your)
+                        "Classes and course groups below come from your connected timetable."
                     }
-                    else -> textResources.getString(R.string.home_connect_your_timetable_to_load_classes_reminders_and)
+                    else -> "Connect your timetable to load classes, reminders, and course groups."
                 },
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -148,7 +140,7 @@ fun HomeScreen(
         when {
             timetableState.isLoading && !timetableState.isConnected -> TimetableLoadingCard()
             !timetableState.isConnected -> TimetableSetupPrompt(
-                errorMessage = timetableState.errorMessage?.resolve(textResources),
+                errorMessage = timetableState.errorMessage,
                 onConnect = { showTimetableDialog = true }
             )
             else -> {
@@ -174,8 +166,7 @@ fun HomeScreen(
                         session = cardSession,
                         card = homeCard,
                         guidance = guidance,
-                        onNavigate = { onNavigate(cardSession) },
-                        onOpenCompass = { onOpenCompass(cardSession) }
+                        onNavigate = { onNavigate(cardSession) }
                     )
                 } else {
                     HomeDayCard(guidance = guidance)
@@ -185,13 +176,13 @@ fun HomeScreen(
                     HomeCourseGroupUpdates(groupUpdates, onOpenGroup)
                 }
 
-                SectionHeader(title = textResources.getString(R.string.home_today_s_classes))
+                SectionHeader(title = "Today's classes")
                 if (agenda.todayClasses.isEmpty()) {
                     EmptyImportedSection(
                         text = if (nextClassIsToday) {
-                            textResources.getString(R.string.home_no_other_classes_today)
+                            "No other classes today."
                         } else {
-                            textResources.getString(R.string.home_your_timetable_has_no_classes_remaining_today)
+                            "Your timetable has no classes remaining today."
                         }
                     )
                 } else {
@@ -205,7 +196,7 @@ fun HomeScreen(
                 ImportSummaryCard(
                     detectedEventCount = timetableState.detectedEventCount,
                     groupCount = timetableState.groups.size,
-                    notice = timetableState.offlineNotice()?.resolve(textResources)
+                    notice = timetableState.offlineNotice()
                 )
 
                 if (groupUpdates.featuredGroup == null) {
@@ -222,19 +213,18 @@ internal fun HomeCourseGroupUpdates(
     onOpenGroup: (CourseGroup) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val textResources = textResources()
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SectionHeader(title = textResources.getString(R.string.groups_course_groups))
+        SectionHeader(title = "Course groups")
         updates.contextLabel?.let { label ->
             Text(
-                text = label.resolve(textResources),
+                text = label,
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.SemiBold
             )
         }
         if (updates.rows.isEmpty()) {
-            EmptyImportedSection(text = textResources.getString(R.string.home_no_groups_are_available_to_add))
+            EmptyImportedSection(text = "No groups are available to add.")
         } else {
             updates.rows.forEach { group ->
                 GroupUpdateRow(group = group, onClick = { onOpenGroup(group) })
@@ -249,10 +239,8 @@ internal fun NextClassCard(
     card: HomeCardUiState,
     guidance: HomeCardGuidance,
     onNavigate: () -> Unit,
-    onOpenCompass: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val textResources = textResources()
     val travel = card.estimate
 
     Surface(
@@ -265,37 +253,35 @@ internal fun NextClassCard(
             modifier = Modifier.padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text(
-                text = guidance.cardLabel.resolve(textResources),
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Bold
-            )
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = session.code,
-                        style = MaterialTheme.typography.titleLarge,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = session.title.trimTrailingCommas(),
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = textResources.getString(R.string.home_class_time_range, session.startDate.format(nextClassDateFormatter), session.startTime.format(homeTimeFormatter), session.endTime.format(homeTimeFormatter)),
-                        style = MaterialTheme.typography.bodyLarge
-                    )
-                }
+                Text(
+                    text = guidance.cardLabel,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
+                )
                 StatusPill(
-                    label = card.statusLabel.resolve(textResources),
+                    label = card.statusLabel,
                     status = card.statusTone
+                )
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = session.code,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = session.title.trimTrailingCommas(),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Text(
+                    text = "${session.startDate.format(nextClassDateFormatter)}  ${session.startTime.format(homeTimeFormatter)} - ${session.endTime.format(homeTimeFormatter)}",
+                    style = MaterialTheme.typography.bodyLarge
                 )
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -305,7 +291,7 @@ internal fun NextClassCard(
                     modifier = Modifier.size(18.dp)
                 )
                 Text(
-                    text = card.destinationText.resolve(textResources),
+                    text = card.destinationText,
                     modifier = Modifier.padding(start = 6.dp),
                     style = MaterialTheme.typography.bodyMedium,
                 )
@@ -315,30 +301,34 @@ internal fun NextClassCard(
             if (guidance.showTravelDetails) {
                 TravelMetric(
                     icon = travel?.mode?.icon() ?: Icons.Outlined.AccessTime,
-                    label = textResources.getString(R.string.home_travel_time),
-                    value = travel?.durationMinutes?.let { minutes ->
-                        textResources.getString(R.string.home_min, if (travel.isApproximate) "~" else "", minutes) +
-                            " · ${travel.mode.displayName.resolve(textResources)}"
-                    } ?: guidance.travelUnavailableMessage?.resolve(textResources).orEmpty(),
+                    label = "Travel time",
+                    value = travel?.let { estimate ->
+                        "${if (estimate.isApproximate) "~" else ""}${estimate.durationMinutes} min · ${estimate.mode.displayName}"
+                    } ?: guidance.travelUnavailableMessage.orEmpty(),
                     modifier = Modifier.fillMaxWidth()
                 )
-                guidance.bufferExplanation?.let { Text(it.resolve(textResources), style = MaterialTheme.typography.bodyMedium) }
+                guidance.bufferExplanation?.let {
+                    Text(it, style = MaterialTheme.typography.bodyMedium)
+                }
                 if (travel?.isApproximate == true) {
-                    Text(textResources.getString(R.string.home_approximate_travel_time_live_route_unavailable), style = MaterialTheme.typography.bodySmall)
+                    Text("Approximate travel time · live route unavailable", style = MaterialTheme.typography.bodySmall)
                 }
             }
-            Button(onClick = onNavigate, modifier = Modifier.fillMaxWidth()) { Text(textResources.getString(R.string.campus_components_navigate_with_google_maps)) }
-            TextButton(onClick = onOpenCompass, modifier = Modifier.fillMaxWidth()) { Text(textResources.getString(R.string.compass_open)) }
-            if (guidance.showTravelDetails && travel?.source == EstimateSource.GoogleMaps) {
-                Text(textResources.getString(R.string.class_navigation_google_maps), style = MaterialTheme.typography.bodySmall)
-            } else if (guidance.showTravelDetails && travel?.source == EstimateSource.Routing) {
-                RoutingCredit()
-                if (travel.mode == TravelMode.PublicTransport) {
-                    HomeSourceCredit(textResources.getString(R.string.home_transit_sources), DataSources.TRANSITOUS_SOURCES_URL)
+            Button(onClick = onNavigate, modifier = Modifier.fillMaxWidth()) { Text("Navigate with Google Maps") }
+            if (guidance.showTravelDetails) {
+                when (travel?.source) {
+                    EstimateSource.GoogleMaps -> Text("Google Maps", style = MaterialTheme.typography.bodySmall)
+                    EstimateSource.Routing -> {
+                        RoutingCredit()
+                        if (travel?.mode == TravelMode.PublicTransport) {
+                            HomeSourceCredit("Public transport data sources", DataSources.TRANSITOUS_SOURCES_URL)
+                        }
+                    }
+                    else -> Unit
                 }
             }
             if (guidance.showWeatherCredit) {
-                HomeSourceCredit(DataSources.OPEN_METEO_CREDIT.resolve(textResources), DataSources.OPEN_METEO_URL)
+                HomeSourceCredit(DataSources.OPEN_METEO_CREDIT, DataSources.OPEN_METEO_URL)
             }
         }
     }
@@ -349,7 +339,6 @@ internal fun HomeDayCard(
     guidance: HomeCardGuidance,
     modifier: Modifier = Modifier
 ) {
-    val textResources = textResources()
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
@@ -360,7 +349,7 @@ internal fun HomeDayCard(
             modifier = Modifier.padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text(guidance.cardLabel.resolve(textResources), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+            Text(guidance.cardLabel, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
             HomeGuidanceText(guidance)
         }
     }
@@ -368,12 +357,11 @@ internal fun HomeDayCard(
 
 @Composable
 private fun HomeGuidanceText(guidance: HomeCardGuidance) {
-    val textResources = textResources()
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(guidance.headline.resolve(textResources), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        guidance.detail?.let { Text(it.resolve(textResources), style = MaterialTheme.typography.bodyMedium) }
+        Text(guidance.headline, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        guidance.detail?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
         guidance.departureLine?.let {
-            Text(it.resolve(textResources), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(it, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         }
     }
 }
@@ -485,7 +473,6 @@ private fun TravelMode.icon(): ImageVector = when (this) {
 
 @Composable
 private fun TimetableLoadingCard(modifier: Modifier = Modifier) {
-    val textResources = textResources()
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
@@ -499,11 +486,11 @@ private fun TimetableLoadingCard(modifier: Modifier = Modifier) {
             CircularProgressIndicator()
             Column {
                 Text(
-                    text = textResources.getString(R.string.home_loading_timetable),
+                    text = "Loading timetable",
                     style = MaterialTheme.typography.titleMedium
                 )
                 Text(
-                    text = textResources.getString(R.string.home_downloading_and_checking_calendar_events),
+                    text = "Downloading and checking calendar events.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -518,7 +505,6 @@ private fun TimetableSetupPrompt(
     onConnect: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val textResources = textResources()
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
@@ -539,16 +525,16 @@ private fun TimetableSetupPrompt(
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Text(
-                    text = textResources.getString(R.string.home_connect_your_timetable),
+                    text = "Connect your timetable",
                     style = MaterialTheme.typography.titleMedium
                 )
                 Text(
-                    text = errorMessage ?: textResources.getString(R.string.home_add_the_private_mytimetable_subscription_url),
+                    text = errorMessage ?: "Add the private MyTimetable subscription URL.",
                     style = MaterialTheme.typography.bodyMedium
                 )
             }
             Button(onClick = onConnect) {
-                Text(if (errorMessage == null) textResources.getString(R.string.home_add_url) else textResources.getString(R.string.action_retry))
+                Text(if (errorMessage == null) "Add URL" else "Retry")
             }
         }
     }
@@ -561,7 +547,6 @@ private fun ImportSummaryCard(
     notice: String?,
     modifier: Modifier = Modifier
 ) {
-    val textResources = textResources()
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
@@ -576,13 +561,11 @@ private fun ImportSummaryCard(
             Icon(Icons.Outlined.CheckCircle, contentDescription = null)
             Column {
                 Text(
-                    text = textResources.getString(R.string.home_timetable_connected),
+                    text = "Timetable connected",
                     style = MaterialTheme.typography.titleMedium
                 )
                 Text(
-                    text = textResources.getString(R.string.timetable_counts,
-                        textResources.getQuantityString(R.plurals.calendar_event_count, detectedEventCount, detectedEventCount),
-                        textResources.getQuantityString(R.plurals.available_group_count, groupCount, groupCount)),
+                    text = "$detectedEventCount calendar events detected. $groupCount groups available.",
                     style = MaterialTheme.typography.bodyMedium
                 )
                 if (notice != null) {

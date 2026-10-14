@@ -1,9 +1,5 @@
 package au.edu.unimelb.campuscompanion.ui.profile
 
-import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.semantics.contentDescription
-import au.edu.unimelb.campuscompanion.ui.text.textResources
-import au.edu.unimelb.campuscompanion.R
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -25,22 +21,21 @@ import kotlinx.coroutines.CancellationException
 
 @Composable
 fun ProfileAvatar(name: String, reference: String?, modifier: Modifier = Modifier) {
-    val textResources = textResources()
     val context = LocalContext.current
     val accountId = SupabaseProvider.client?.auth?.currentUserOrNull()?.id
-    var image by remember(reference, accountId) { mutableStateOf<ImageBitmap?>(null) }
-    LaunchedEffect(reference, accountId) {
+    val image by produceState<ImageBitmap?>(null, reference, accountId) {
+        value = null
         if (!reference.isNullOrBlank()) {
-            try { image = AvatarImages.load(context, reference)?.asImageBitmap() }
+            try { value = AvatarImages.load(context, reference)?.asImageBitmap() }
             catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { /* A missing/offline image falls back to initials. */ }
         }
     }
-    Surface(modifier.clearAndSetSemantics { contentDescription = textResources.getString(R.string.copy_profile_photo, name) }, shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
+    Surface(modifier, shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
         Box(contentAlignment = Alignment.Center) {
             val loaded = image
             if (loaded == null) Text(name.trim().take(1).uppercase(), style = MaterialTheme.typography.headlineSmall)
-            else Image(loaded, contentDescription = textResources.getString(R.string.copy_profile_photo, name), modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            else Image(loaded, contentDescription = "$name profile photo", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         }
     }
 }

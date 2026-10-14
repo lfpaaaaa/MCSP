@@ -1,8 +1,5 @@
 package au.edu.unimelb.campuscompanion.push
 
-import au.edu.unimelb.campuscompanion.ui.text.UiText
-import au.edu.unimelb.campuscompanion.R
-
 /** A push notification about a new group message, as sent by the notify-message function. */
 data class MessagePush(
     val messageId: String,
@@ -11,15 +8,11 @@ data class MessagePush(
     val senderName: String,
     val preview: String
 ) {
-    val title: UiText
-        get() = if (groupName.isBlank()) UiText(R.string.push_group) else UiText.Literal(groupName)
+    val title: String
+        get() = groupName
 
-    val text: UiText
-        get() {
-            val sender = if (senderName.isBlank()) UiText(R.string.push_member) else UiText.Literal(senderName)
-            return if (preview.isBlank()) UiText(R.string.push_sent_message, sender)
-                else UiText(R.string.push_message_preview, sender, preview)
-        }
+    val text: String
+        get() = if (preview.isBlank()) "$senderName sent a message" else "$senderName: $preview"
 
     /** One notification per group, so a new message replaces the previous one. */
     val notificationId: Int
@@ -35,8 +28,8 @@ data class MessagePush(
             return MessagePush(
                 messageId = data["message_id"].orEmpty(),
                 groupId = groupId,
-                groupName = data["group_name"]?.takeIf { it.isNotBlank() } ?: "",
-                senderName = data["sender_name"]?.takeIf { it.isNotBlank() } ?: "",
+                groupName = data["group_name"]?.takeIf { it.isNotBlank() } ?: "Group",
+                senderName = data["sender_name"]?.takeIf { it.isNotBlank() } ?: "A member",
                 preview = data["preview"].orEmpty().trim()
             )
         }

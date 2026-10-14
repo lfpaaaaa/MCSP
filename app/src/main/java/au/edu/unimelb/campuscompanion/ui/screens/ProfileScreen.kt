@@ -1,15 +1,5 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.runtime.setValue
-
-import androidx.compose.runtime.getValue
-
-import androidx.compose.ui.res.stringResource
-import au.edu.unimelb.campuscompanion.ui.text.textResources
-import au.edu.unimelb.campuscompanion.R
 import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -46,10 +36,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -80,7 +72,6 @@ fun ProfileScreen(
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val textResources = textResources()
     var walkingThresholdKm by rememberSaveable(travelPreferences.walkingThresholdMeters) {
         mutableFloatStateOf(travelPreferences.walkingThresholdMeters / 1_000f)
     }
@@ -101,9 +92,9 @@ fun ProfileScreen(
     if (showRemoveTimetableDialog) {
         AlertDialog(
             onDismissRequest = { showRemoveTimetableDialog = false },
-            title = { Text(textResources.getString(R.string.profile_remove_timetable_url)) },
+            title = { Text("Remove timetable URL?") },
             text = {
-                Text(textResources.getString(R.string.profile_courses_departure_reminders_and_automatically_joined_groups_will))
+                Text("Courses, departure reminders, and automatically joined groups will be cleared.")
             },
             confirmButton = {
                 TextButton(
@@ -112,12 +103,12 @@ fun ProfileScreen(
                         showRemoveTimetableDialog = false
                     }
                 ) {
-                    Text(textResources.getString(R.string.chat_attachments_remove))
+                    Text("Remove")
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showRemoveTimetableDialog = false }) {
-                    Text(textResources.getString(R.string.action_cancel))
+                    Text("Cancel")
                 }
             }
         )
@@ -158,23 +149,23 @@ fun ProfileScreen(
                     color = MaterialTheme.colorScheme.onSecondaryContainer
                 )
                 Text(
-                    text = user.email ?: textResources.getString(R.string.auths_signed_in_with, user.provider.displayName.resolve(textResources)),
+                    text = user.email ?: "Signed in with ${user.provider.displayName}",
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSecondaryContainer
                 )
                 IconTextLine(
                     icon = Icons.Outlined.Route,
-                    text = textResources.getString(R.string.copy_account, user.provider.displayName.resolve(textResources)),
+                    text = "${user.provider.displayName} account",
                     tint = MaterialTheme.colorScheme.onSecondaryContainer
                 )
                 OutlinedButton(onClick = onEditProfile) {
                     Icon(Icons.Outlined.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Text(textResources.getString(R.string.campus_companion_app_edit_profile), modifier = Modifier.padding(start = 8.dp))
+                    Text("Edit profile", modifier = Modifier.padding(start = 8.dp))
                 }
             }
         }
 
-        SectionHeader(title = textResources.getString(R.string.profile_travel_preferences))
+        SectionHeader(title = "Travel preferences")
         TravelPreferencesCard(
             walkingThresholdKm = walkingThresholdKm,
             longerDistanceMode = longerDistanceMode,
@@ -186,7 +177,7 @@ fun ProfileScreen(
             }
         )
 
-        SectionHeader(title = textResources.getString(R.string.profile_timetable))
+        SectionHeader(title = "Timetable")
         TimetableSettingsCard(
             timetableState = timetableState,
             onAddOrChange = { showTimetableDialog = true },
@@ -194,13 +185,13 @@ fun ProfileScreen(
             onRefresh = onTimetableRefresh
         )
 
-        SectionHeader(title = textResources.getString(R.string.profile_permissions))
+        SectionHeader(title = "Permissions")
         PermissionsSection()
 
-        SectionHeader(title = textResources.getString(R.string.profile_about))
+        SectionHeader(title = "About")
         AboutSection()
 
-        SectionHeader(title = textResources.getString(R.string.profile_account))
+        SectionHeader(title = "Account")
         OutlinedButton(
             onClick = onSignOut,
             modifier = Modifier.fillMaxWidth()
@@ -211,7 +202,7 @@ fun ProfileScreen(
                 modifier = Modifier.size(18.dp)
             )
             Text(
-                text = textResources.getString(R.string.profile_sign_out),
+                text = "Sign out",
                 modifier = Modifier.padding(start = 8.dp)
             )
         }
@@ -226,10 +217,9 @@ private fun TimetableSettingsCard(
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val textResources = textResources()
     val hasSavedUrl = timetableState.url.isNotBlank()
     val host = remember(timetableState.url) {
-        Uri.parse(timetableState.url).host ?: textResources.getString(R.string.profile_calendar_subscription)
+        Uri.parse(timetableState.url).host ?: "Calendar subscription"
     }
 
     Card(
@@ -256,19 +246,19 @@ private fun TimetableSettingsCard(
                         .padding(start = 12.dp)
                 ) {
                     Text(
-                        text = textResources.getString(R.string.profile_timetable_url),
+                        text = "Timetable URL",
                         style = MaterialTheme.typography.titleMedium
                     )
                     Text(
                         text = when {
-                            timetableState.isLoading && !timetableState.isConnected -> textResources.getString(R.string.profile_checking_saved_url)
-                            timetableState.isCached -> textResources.getString(R.string.profile_saved_timetable_from, host)
+                            timetableState.isLoading && !timetableState.isConnected -> "Checking saved URL..."
+                            timetableState.isCached -> "Saved timetable from $host"
                             timetableState.isConnected -> {
-                                timetableState.offlineNotice()?.resolve(textResources)
-                                    ?: textResources.getQuantityString(R.plurals.connected_event_count, timetableState.detectedEventCount, host, timetableState.detectedEventCount)
+                                timetableState.offlineNotice()
+                                    ?: "Connected to $host - ${timetableState.detectedEventCount} calendar events"
                             }
-                            timetableState.errorMessage != null -> timetableState.errorMessage.resolve(textResources)
-                            else -> textResources.getString(R.string.profile_no_timetable_connected)
+                            timetableState.errorMessage != null -> timetableState.errorMessage
+                            else -> "No timetable connected"
                         },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -287,7 +277,7 @@ private fun TimetableSettingsCard(
                             modifier = Modifier.size(18.dp)
                         )
                         Text(
-                            text = textResources.getString(R.string.permissions_section_change),
+                            text = "Change",
                             modifier = Modifier.padding(start = 8.dp)
                         )
                     }
@@ -298,7 +288,7 @@ private fun TimetableSettingsCard(
                             modifier = Modifier.size(18.dp)
                         )
                         Text(
-                            text = textResources.getString(R.string.chat_attachments_remove),
+                            text = "Remove",
                             modifier = Modifier.padding(start = 8.dp)
                         )
                     }
@@ -311,7 +301,7 @@ private fun TimetableSettingsCard(
                         modifier = Modifier.size(18.dp)
                     )
                     Text(
-                        text = textResources.getString(R.string.home_add_url),
+                        text = "Add URL",
                         modifier = Modifier.padding(start = 8.dp)
                     )
                 }
@@ -329,8 +319,6 @@ private fun TravelPreferencesCard(
     onLongerDistanceModeChange: (TravelMode) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val textResources = textResources()
-    val walkingDistanceLabel = formatDistance(walkingThresholdKm)
     val longerDistanceOptions = listOf(
         TravelMode.PublicTransport,
         TravelMode.Driving
@@ -356,11 +344,11 @@ private fun TravelPreferencesCard(
                 )
                 Column(modifier = Modifier.padding(start = 12.dp)) {
                     Text(
-                        text = textResources.getString(R.string.profile_walking_range),
+                        text = "Walking range",
                         style = MaterialTheme.typography.titleMedium
                     )
                     Text(
-                        text = textResources.getString(R.string.profile_walk_when_the_destination_is_within, formatDistance(walkingThresholdKm)),
+                        text = "Walk when the destination is within ${formatDistance(walkingThresholdKm)}.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -368,10 +356,6 @@ private fun TravelPreferencesCard(
             }
 
             Slider(
-                modifier = Modifier.semantics {
-                    contentDescription = textResources.getString(R.string.profile_walking_range)
-                    stateDescription = walkingDistanceLabel
-                },
                 value = walkingThresholdKm,
                 onValueChange = { value ->
                     onWalkingThresholdChange((value * 2f).roundToInt() / 2f)
@@ -385,7 +369,7 @@ private fun TravelPreferencesCard(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = textResources.getString(R.string.profile_0_5_km),
+                    text = "0.5 km",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -395,7 +379,7 @@ private fun TravelPreferencesCard(
                     color = MaterialTheme.colorScheme.primary
                 )
                 Text(
-                    text = textResources.getString(R.string.profile_3_km),
+                    text = "3 km",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -403,7 +387,7 @@ private fun TravelPreferencesCard(
 
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    text = textResources.getString(R.string.profile_for_longer_trips),
+                    text = "For longer trips",
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -423,7 +407,7 @@ private fun TravelPreferencesCard(
                                     modifier = Modifier.size(18.dp)
                                 )
                             },
-                            label = { Text(mode.displayName.resolve(textResources)) }
+                            label = { Text(mode.displayName) }
                         )
                     }
                 }
@@ -441,16 +425,16 @@ private fun TravelPreferencesCard(
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Text(
-                        text = textResources.getString(R.string.profile_current_route_rule),
+                        text = "Current route rule",
                         style = MaterialTheme.typography.labelLarge
                     )
                     Text(
-                        text = textResources.getString(R.string.profile_up_to_walking, formatDistance(walkingThresholdKm)),
+                        text = "Up to ${formatDistance(walkingThresholdKm)}: Walking",
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.Medium
                     )
                     Text(
-                        text = textResources.getString(R.string.profile_over, formatDistance(walkingThresholdKm), longerDistanceMode.displayName.resolve(textResources)),
+                        text = "Over ${formatDistance(walkingThresholdKm)}: ${longerDistanceMode.displayName}",
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.Medium
                     )
@@ -460,12 +444,11 @@ private fun TravelPreferencesCard(
     }
 }
 
-@Composable
 private fun formatDistance(distanceKm: Float): String {
     return if (distanceKm == distanceKm.toInt().toFloat()) {
-        stringResource(R.string.label_km, distanceKm.toInt())
+        "${distanceKm.toInt()} km"
     } else {
-        stringResource(R.string.label_km, distanceKm)
+        "${distanceKm} km"
     }
 }
 

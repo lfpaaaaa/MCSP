@@ -1,7 +1,5 @@
 package au.edu.unimelb.campuscompanion.data
 
-import au.edu.unimelb.campuscompanion.ui.text.UiText
-
 /**
  * Failures reported by the repositories. Screens map each case to a short explanation and a
  * recovery action instead of showing raw exception text.
@@ -32,9 +30,7 @@ sealed class DataError(message: String, cause: Throwable? = null) : Exception(me
     class RateLimited(cause: Throwable? = null) : DataError("Too many requests", cause)
 
     /** The input was rejected before it was sent, for example an empty message. */
-    class Validation(val userMessage: UiText) : DataError("Invalid input") {
-        constructor(message: String) : this(UiText.Literal(message))
-    }
+    class Validation(message: String) : DataError(message)
 
     /** Any other failure. */
     class Unexpected(cause: Throwable? = null) : DataError("Unexpected error", cause)

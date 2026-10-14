@@ -1,7 +1,5 @@
 package au.edu.unimelb.campuscompanion.ui.chat
 
-import au.edu.unimelb.campuscompanion.ui.text.UiText
-import au.edu.unimelb.campuscompanion.R
 import android.content.ContentResolver
 import android.content.Context
 import android.graphics.Bitmap
@@ -55,7 +53,7 @@ object AttachmentReader {
             runCatching {
                 val imageFile = cameraFile(context, uri) ?: throw DataError.NotFound()
                 val bitmap = decodeScaled(imageFile)
-                    ?: throw DataError.Validation(UiText(R.string.validation_the_photo_could_not_be_read_try_taking))
+                    ?: throw DataError.Validation("The photo could not be read. Try taking it again.")
                 val output = ByteArrayOutputStream()
                 bitmap.compress(Bitmap.CompressFormat.JPEG, PHOTO_JPEG_QUALITY, output)
                 bitmap.recycle()
@@ -65,7 +63,7 @@ object AttachmentReader {
             }
         }
 
-    private fun tooLarge() = DataError.Validation(UiText(R.string.validation_files_must_be_20_mb_or_smaller))
+    private fun tooLarge() = DataError.Validation("Files must be 20 MB or smaller.")
 
     private fun querySize(resolver: ContentResolver, uri: Uri): Long? = queryColumn(resolver, uri, OpenableColumns.SIZE)
         ?.toLongOrNull()

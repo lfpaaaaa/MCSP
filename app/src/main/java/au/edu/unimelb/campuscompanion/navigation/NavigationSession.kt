@@ -1,7 +1,5 @@
 package au.edu.unimelb.campuscompanion.navigation
 
-import au.edu.unimelb.campuscompanion.ui.text.UiText
-import au.edu.unimelb.campuscompanion.R
 import au.edu.unimelb.campuscompanion.data.TravelMode
 import au.edu.unimelb.campuscompanion.data.model.GeoPoint
 import au.edu.unimelb.campuscompanion.sensing.location.LocationSample
@@ -22,7 +20,7 @@ data class NavigationState(
     val active: Boolean = false,
     val legIndex: Int = 0,
     val progress: StopProgress = StopProgress(),
-    val error: UiText? = null
+    val error: String? = null
 ) {
     val route get() = routes.getOrNull(routeIndex)
     val leg get() = route?.transitLegs?.getOrNull(legIndex)
@@ -47,13 +45,10 @@ class NavigationSession(
     private var vehicleAt = 0L
     private var inVehicle = false
 
-    @Synchronized fun open(destination: ClassDestination, mode: TravelMode = TravelMode.PublicTransport) {
-        if (state.value.destination == destination) {
-            if (state.value.mode != mode) changeMode(mode)
-            return
-        }
+    @Synchronized fun open(destination: ClassDestination) {
+        if (state.value.destination == destination) return
         stop()
-        mutableState.value = NavigationState(destination = destination, mode = mode)
+        mutableState.value = NavigationState(destination = destination)
     }
     @Synchronized fun changeMode(mode: TravelMode) {
         if (state.value.active) return
@@ -67,7 +62,7 @@ class NavigationSession(
         val destination = before.destination ?: return
         val fix = location.value
         if (fix == null || now - fix.timestampMillis !in 0..30_000 || fix.accuracyMeters > 50) {
-            mutableState.value = before.copy(error = UiText(R.string.route_waiting_for_a_recent_precise_location_enable_location))
+            mutableState.value = before.copy(error = "Waiting for a recent precise location. Enable location and try again.")
             return
         }
         val version = ++generation
@@ -76,12 +71,12 @@ class NavigationSession(
             try {
                 val routes = repository.routes(GeoPoint(fix.latitude, fix.longitude), destination.point, before.mode)
                 synchronized(this@NavigationSession) {
-                    if (generation == version) mutableState.value = before.copy(routes = routes, loadedAt = System.currentTimeMillis(), error = if (routes.isEmpty()) UiText(R.string.route_no_route_found) else null)
+                    if (generation == version) mutableState.value = before.copy(routes = routes, loadedAt = System.currentTimeMillis(), error = if (routes.isEmpty()) "No route found." else null)
                 }
             } catch (cancel: CancellationException) { throw cancel }
             catch (error: Exception) {
                 synchronized(this@NavigationSession) {
-                    if (generation == version) mutableState.value = before.copy(error = (error as? RouteException)?.userMessage ?: UiText(R.string.route_could_not_load_routes_check_your_connection_and))
+                    if (generation == version) mutableState.value = before.copy(error = error.message?.takeIf { error is IllegalStateException } ?: "Could not load routes. Check your connection and try again.")
                 }
             }
         }
@@ -93,11 +88,11 @@ class NavigationSession(
         val current = state.value
         val leg = current.route?.transitLegs?.firstOrNull() ?: return false
         if (System.currentTimeMillis() - current.loadedAt > 10 * 60 * 1000) {
-            mutableState.value = current.copy(routes = emptyList(), error = UiText(R.string.route_this_route_is_out_of_date_find_routes))
+            mutableState.value = current.copy(routes = emptyList(), error = "This route is out of date. Find routes again before starting.")
             return false
         }
         if (leg.path.size < 2) {
-            mutableState.value = current.copy(error = UiText(R.string.route_this_route_has_no_tracking_geometry_open_google))
+            mutableState.value = current.copy(error = "This route has no tracking geometry. Open Google Maps for navigation.")
             return false
         }
         startedAt = System.currentTimeMillis()
@@ -119,7 +114,7 @@ class NavigationSession(
         onStop()
         if (leg == null) {
             stop()
-            mutableState.value = state.value.copy(error = UiText(R.string.route_transit_complete_follow_the_walking_directions_to_your))
+            mutableState.value = state.value.copy(error = "Transit complete. Follow the walking directions to your class.")
         } else {
             journey = TransitJourney(leg)
             mutableState.value = current.copy(legIndex = nextIndex, progress = StopProgress())

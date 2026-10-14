@@ -8,6 +8,7 @@ import au.edu.unimelb.campuscompanion.data.model.SharedFile
 import au.edu.unimelb.campuscompanion.data.model.UploadState
 import au.edu.unimelb.campuscompanion.data.repository.ChatRepository
 import au.edu.unimelb.campuscompanion.data.repository.FileRepository
+import au.edu.unimelb.campuscompanion.data.repository.FileUploadIdentity
 import au.edu.unimelb.campuscompanion.data.toUserMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -21,7 +22,7 @@ import kotlinx.coroutines.launch
 import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicInteger
+import java.util.UUID
 
 /**
  * State of one open group chat: the timeline of messages and shared files, the connection, and
@@ -46,7 +47,6 @@ class GroupChatSession(
     val state: StateFlow<GroupChatUiState> = _state.asStateFlow()
 
     private val payloads = ConcurrentHashMap<String, ByteArray>()
-    private val nextUploadId = AtomicInteger()
     private var started = false
 
     /** True once the latest messages have been fetched, so older pages can be requested in order. */
@@ -116,8 +116,8 @@ class GroupChatSession(
 
     /** Stores a file in the group and shows its progress above the composer. */
     fun upload(fileName: String, mimeType: String, bytes: ByteArray, allowDownloads: Boolean = true) {
-        val id = "upload-${nextUploadId.incrementAndGet()}"
-        payloads[id] = bytes
+        val id = UUID.randomUUID().toString()
+        payloads[id] = bytes.copyOf()
         _state.update { current ->
             current.copy(uploads = current.uploads + PendingUpload(id, fileName, mimeType, bytes.size.toLong(), allowDownloads = allowDownloads))
         }
@@ -185,7 +185,8 @@ class GroupChatSession(
         val bytes = payloads[id] ?: return
         uploadScope.launch {
             try {
-                files.uploadFile(groupId, upload.fileName, upload.mimeType, bytes, upload.allowDownloads).collect { progress ->
+                files.uploadFile(groupId, upload.fileName, upload.mimeType, bytes, upload.allowDownloads,
+                    FileUploadIdentity(upload.id, "$groupId/$currentUserId/${upload.id}")).collect { progress ->
                     when (progress) {
                         is UploadState.InProgress -> updateUpload(id) { it.copy(fraction = progress.fraction) }
                         is UploadState.Completed -> dismissUpload(id)

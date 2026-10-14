@@ -443,3 +443,11 @@ verify_jwt = false
 # group-file-url verifies the JWT with Auth, then checks membership and download consent.
 [functions.group-file-url]
 verify_jwt = false
+
+# group-file-delete verifies the user with Auth, then authorizes uploader/membership in the RPC.
+[functions.group-file-delete]
+verify_jwt = false
+
+# group-file-cleanup verifies the exact service-role bearer credential for scheduler-only access.
+[functions.group-file-cleanup]
+verify_jwt = false

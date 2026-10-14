@@ -1,11 +1,10 @@
 package au.edu.unimelb.campuscompanion.data.fake
 
-import au.edu.unimelb.campuscompanion.ui.text.UiText
-import au.edu.unimelb.campuscompanion.R
 import au.edu.unimelb.campuscompanion.data.DataError
 import au.edu.unimelb.campuscompanion.data.model.SharedFile
 import au.edu.unimelb.campuscompanion.data.model.UploadState
 import au.edu.unimelb.campuscompanion.data.repository.FileRepository
+import au.edu.unimelb.campuscompanion.data.repository.FileUploadIdentity
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,19 +32,36 @@ class FakeFileRepository(
         fileName: String,
         mimeType: String,
         bytes: ByteArray,
-        allowDownloads: Boolean
+        allowDownloads: Boolean,
+        identity: FileUploadIdentity?
     ): Flow<UploadState> = flow {
         if (bytes.isEmpty() || bytes.size > FileRepository.MAX_FILE_SIZE_BYTES) {
-            emit(UploadState.Failed(DataError.Validation(UiText(R.string.validation_files_must_be_between_1_byte_and_20))))
+            emit(UploadState.Failed(DataError.Validation("Files must be between 1 byte and 20 MB.")))
+            return@flow
+        }
+        if (identity?.durationMillis != null && identity.durationMillis <= 0 ||
+            identity?.isVoiceRecording == true && (!mimeType.startsWith("audio/", ignoreCase = true) ||
+                identity.durationMillis == null || identity.durationMillis > 600_000)) {
+            emit(UploadState.Failed(DataError.Validation("Voice recordings need valid audio and a duration of up to 10 minutes.")))
             return@flow
         }
         val total = bytes.size.toLong()
+        identity?.let { upload ->
+            files.value.firstOrNull { it.id == upload.id }?.let {
+                if (it.groupId != groupId || it.uploaderId != currentUserId || it.fileName != fileName ||
+                    it.mimeType != mimeType || it.sizeBytes != bytes.size.toLong() || it.allowDownloads != allowDownloads ||
+                    it.durationMillis != upload.durationMillis || it.isVoiceRecording != upload.isVoiceRecording) {
+                    emit(UploadState.Failed(DataError.Validation("This upload no longer matches its original file.")))
+                } else emit(UploadState.Completed(it))
+                return@flow
+            }
+        }
         for (step in 1..PROGRESS_STEPS) {
             delay(latencyMillis / PROGRESS_STEPS)
             emit(UploadState.InProgress(bytesSent = total * step / PROGRESS_STEPS, totalBytes = total))
         }
         val file = SharedFile(
-            id = UUID.randomUUID().toString(),
+            id = identity?.id ?: UUID.randomUUID().toString(),
             groupId = groupId,
             uploaderId = currentUserId,
             uploaderName = currentUserName,
@@ -53,7 +69,9 @@ class FakeFileRepository(
             mimeType = mimeType,
             sizeBytes = total,
             createdAt = clock(),
-            allowDownloads = allowDownloads
+            allowDownloads = allowDownloads,
+            durationMillis = identity?.durationMillis,
+            isVoiceRecording = identity?.isVoiceRecording ?: false
         )
         files.update { list -> list + file }
         emit(UploadState.Completed(file))

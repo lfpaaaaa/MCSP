@@ -1,7 +1,5 @@
 package au.edu.unimelb.campuscompanion.data.repository
 
-import au.edu.unimelb.campuscompanion.ui.text.UiText
-import au.edu.unimelb.campuscompanion.R
 import au.edu.unimelb.campuscompanion.data.DataError
 import au.edu.unimelb.campuscompanion.data.model.Group
 import au.edu.unimelb.campuscompanion.data.model.GroupMember
@@ -36,7 +34,7 @@ class DefaultGroupRepository(
     private class Session(val userId: String)
     private data class GroupState(val session: Session? = null, val rows: List<GroupSummaryRow>? = null)
     private val state = MutableStateFlow(GroupState())
-    // A refresh begun before a successful create/leave must not overwrite that newer change.
+    // A refresh begun before a successful create/join/leave must not overwrite that newer change.
     private val listMutex = Mutex()
 
     override fun clearSession() {
@@ -88,11 +86,27 @@ class DefaultGroupRepository(
         }
     }
 
+    override suspend fun joinWithToken(token: String): Result<Group> = withSession { session ->
+        val group = remote.joinWithToken(token)
+        requireCurrent(session)
+        val existing = state.value.rows.orEmpty().firstOrNull { it.id == group.id }
+        // Joining an existing membership must preserve its role, unread count and activity.
+        val summary = existing?.copy(
+            name = group.name, courseCode = group.courseCode, createdBy = group.createdBy,
+            createdAt = group.createdAt, joinCode = group.joinCode,
+            timetableKey = group.timetableKey, timetableSlot = group.timetableSlot
+        ) ?: group.summary("member")
+        publish(session, listOf(summary) + state.value.rows.orEmpty().filterNot { it.id == group.id })
+        dataResult { refresh(session) }
+        requireCurrent(session)
+        group.toModel()
+    }
+
     override suspend fun setMyNickname(groupId: String, nickname: String): Result<String> {
         if (currentUserId() == null) return Result.failure(DataError.Unauthenticated())
         val name = nickname.trim()
         if (name.isEmpty() || name.length > 40) {
-            return Result.failure(DataError.Validation(UiText(R.string.validation_group_nicknames_need_1_to_40_characters)))
+            return Result.failure(DataError.Validation("Group nicknames need 1 to 40 characters."))
         }
         return dataResult { remote.setMyNickname(groupId, name) }
     }

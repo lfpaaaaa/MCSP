@@ -5,111 +5,201 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
-import android.view.Surface
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
+import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlin.math.abs
+import kotlin.math.min
 
-/** Accelerometer + magnetometer heading. The caller owns start/stop with its lifecycle. */
-class CompassHeadingDetector(
-    context: Context,
-    private val displayRotation: () -> Int = { Surface.ROTATION_0 }
-) : SensorEventListener {
+class CompassHeadingDetector(context: Context) : SensorEventListener {
+    private val mainHandler = Handler(Looper.getMainLooper())
     private val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
     private val accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
     private val magnetometer = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
-    val isAvailable: Boolean get() = accelerometer != null && magnetometer != null
-
-    private val gravity = FloatArray(3)
-    private val magnetic = FloatArray(3)
+    private var started = false
+    private var activationNanos = 0L
+    private var lastGravityObservationNanos = 0L
+    private var lastMagneticObservationNanos = 0L
+    private var gravityTimestampNanos = 0L
+    private var magneticTimestampNanos = 0L
+    private var hasGravity = false
+    private var hasMagnetic = false
+    private val gravityValues = FloatArray(3)
+    private val magneticValues = FloatArray(3)
     private val rotationMatrix = FloatArray(9)
-    private val displayMatrix = FloatArray(9)
-    private val orientation = FloatArray(3)
-    private var gravityAt = 0L
-    private var magneticAt = 0L
-    private var magneticAccuracy = SensorManager.SENSOR_STATUS_UNRELIABLE
-    private var running = false
-    private val mutableSample = MutableStateFlow<CompassSample?>(null)
-    val sample: StateFlow<CompassSample?> = mutableSample.asStateFlow()
-    private val mutableHeading = MutableStateFlow<Float?>(null)
-    val headingDegrees: StateFlow<Float?> = mutableHeading.asStateFlow()
+    private val orientationValues = FloatArray(3)
 
-    fun start(): Boolean {
-        if (running) return true
-        if (!isAvailable) return false
-        val gravityStarted = sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_NORMAL)
-        val magneticStarted = sensorManager.registerListener(this, magnetometer, SensorManager.SENSOR_DELAY_NORMAL)
-        running = gravityStarted && magneticStarted
-        if (!running) stop()
-        return running
+    private val _sample = MutableStateFlow<CompassSample?>(null)
+    val sample: StateFlow<CompassSample?> = _sample.asStateFlow()
+    private val _headingDegrees = MutableStateFlow<Float?>(null)
+    val headingDegrees: StateFlow<Float?> = _headingDegrees.asStateFlow()
+
+    fun start() = onMain {
+        if (started) return@onMain
+        resetSamples()
+        val gravitySensor = accelerometer ?: return@onMain
+        val magneticSensor = magnetometer ?: return@onMain
+        activationNanos = SystemClock.elapsedRealtimeNanos()
+        try {
+            val gravityRegistered = sensorManager.registerListener(
+                this, gravitySensor, SensorManager.SENSOR_DELAY_NORMAL, mainHandler
+            )
+            val magneticRegistered = sensorManager.registerListener(
+                this, magneticSensor, SensorManager.SENSOR_DELAY_NORMAL, mainHandler
+            )
+            started = gravityRegistered && magneticRegistered
+            if (!started) Log.w("CompassHeading", "Compass sensor registration failed")
+        } catch (error: RuntimeException) {
+            started = false
+            Log.w("CompassHeading", "Unable to register compass sensors", error)
+        }
+        if (!started) {
+            sensorManager.unregisterListener(this)
+            resetSamples()
+        }
     }
 
-    fun stop() {
+    fun stop() = onMain {
+        started = false
         sensorManager.unregisterListener(this)
-        running = false
-        gravityAt = 0L
-        magneticAt = 0L
-        magneticAccuracy = SensorManager.SENSOR_STATUS_UNRELIABLE
-        mutableHeading.value = null
-        mutableSample.value = null
+        resetSamples()
+        activationNanos = 0L
     }
 
     override fun onSensorChanged(event: SensorEvent?) {
-        if (event == null || !running) return
-        when (event.sensor.type) {
-            Sensor.TYPE_ACCELEROMETER -> {
-                filter(event.values, gravity, gravityAt == 0L)
-                gravityAt = event.timestamp
-            }
-            Sensor.TYPE_MAGNETIC_FIELD -> {
-                filter(event.values, magnetic, magneticAt == 0L)
-                magneticAt = event.timestamp
-                magneticAccuracy = event.accuracy
-            }
-            else -> return
-        }
-        if (gravityAt == 0L || magneticAt == 0L) return
-        if (!SensorManager.getRotationMatrix(rotationMatrix, null, gravity, magnetic)) {
-            mutableSample.value = null
-            mutableHeading.value = null
+        if (event == null) return
+        val sensorType = event.sensor.type
+        if (sensorType != Sensor.TYPE_ACCELEROMETER &&
+            sensorType != Sensor.TYPE_MAGNETIC_FIELD
+        ) return
+        val values = event.values.copyOf()
+        val timestampNanos = event.timestamp
+        val accuracy = event.accuracy
+        onMain { acceptSample(sensorType, values, timestampNanos, accuracy) }
+    }
+
+    private fun acceptSample(
+        sensorType: Int,
+        values: FloatArray,
+        timestampNanos: Long,
+        accuracy: Int
+    ) {
+        if (!started) return
+        val nowNanos = SystemClock.elapsedRealtimeNanos()
+        val isGravity = sensorType == Sensor.TYPE_ACCELEROMETER
+        val previousTimestamp = if (isGravity) lastGravityObservationNanos
+            else lastMagneticObservationNanos
+        val counterpartTimestamp = if (isGravity) lastMagneticObservationNanos
+            else lastGravityObservationNanos
+        if (timestampNanos < activationNanos || timestampNanos <= previousTimestamp ||
+            timestampNanos > nowNanos || nowNanos - timestampNanos > MAX_SAMPLE_GAP_NANOS
+        ) return
+        if (isGravity) lastGravityObservationNanos = timestampNanos
+            else lastMagneticObservationNanos = timestampNanos
+        if (values.size < 3 || values.take(3).any { !it.isFinite() } ||
+            accuracy == SensorManager.SENSOR_STATUS_UNRELIABLE
+        ) {
+            resetFilters()
             return
         }
-        val rotation = displayRotation()
-        val (x, y) = when (rotation) {
-            Surface.ROTATION_90 -> SensorManager.AXIS_Y to SensorManager.AXIS_MINUS_X
-            Surface.ROTATION_180 -> SensorManager.AXIS_MINUS_X to SensorManager.AXIS_MINUS_Y
-            Surface.ROTATION_270 -> SensorManager.AXIS_MINUS_Y to SensorManager.AXIS_X
-            else -> SensorManager.AXIS_X to SensorManager.AXIS_Y
+        if ((previousTimestamp != 0L &&
+                    timestampNanos - previousTimestamp > MAX_SAMPLE_GAP_NANOS) ||
+            (counterpartTimestamp != 0L &&
+                    timestampNanos - counterpartTimestamp > MAX_SAMPLE_GAP_NANOS)
+        ) resetFilters()
+
+        if (isGravity) {
+            applyLowPassFilter(values, gravityValues, hasGravity)
+            hasGravity = true
+            gravityTimestampNanos = timestampNanos
+        } else {
+            applyLowPassFilter(values, magneticValues, hasMagnetic)
+            hasMagnetic = true
+            magneticTimestampNanos = timestampNanos
         }
-        SensorManager.remapCoordinateSystem(rotationMatrix, x, y, displayMatrix)
-        SensorManager.getOrientation(displayMatrix, orientation)
-        val heading = ((Math.toDegrees(orientation[0].toDouble()).toFloat() % 360f) + 360f) % 360f
-        mutableHeading.value = heading
-        mutableSample.value = CompassSample(
+        calculateHeading(nowNanos)
+    }
+
+    private fun calculateHeading(nowNanos: Long) {
+        if (!hasGravity || !hasMagnetic ||
+            nowNanos - gravityTimestampNanos > MAX_SAMPLE_GAP_NANOS ||
+            nowNanos - magneticTimestampNanos > MAX_SAMPLE_GAP_NANOS
+        ) {
+            clearHeading()
+            return
+        }
+        if (!SensorManager.getRotationMatrix(
+                rotationMatrix, null, gravityValues, magneticValues
+            )
+        ) {
+            clearHeading()
+            return
+        }
+        SensorManager.getOrientation(rotationMatrix, orientationValues)
+        val heading = ((Math.toDegrees(orientationValues[0].toDouble()) + 360.0) % 360.0)
+            .toFloat()
+        if (!heading.isFinite()) {
+            clearHeading()
+            return
+        }
+        _headingDegrees.value = heading
+        // One live stream must not make an old counterpart appear newly measured.
+        _sample.value = CompassSample(
             headingDegrees = heading,
-            // A stream from just one sensor must not keep an old reading looking fresh.
-            timestampNanos = minOf(gravityAt, magneticAt),
-            accuracy = magneticAccuracy,
-            tiltDegrees = Math.toDegrees(maxOf(abs(orientation[1]), abs(orientation[2])).toDouble()).toFloat(),
-            displayRotation = rotation
+            timestampNanos = min(gravityTimestampNanos, magneticTimestampNanos)
         )
     }
 
-    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
-        if (sensor?.type == Sensor.TYPE_MAGNETIC_FIELD) {
-            magneticAccuracy = accuracy
-            mutableSample.value = mutableSample.value?.copy(accuracy = accuracy)
+    private fun applyLowPassFilter(input: FloatArray, output: FloatArray, initialized: Boolean) {
+        for (index in 0..2) {
+            output[index] = if (initialized) {
+                FILTER_ALPHA * output[index] + (1f - FILTER_ALPHA) * input[index]
+            } else input[index]
         }
     }
 
-    private fun filter(input: FloatArray, output: FloatArray, first: Boolean) {
-        for (index in 0..2) {
-            output[index] = if (first) input[index] else FILTER_ALPHA * output[index] + (1f - FILTER_ALPHA) * input[index]
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
+        val sensorType = sensor?.type ?: return
+        onMain {
+            if (started && accuracy == SensorManager.SENSOR_STATUS_UNRELIABLE &&
+                (sensorType == Sensor.TYPE_ACCELEROMETER ||
+                        sensorType == Sensor.TYPE_MAGNETIC_FIELD)
+            ) resetFilters()
         }
+    }
+
+    private fun resetSamples() {
+        lastGravityObservationNanos = 0L
+        lastMagneticObservationNanos = 0L
+        resetFilters()
+    }
+
+    private fun resetFilters() {
+        hasGravity = false
+        hasMagnetic = false
+        gravityTimestampNanos = 0L
+        magneticTimestampNanos = 0L
+        gravityValues.fill(0f)
+        magneticValues.fill(0f)
+        rotationMatrix.fill(0f)
+        orientationValues.fill(0f)
+        clearHeading()
+    }
+
+    private fun clearHeading() {
+        _headingDegrees.value = null
+        _sample.value = null
+    }
+
+    private fun onMain(action: () -> Unit) {
+        if (Looper.myLooper() == mainHandler.looper) action() else mainHandler.post(action)
     }
 
     private companion object {
         const val FILTER_ALPHA = 0.8f
+        const val MAX_SAMPLE_GAP_NANOS = 5_000_000_000L
     }
 }

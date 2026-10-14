@@ -1,10 +1,5 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.liveRegion
-import au.edu.unimelb.campuscompanion.ui.text.textResources
-import au.edu.unimelb.campuscompanion.R
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -31,7 +26,6 @@ import kotlinx.coroutines.delay
 
 @Composable
 fun ClassNavigationScreen(modifier: Modifier = Modifier) {
-    val textResources = textResources()
     val context = LocalContext.current
     val navigation = AppRepositories.navigation
     val state by navigation.state.collectAsState()
@@ -43,7 +37,7 @@ fun ClassNavigationScreen(modifier: Modifier = Modifier) {
     fun enableTracking() {
         val precise = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         if (!precise || !Notifications.canNotify(context)) {
-            permissionMessage = textResources.getString(R.string.class_navigation_allow_precise_location_and_notifications_in_settings_to)
+            permissionMessage = "Allow precise location and notifications in Settings to receive get-off reminders."
             return
         }
         try {
@@ -52,7 +46,7 @@ fun ClassNavigationScreen(modifier: Modifier = Modifier) {
             navigation.start()
             permissionMessage = null
         } catch (_: Exception) {
-            permissionMessage = textResources.getString(R.string.class_navigation_location_tracking_could_not_start_keep_this_app)
+            permissionMessage = "Location tracking could not start. Keep this app open and try again."
         }
     }
     val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { enableTracking() }
@@ -60,11 +54,11 @@ fun ClassNavigationScreen(modifier: Modifier = Modifier) {
         if (granted[Manifest.permission.ACCESS_FINE_LOCATION] == true) {
             runCatching { ContextCompat.startForegroundService(context, Intent(context, SensingForegroundService::class.java)
                 .setAction(SensingForegroundService.ACTION_PRE_CLASS_MODE)) }
-        } else permissionMessage = textResources.getString(R.string.class_navigation_allow_precise_location_in_settings_to_plan_a)
+        } else permissionMessage = "Allow precise location in Settings to plan a route from where you are."
     }
     val destination = state.destination
     if (destination == null) {
-        Text(textResources.getString(R.string.class_navigation_no_reminder_journey_is_selected_open_home_or), modifier.padding(20.dp))
+        Text("No reminder journey is selected. Open Home or Schedule to navigate with Google Maps.", modifier.padding(20.dp))
         return
     }
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -74,61 +68,61 @@ fun ClassNavigationScreen(modifier: Modifier = Modifier) {
                 Text(activity, Modifier.padding(horizontal = 12.dp, vertical = 6.dp), style = MaterialTheme.typography.labelLarge)
             }
         }
-        Text(destination.buildingLabel.resolve(textResources), style = MaterialTheme.typography.titleMedium)
+        Text(destination.buildingLabel, style = MaterialTheme.typography.titleMedium)
         Text(destination.locationLabel, style = MaterialTheme.typography.bodyMedium)
         OutlinedButton(onClick = { openGoogleMaps(context, destination, state.mode) }, modifier = Modifier.fillMaxWidth()) {
-            Text(textResources.getString(R.string.class_navigation_open_google_maps))
+            Text("Open Google Maps")
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TravelMode.entries.forEach { mode ->
                 FilterChip(selected = state.mode == mode, enabled = !state.active && !state.loading,
                     onClick = { navigation.changeMode(mode) }, label = {
-                        Text(when (mode) { TravelMode.Walking -> textResources.getString(R.string.class_navigation_walk); TravelMode.PublicTransport -> textResources.getString(R.string.class_navigation_transit); TravelMode.Driving -> textResources.getString(R.string.class_navigation_drive) })
+                        Text(when (mode) { TravelMode.Walking -> "Walk"; TravelMode.PublicTransport -> "Transit"; TravelMode.Driving -> "Drive" })
                     })
             }
         }
         if (fresh == null) {
-            Text(textResources.getString(R.string.class_navigation_enable_precise_location_to_plan_a_route_or), color = MaterialTheme.colorScheme.error)
-            TextButton(onClick = { locationPermissions.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) }) { Text(textResources.getString(R.string.class_navigation_update_location)) }
+            Text("Enable precise location to plan a route or receive get-off reminders.", color = MaterialTheme.colorScheme.error)
+            TextButton(onClick = { locationPermissions.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) }) { Text("Update location") }
         }
-        state.error?.let { Text(it.resolve(textResources), color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
+        state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         if (!state.active) {
             Button(onClick = { navigation.loadRoutes() }, enabled = !state.loading, modifier = Modifier.fillMaxWidth()) {
                 if (state.loading) { CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp); Spacer(Modifier.width(8.dp)) }
-                Text(if (state.loading) textResources.getString(R.string.class_navigation_finding_routes) else textResources.getString(R.string.class_navigation_find_google_maps_routes))
+                Text(if (state.loading) "Finding routes…" else "Find Google Maps routes")
             }
-            Text(textResources.getString(R.string.class_navigation_your_current_location_and_class_destination_are_sent), style = MaterialTheme.typography.bodySmall)
+            Text("Your current location and class destination are sent to Google to find a route.", style = MaterialTheme.typography.bodySmall)
             state.routes.forEachIndexed { index, route ->
                 OutlinedButton(onClick = { navigation.selectRoute(index) }, modifier = Modifier.fillMaxWidth()) {
                     val lines = route.transitLegs.joinToString(" → ") { it.line }
-                    Text(textResources.getString(R.string.class_navigation_min_m, if (index == state.routeIndex) "✓ " else "", (route.durationSeconds + 59) / 60, route.distanceMeters, if (lines.isNotBlank()) " · $lines" else ""))
+                    Text("${if (index == state.routeIndex) "✓ " else ""}${(route.durationSeconds + 59) / 60} min · ${route.distanceMeters} m${if (lines.isNotBlank()) " · $lines" else ""}")
                 }
             }
         }
         if (state.route != null) {
-            Text(textResources.getString(R.string.class_navigation_google_maps), style = MaterialTheme.typography.bodySmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Normal)
+            Text("Google Maps", style = MaterialTheme.typography.bodySmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Normal)
             state.route!!.transitLegs.forEachIndexed { index, leg ->
                 Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Text(textResources.getString(R.string.route_leg_heading, index + 1, leg.line, leg.headsign), style = MaterialTheme.typography.titleMedium)
-                    Text(textResources.getString(R.string.class_navigation_board, leg.departureName))
-                    Text(textResources.getString(R.string.class_navigation_get_off, leg.arrivalName))
+                    Text("${index + 1}. ${leg.line} ${leg.headsign}", style = MaterialTheme.typography.titleMedium)
+                    Text("Board: ${leg.departureName}")
+                    Text("Get off: ${leg.arrivalName}")
                 } }
             }
         }
         if (state.active) {
             val leg = state.leg
             Text(when {
-                state.progress.offRoute -> textResources.getString(R.string.class_navigation_you_appear_to_be_off_the_selected_route)
-                state.progress.state == BoardingState.Alight -> textResources.getString(R.string.class_navigation_get_ready_to_get_off_at, leg?.arrivalName)
-                state.progress.state == BoardingState.Riding -> textResources.getString(R.string.class_navigation_on, leg?.line, state.progress.remainingMeters?.let { textResources.getString(R.string.copy_m_to, it, leg?.arrivalName) } ?: textResources.getString(R.string.route_locating_your_stop))
-                else -> textResources.getString(R.string.class_navigation_waiting_to_board_at, leg?.line, leg?.departureName)
+                state.progress.offRoute -> "You appear to be off the selected route. Check your line or end this trip and find a new route."
+                state.progress.state == BoardingState.Alight -> "Get ready to get off at ${leg?.arrivalName}."
+                state.progress.state == BoardingState.Riding -> "On ${leg?.line} · ${state.progress.remainingMeters?.let { "$it m to ${leg?.arrivalName}" } ?: "Locating your stop…"}"
+                else -> "Waiting to board ${leg?.line} at ${leg?.departureName}."
             }, style = MaterialTheme.typography.titleMedium)
             if (state.progress.state == BoardingState.Waiting) {
-                OutlinedButton(onClick = { navigation.confirmBoarding() }, Modifier.fillMaxWidth()) { Text(textResources.getString(R.string.copy_i_m_on, leg?.line)) }
+                OutlinedButton(onClick = { navigation.confirmBoarding() }, Modifier.fillMaxWidth()) { Text("I'm on ${leg?.line}") }
             } else {
-                Button(onClick = { navigation.nextLeg() }, Modifier.fillMaxWidth()) { Text(textResources.getString(R.string.class_navigation_i_ve_got_off_continue)) }
+                Button(onClick = { navigation.nextLeg() }, Modifier.fillMaxWidth()) { Text("I've got off · Continue") }
             }
-            OutlinedButton(onClick = { navigation.stop() }, Modifier.fillMaxWidth()) { Text(textResources.getString(R.string.class_navigation_end_trip)) }
+            OutlinedButton(onClick = { navigation.stop() }, Modifier.fillMaxWidth()) { Text("End trip") }
         } else if (state.route?.transitLegs?.isNotEmpty() == true) {
             Button(onClick = {
                 permissions.launch(buildList {
@@ -136,14 +130,14 @@ fun ClassNavigationScreen(modifier: Modifier = Modifier) {
                     if (Build.VERSION.SDK_INT >= 29) add(Manifest.permission.ACTIVITY_RECOGNITION)
                     if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
                 }.toTypedArray())
-            }, Modifier.fillMaxWidth()) { Text(textResources.getString(R.string.class_navigation_start_trip_get_off_reminders)) }
-            Text(textResources.getString(R.string.class_navigation_confirm_the_line_before_boarding_movement_can_suggest), style = MaterialTheme.typography.bodySmall)
+            }, Modifier.fillMaxWidth()) { Text("Start trip & get-off reminders") }
+            Text("Confirm the line before boarding. Movement can suggest that you're riding, but cannot identify a specific vehicle.", style = MaterialTheme.typography.bodySmall)
         }
         permissionMessage?.let {
-            Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
-            TextButton(onClick = { context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))) }) { Text(textResources.getString(R.string.class_navigation_open_settings)) }
+            Text(it, color = MaterialTheme.colorScheme.error)
+            TextButton(onClick = { context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))) }) { Text("Open settings") }
         }
-        if (state.active) Text(textResources.getString(R.string.class_navigation_google_maps_may_suggest_a_different_route_get), style = MaterialTheme.typography.bodySmall)
+        if (state.active) Text("Google Maps may suggest a different route. Get-off reminders continue to follow the route selected here.", style = MaterialTheme.typography.bodySmall)
         state.route?.instructions?.forEach { Text(it, style = MaterialTheme.typography.bodyMedium) }
     }
 }

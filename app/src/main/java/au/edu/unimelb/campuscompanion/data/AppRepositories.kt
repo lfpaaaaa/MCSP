@@ -1,6 +1,7 @@
 package au.edu.unimelb.campuscompanion.data
 
 import android.content.Context
+import android.content.Intent
 import android.util.Log
 import au.edu.unimelb.campuscompanion.auth.SupabaseProvider
 import au.edu.unimelb.campuscompanion.context.DepartureReminders
@@ -13,8 +14,11 @@ import au.edu.unimelb.campuscompanion.data.fake.FakeGroupRepository
 import au.edu.unimelb.campuscompanion.data.fake.FakeInviteRepository
 import au.edu.unimelb.campuscompanion.data.invite.JoinLinkInbox
 import au.edu.unimelb.campuscompanion.data.local.CampusDatabase
+import au.edu.unimelb.campuscompanion.data.local.AttachmentDraftStore
 import au.edu.unimelb.campuscompanion.data.local.FileGroupListCache
 import au.edu.unimelb.campuscompanion.data.local.FileSharedFileListCache
+import au.edu.unimelb.campuscompanion.data.recording.AndroidRecording
+import au.edu.unimelb.campuscompanion.data.recording.QueuedRecordingReference
 import au.edu.unimelb.campuscompanion.data.model.CurrentUser
 import au.edu.unimelb.campuscompanion.data.model.MessageStatus
 import au.edu.unimelb.campuscompanion.data.remote.GroupRemoteDataSource
@@ -46,6 +50,8 @@ import kotlinx.coroutines.flow.map
 import au.edu.unimelb.campuscompanion.push.DepartureNotifier
 import au.edu.unimelb.campuscompanion.push.FirebaseTokenSource
 import au.edu.unimelb.campuscompanion.push.PushTokens
+import au.edu.unimelb.campuscompanion.sensing.service.SensingAccountLifecycle
+import au.edu.unimelb.campuscompanion.sensing.service.SensingForegroundService
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.status.SessionStatus
@@ -53,6 +59,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.builtins.ListSerializer
@@ -72,7 +79,13 @@ object AppRepositories {
     val joinLinks = JoinLinkInbox()
 
     private lateinit var appContext: Context
-    private var timetableUserId: String? = null
+    internal val sensingAccounts by lazy { SensingAccountLifecycle(travel) }
+    /** True only after authentication and its cached timetable have been reconciled. */
+    val sensingAccountEligible get() = sensingAccounts.eligible
+    val sensingAccountReady get() = sensingAccounts.ready
+
+    fun updateTimetable(userId: String, sessions: List<CourseSession>): Boolean =
+        sensingAccounts.updateTimetable(userId, sessions)
     private val departureHistory by lazy { au.edu.unimelb.campuscompanion.push.DepartureReminderHistory(appContext) }
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -100,44 +113,48 @@ object AppRepositories {
                 preferenceChanges = CourseReminderPreferencesStore.changes.map { Unit },
                 shade = DepartureNotifier.shade(appContext),
                 currentUserId = { SupabaseProvider.client?.auth?.currentUserOrNull()?.id },
-                wasSent = { userId, session, stage -> departureHistory.wasSent(userId, session, stage) },
-                rememberSent = { userId, session, stage -> departureHistory.record(userId, session, stage) }
+                wasSent = { userId, session, state -> departureHistory.wasSent(userId, session, state) },
+                rememberSent = { userId, session, state -> departureHistory.record(userId, session, state) }
             ).run()
         }
         SupabaseProvider.client?.let { client ->
-            applicationScope.launch {
+            applicationScope.launch(Dispatchers.Main.immediate) {
                 client.auth.sessionStatus.collect { status ->
                     when (status) {
                         is SessionStatus.Authenticated -> {
-                            val userId = client.auth.currentUserOrNull()?.id
-                            if (userId != timetableUserId) {
-                                if (timetableUserId != null) {
+                            val userId = status.session.user?.id
+                            if (!sensingAccounts.ready.value || userId != sensingAccounts.currentAccountId) {
+                                if (sensingAccounts.currentAccountId != null) {
                                     // Another account signed in without signing out first.
                                     DepartureNotifier.cancelAll(appContext)
+                                    navigation.clear()
+                                    files.clearSession()
                                 }
-                                timetableUserId = userId
-                                travel.updateSessions(
-                                    userId?.let { TimetableSubscriptionStore(appContext).load(it).timetable?.sessions }.orEmpty(),
-                                    reset = true
-                                )
+                                sensingAccounts.replaceAccount(userId,
+                                    userId?.let { TimetableSubscriptionStore(appContext).load(it).timetable?.sessions }.orEmpty())
                             }
                             push.onSignedIn()
                         }
                         // Cached group data belongs to the user who was signed in.
                         is SessionStatus.NotAuthenticated -> {
-                            groups.clearSession()
-                            database.messageDao().deleteAll()
+                            sensingAccounts.replaceAccount(null, emptyList())
+                            appContext.stopService(Intent(appContext, SensingForegroundService::class.java))
                             navigation.clear()
-                            // Reminders name the previous account's classes and buildings.
                             DepartureNotifier.cancelAll(appContext)
-                            timetableUserId = null
-                            travel.updateSessions(emptyList(), reset = true)
+                            groups.clearSession()
+                            files.clearSession()
+                            database.messageDao().deleteAll()
+                        }
+                        is SessionStatus.RefreshFailure -> {
+                            // Initial restoration failure cannot leave a sticky service waiting
+                            // forever. An already-established offline account keeps its cache/run.
+                            if (!sensingAccounts.ready.value) sensingAccounts.replaceAccount(null, emptyList())
                         }
                         else -> Unit
                     }
                 }
             }
-        }
+        } ?: sensingAccounts.replaceAccount(null, emptyList())
     }
 
     private val database: CampusDatabase by lazy { CampusDatabase.create(appContext) }
@@ -207,18 +224,41 @@ object AppRepositories {
         }
     }
 
+    val recordings by lazy { AndroidRecording.createDraftStore(appContext) }
+
     val attachmentUploads: AttachmentUploadQueue by lazy {
         val preferences = appContext.getSharedPreferences("attachment-uploads", Context.MODE_PRIVATE)
+        val drafts = AttachmentDraftStore(File(appContext.filesDir, "attachment-drafts"))
         val serializer = ListSerializer(AttachmentUpload.serializer())
-        val json = Json { ignoreUnknownKeys = true }
-        val restored = runCatching { json.decodeFromString(serializer, preferences.getString("queue", "[]")!!) }.getOrDefault(emptyList())
+        val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+        val restoration = runCatching { json.decodeFromString(serializer, preferences.getString("queue", "[]")!!) }
+        val restored = restoration.getOrDefault(emptyList())
+        // An unreadable queue cannot prove a recording was acknowledged; keep its source bytes.
+        if (restoration.isSuccess) runCatching {
+            recordings.reconcileQueued(restored.filter { it.isVoiceRecording }.map {
+                QueuedRecordingReference(it.userId, it.groupId, it.uploadId)
+            })
+        }.onFailure { Log.w("RecordingDrafts", "Some recording drafts could not be reconciled.") }
         AttachmentUploadQueue(files, applicationScope,
-            resolveText = { it.resolve(appContext.resources) },
             currentUserId = { SupabaseProvider.client?.auth?.currentUserOrNull()?.id },
             readBytes = { readAttachment(appContext, it) }, restored = restored,
-            persist = { preferences.edit().putString("queue", json.encodeToString(serializer, it)).apply() },
+            persist = {
+                if (!preferences.edit().putString("queue", json.encodeToString(serializer, it)).commit()) {
+                    throw DataError.Unexpected()
+                }
+            },
             onCompleted = { groups.refresh() },
-            releaseSource = { discardLocalRecording(appContext, it) })
+            preserveLocally = { task ->
+                withContext(Dispatchers.IO) {
+                    drafts.preserve(task.uploadId) { readAttachment(appContext, task.uri) }.toURI().toString()
+                }
+            },
+            discardLocal = { task -> applicationScope.launch(Dispatchers.IO) {
+                drafts.discard(task.uploadId)
+                if (task.isVoiceRecording) runCatching {
+                    recordings.discardQueued(task.userId, task.groupId, task.uploadId)
+                }.onFailure { Log.w("RecordingDrafts", "Recording cleanup will be retried on next startup.") }
+            } })
     }
 
     val buildings by lazy { BuildingLocationRepository(appContext) }
@@ -273,7 +313,8 @@ object AppRepositories {
             preferences = { TravelPreferencesStore(appContext).load() },
             weather = weather,
             reminderPreference = ::courseReminderPreference,
-            reminderChanges = CourseReminderPreferencesStore.changes.map { Unit }
+            reminderChanges = CourseReminderPreferencesStore.changes.map { Unit },
+            elapsedNanos = android.os.SystemClock::elapsedRealtimeNanos
         )
     }
 }

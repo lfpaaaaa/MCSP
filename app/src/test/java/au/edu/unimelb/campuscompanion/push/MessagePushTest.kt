@@ -1,7 +1,5 @@
 package au.edu.unimelb.campuscompanion.push
 
-import au.edu.unimelb.campuscompanion.english
-
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -21,8 +19,8 @@ class MessagePushTest {
             )
         )
 
-        assertEquals("Mobile team", push?.title?.english())
-        assertEquals("Alice: Meeting moved to 3 pm", push?.text?.english())
+        assertEquals("Mobile team", push?.title)
+        assertEquals("Alice: Meeting moved to 3 pm", push?.text)
         assertEquals("g1".hashCode(), push?.notificationId)
     }
 
@@ -30,8 +28,8 @@ class MessagePushTest {
     fun missingDetailsGetPlainDefaults() {
         val push = MessagePush.from(mapOf("type" to "group_message", "group_id" to "g1"))
 
-        assertEquals("Group", push?.title?.english())
-        assertEquals("A member sent a message", push?.text?.english())
+        assertEquals("Group", push?.title)
+        assertEquals("A member sent a message", push?.text)
     }
 
     @Test

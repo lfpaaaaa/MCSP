@@ -54,7 +54,7 @@ class DefaultChatRepositoryTest {
     }
 
     @Test
-    fun reopeningAChatFetchesOnlyTheMissedMessages() = runBlocking<Unit> {
+    fun openingACachedChatReconcilesFromItsOldestRetainedMessage() = runBlocking<Unit> {
         dao.upsert(listOf(sentEntity(messageRow(1)), sentEntity(messageRow(2))))
         remote.stored += (1..4).map { messageRow(it) }
 
@@ -63,8 +63,8 @@ class DefaultChatRepositoryTest {
             awaitConnection(ChatConnection.Live)
         }
 
-        assertTrue(remote.fetchBeforeCursors.isEmpty())
-        assertEquals(listOf("m0002"), remote.fetchAfterCursors.map { it.id })
+        assertEquals(listOf(null), remote.fetchBeforeCursors)
+        assertEquals(listOf("m0001"), remote.fetchAfterCursors.map { it.id })
     }
 
     @Test
@@ -120,6 +120,111 @@ class DefaultChatRepositoryTest {
 
             assertEquals("message 2", awaitShown { it.size == 2 }.last().body)
         }
+    }
+
+    @Test
+    fun aNewLiveMessageDoesNotAdvanceTheReconnectCheckpointPastAMissedMessage() = runBlocking<Unit> {
+        remote.stored += messageRow(1)
+
+        observing {
+            awaitShown { it.size == 1 }
+            awaitConnection(ChatConnection.Live)
+            remote.events.subscriptionCount.first { it > 0 }
+            remote.stored += listOf(messageRow(2), messageRow(3))
+            // The live feed delivers 3 before reconnect catch-up has recovered 2.
+            remote.events.emit(ChatEvent.Inserted(messageRow(3)))
+            awaitShown { it.map(ChatMessage::id) == listOf("m0001", "m0003") }
+            remote.events.emit(ChatEvent.Subscribed)
+
+            assertEquals(listOf("m0001", "m0002", "m0003"), awaitShown { it.size == 3 }.map { it.id })
+            assertEquals("m0001", remote.fetchAfterCursors.first().id)
+        }
+    }
+
+    @Test
+    fun interruptedPagedRecoveryRestartsFromTheLastCompletedCheckpoint() = runBlocking<Unit> {
+        remote.stored += timelineMessage(1)
+
+        observing {
+            awaitShown { it.size == 1 }
+            awaitConnection(ChatConnection.Live)
+            remote.events.subscriptionCount.first { it > 0 }
+            remote.stored += (2..102).map(::timelineMessage)
+            val secondPageStarted = CompletableDeferred<Unit>()
+            val releaseFailure = CompletableDeferred<Unit>()
+            var failedOnce = false
+            remote.beforeFetchAfter = { cursor ->
+                if (cursor.id == "m0101" && !failedOnce) {
+                    failedOnce = true
+                    secondPageStarted.complete(Unit)
+                    releaseFailure.await()
+                    remote.fetchFailure = DataError.Offline()
+                    throw DataError.Offline()
+                }
+            }
+            remote.events.emit(ChatEvent.Subscribed)
+            secondPageStarted.await()
+            // This insertion races with the suspended history request and must not skip 102.
+            val live = timelineMessage(103)
+            remote.stored += live
+            remote.events.emit(ChatEvent.Inserted(live))
+            releaseFailure.complete(Unit)
+            awaitConnection(ChatConnection.Offline)
+            awaitShown { it.size == 102 && it.last().id == live.id }
+            remote.fetchFailure = null
+            remote.events.emit(ChatEvent.Subscribed)
+
+            val recovered = awaitShown { it.size == 103 }
+            assertEquals((1..103).map { timelineMessage(it).id }, recovered.map { it.id })
+            assertEquals(listOf("m0001", "m0101", "m0001"), remote.fetchAfterCursors.take(3).map { it.id })
+        }
+    }
+
+    @Test
+    fun aFreshRepositoryRepairsAGapLeftInThePersistedCache() = runBlocking<Unit> {
+        // Simulates process death after a realtime insert but before history recovery completed.
+        // The missing interval is larger than the initial latest-page query can cover.
+        dao.upsert(listOf(sentEntity(timelineMessage(1)), sentEntity(timelineMessage(70))))
+        remote.stored += (1..70).map(::timelineMessage)
+
+        observing {
+            assertEquals((1..70).map { timelineMessage(it).id }, awaitShown { it.size == 70 }.map { it.id })
+            awaitConnection(ChatConnection.Live)
+        }
+
+        assertEquals(listOf("m0001"), remote.fetchAfterCursors.map { it.id })
+    }
+
+    @Test
+    fun aFreshRepositoryLoadsHistoryBeforeALoneCachedRealtimeMessage() = runBlocking<Unit> {
+        dao.upsert(listOf(sentEntity(messageRow(3))))
+        remote.stored += (1..3).map { messageRow(it) }
+
+        observing {
+            assertEquals(listOf("m0001", "m0002", "m0003"), awaitShown { it.size == 3 }.map { it.id })
+            awaitConnection(ChatConnection.Live)
+        }
+
+        assertEquals(listOf(null), remote.fetchBeforeCursors)
+    }
+
+    @Test
+    fun reopeningTheSameRepositoryUsesItsCompletedCheckpoint() = runBlocking<Unit> {
+        remote.stored += (1..3).map { messageRow(it) }
+        observing {
+            awaitShown { it.size == 3 }
+            awaitConnection(ChatConnection.Live)
+        }
+        // An older page should not force a complete replay once synchronization was completed.
+        dao.upsert(listOf(sentEntity(messageRow(0))))
+        remote.stored += messageRow(4)
+
+        observing {
+            awaitShown { it.size == 5 }
+            awaitConnection(ChatConnection.Live)
+        }
+
+        assertEquals(listOf("m0003"), remote.fetchAfterCursors.map { it.id })
     }
 
     @Test
@@ -300,6 +405,10 @@ class DefaultChatRepositoryTest {
     private suspend fun awaitConnection(state: ChatConnection) {
         repository.connection.first { it == state }
     }
+
+    private fun timelineMessage(number: Int) = messageRow(number).copy(
+        createdAt = Instant.parse("2026-09-25T05:00:00Z").plusSeconds(number.toLong()).toString()
+    )
 
     private companion object {
         const val SELF_ID = "user-1"

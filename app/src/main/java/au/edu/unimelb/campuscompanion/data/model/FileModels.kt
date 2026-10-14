@@ -3,6 +3,15 @@ package au.edu.unimelb.campuscompanion.data.model
 import au.edu.unimelb.campuscompanion.data.DataError
 import java.time.Instant
 
+/** Current catalog contents and whether they have been checked against the server. */
+data class FileCatalogState(
+    val files: List<SharedFile> = emptyList(),
+    val isLoading: Boolean = true,
+    val hasLoaded: Boolean = false,
+    val isCached: Boolean = false,
+    val error: DataError? = null
+)
+
 /** A file shared in a group, as the chat and the file list show it. */
 data class SharedFile(
     val id: String,
@@ -13,7 +22,9 @@ data class SharedFile(
     val mimeType: String,
     val sizeBytes: Long,
     val createdAt: Instant,
-    val allowDownloads: Boolean = true
+    val allowDownloads: Boolean = true,
+    val durationMillis: Long? = null,
+    val isVoiceRecording: Boolean = false
 ) {
     fun canDownloadBy(userId: String?): Boolean =
         userId != null && (allowDownloads || uploaderId == userId)

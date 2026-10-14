@@ -1,7 +1,5 @@
 package au.edu.unimelb.campuscompanion.ui.model
 
-import au.edu.unimelb.campuscompanion.english
-
 import au.edu.unimelb.campuscompanion.context.ContextEngine
 import au.edu.unimelb.campuscompanion.context.ContextInputs
 import au.edu.unimelb.campuscompanion.context.ContextState
@@ -31,7 +29,7 @@ class HomeGroupUpdatesTest {
 
         assertEquals(canonical, updates.featuredGroup)
         assertEquals(listOf(canonical, group("tagged")), updates.rows)
-        assertEquals("After COMP90018", updates.contextLabel?.english())
+        assertEquals("After COMP90018", updates.contextLabel)
     }
 
     @Test
@@ -48,7 +46,7 @@ class HomeGroupUpdatesTest {
         val updates = buildHomeGroupUpdates(finished, listOf(otherSlot))
 
         assertNull(updates.featuredGroup)
-        assertNull(updates.contextLabel?.english())
+        assertNull(updates.contextLabel)
         assertEquals(listOf(otherSlot), updates.rows)
     }
 
@@ -84,7 +82,7 @@ class HomeGroupUpdatesTest {
         val updates = buildHomeGroupUpdates(finished, listOf(emptyGroup))
 
         assertEquals(emptyGroup, updates.featuredGroup)
-        assertEquals("After COMP90018", updates.contextLabel?.english())
+        assertEquals("After COMP90018", updates.contextLabel)
         assertEquals(0, updates.rows.single().unreadCount)
         assertEquals("No messages yet.", updates.rows.single().latestMessage)
         assertNull(updates.rows.single().latestFileName)
@@ -130,7 +128,7 @@ class HomeGroupUpdatesTest {
         val updates = buildHomeGroupUpdates(finished, listOf(unkeyedTimetable))
 
         assertNull(updates.featuredGroup)
-        assertNull(updates.contextLabel?.english())
+        assertNull(updates.contextLabel)
         assertEquals(listOf(unkeyedTimetable), updates.rows)
     }
 
@@ -151,7 +149,7 @@ class HomeGroupUpdatesTest {
         val updates = buildHomeGroupUpdates(null, listOf(first, duplicate, second, group("third")))
 
         assertNull(updates.featuredGroup)
-        assertNull(updates.contextLabel?.english())
+        assertNull(updates.contextLabel)
         assertEquals(listOf(first, second), updates.rows)
     }
 
@@ -177,7 +175,7 @@ class HomeGroupUpdatesTest {
         )
 
         assertNull(updates.featuredGroup)
-        assertNull(updates.contextLabel?.english())
+        assertNull(updates.contextLabel)
         assertEquals(listOf(first, second), updates.rows)
     }
 
@@ -300,7 +298,7 @@ class HomeGroupUpdatesTest {
         assertEquals(oldSnapshot.state, card.state)
         assertNull(card.finishedSession)
         assertNull(updates.featuredGroup)
-        assertNull(updates.contextLabel?.english())
+        assertNull(updates.contextLabel)
         assertEquals(listOf(ordinary), updates.rows)
     }
 

@@ -1,17 +1,5 @@
 package au.edu.unimelb.campuscompanion.ui.components
 
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.error
-import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.liveRegion
-import androidx.compose.runtime.setValue
-
-import androidx.compose.runtime.getValue
-
-import au.edu.unimelb.campuscompanion.ui.text.textResources
-import au.edu.unimelb.campuscompanion.R
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -26,10 +14,12 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
@@ -40,7 +30,6 @@ fun TimetableUrlDialog(
     onDismiss: () -> Unit,
     onSave: suspend (String) -> Result<Unit>
 ) {
-    val textResources = textResources()
     var url by rememberSaveable(initialUrl) { mutableStateOf(initialUrl) }
     var showError by rememberSaveable { mutableStateOf(false) }
     var requestError by rememberSaveable { mutableStateOf<String?>(null) }
@@ -49,7 +38,7 @@ fun TimetableUrlDialog(
     val normalizedUrl = url.trim()
     val isValid = remember(normalizedUrl) { isValidTimetableUrl(normalizedUrl) }
     val supportingMessage = when {
-        showError && !isValid -> textResources.getString(R.string.timetable_url_enter_a_complete_http_or_https_url)
+        showError && !isValid -> "Enter a complete http:// or https:// URL."
         requestError != null -> requestError
         else -> null
     }
@@ -58,11 +47,11 @@ fun TimetableUrlDialog(
         onDismissRequest = {
             if (!isSaving) onDismiss()
         },
-        title = { Text(textResources.getString(R.string.timetable_url_connect_timetable)) },
+        title = { Text("Connect timetable") },
         text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    text = textResources.getString(R.string.timetable_url_paste_the_private_calendar_subscription_url_from_mytimetable),
+                    text = "Paste the private calendar subscription URL from MyTimetable.",
                     style = MaterialTheme.typography.bodyMedium
                 )
                 OutlinedTextField(
@@ -72,12 +61,12 @@ fun TimetableUrlDialog(
                         showError = false
                         requestError = null
                     },
-                    modifier = Modifier.fillMaxWidth().semantics { supportingMessage?.let { error(it) } },
+                    modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    label = { Text(textResources.getString(R.string.timetable_url_calendar_url)) },
+                    label = { Text("Calendar URL") },
                     isError = (showError && !isValid) || requestError != null,
                     supportingText = supportingMessage?.let { message ->
-                        { Text(message, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
+                        { Text(message) }
                     }
                 )
             }
@@ -98,7 +87,7 @@ fun TimetableUrlDialog(
                         result.fold(
                             onSuccess = { onDismiss() },
                             onFailure = { error ->
-                                requestError = (error as? au.edu.unimelb.campuscompanion.data.TimetableImportException)?.userMessage?.resolve(textResources) ?: textResources.getString(R.string.timetable_url_the_timetable_could_not_be_connected)
+                                requestError = error.message ?: "The timetable could not be connected."
                             }
                         )
                     }
@@ -110,11 +99,11 @@ fun TimetableUrlDialog(
                         strokeWidth = 2.dp
                     )
                     Text(
-                        text = textResources.getString(R.string.timetable_url_checking),
+                        text = "Checking",
                         modifier = Modifier.padding(start = 8.dp)
                     )
                 } else {
-                    Text(textResources.getString(R.string.timetable_url_connect))
+                    Text("Connect")
                 }
             }
         },
@@ -123,7 +112,7 @@ fun TimetableUrlDialog(
                 enabled = !isSaving,
                 onClick = onDismiss
             ) {
-                Text(textResources.getString(R.string.timetable_url_not_now))
+                Text("Not now")
             }
         }
     )

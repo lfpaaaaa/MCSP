@@ -1,7 +1,5 @@
 package au.edu.unimelb.campuscompanion.data
 
-import au.edu.unimelb.campuscompanion.ui.text.UiText
-import au.edu.unimelb.campuscompanion.R
 import android.content.Context
 import android.net.Uri
 import au.edu.unimelb.campuscompanion.data.model.SharedFile
@@ -23,16 +21,16 @@ fun InputStream.readAttachmentBytes(limit: Long = FileRepository.MAX_FILE_SIZE_B
     while (true) {
         val count = read(buffer)
         if (count == -1) break
-        if (output.size().toLong() + count > limit) throw DataError.Validation(UiText(R.string.validation_files_must_be_between_1_byte_and_20))
+        if (output.size().toLong() + count > limit) throw DataError.Validation("Files must be between 1 byte and 20 MB.")
         output.write(buffer, 0, count)
     }
-    if (output.size() == 0) throw DataError.Validation(UiText(R.string.validation_this_file_is_empty))
+    if (output.size() == 0) throw DataError.Validation("This file is empty.")
     return output.toByteArray()
 }
 
 suspend fun readAttachment(context: Context, uri: String): ByteArray = withContext(Dispatchers.IO) {
     context.contentResolver.openInputStream(Uri.parse(uri))?.use { it.readAttachmentBytes() }
-        ?: throw DataError.Validation(UiText(R.string.validation_this_attachment_is_no_longer_available_select_it))
+        ?: throw DataError.Validation("This attachment is no longer available. Select it again.")
 }
 
 /** A fresh signed URL re-checks permission every time, even if a downloaded copy exists. */
@@ -63,7 +61,7 @@ suspend fun downloadAttachment(
                         if (count == -1) break
                         total += count
                         if (total > FileRepository.MAX_FILE_SIZE_BYTES || total > file.sizeBytes) {
-                            throw DataError.Validation(UiText(R.string.validation_the_downloaded_file_is_larger_than_expected))
+                            throw DataError.Validation("The downloaded file is larger than expected.")
                         }
                         output.write(buffer, 0, count)
                     }

@@ -26,24 +26,26 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
-import au.edu.unimelb.campuscompanion.R
 import au.edu.unimelb.campuscompanion.ui.model.StartedGroupAccess
 import java.time.Duration
 import java.time.Instant
 import kotlinx.coroutines.delay
 
 @Composable
-internal fun GroupJoinCodeDialog(access: StartedGroupAccess, onDismiss: () -> Unit) {
+internal fun GroupJoinCodeDialog(
+    access: StartedGroupAccess,
+    onDismiss: () -> Unit,
+    onShareQr: (() -> Unit)? = null
+) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.groups_join_code)) },
+        title = { Text("Join code") },
         text = {
             Column(
                 Modifier.verticalScroll(rememberScrollState()),
@@ -51,17 +53,16 @@ internal fun GroupJoinCodeDialog(access: StartedGroupAccess, onDismiss: () -> Un
             ) {
                 Text(access.groupName)
                 GroupJoinCodeContent(access)
+                onShareQr?.let { action ->
+                    TextButton(onClick = action, modifier = Modifier.fillMaxWidth()) { Text("Share QR code") }
+                }
             }
         },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.course_reminder_settings_done))
-            }
-        }
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } }
     )
 }
 
-/** Used both after creation and when reopening settings, with the same server expiry. */
+/** Used after creation and when reopening settings, always with the original server expiry. */
 @Composable
 internal fun GroupJoinCodeContent(access: StartedGroupAccess) {
     var now by remember(access) { mutableStateOf(Instant.now()) }
@@ -76,7 +77,7 @@ internal fun GroupJoinCodeContent(access: StartedGroupAccess) {
     val code = access.activeJoinCode(now)
     if (code == null) {
         Text(
-            stringResource(R.string.groups_the_6_character_code_is_unavailable_or_expired),
+            "The 6-character code is unavailable or expired. Use Share QR code in group settings.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
         )
@@ -91,22 +92,19 @@ internal fun GroupJoinCodeContent(access: StartedGroupAccess) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(stringResource(R.string.groups_join_code), style = MaterialTheme.typography.labelMedium)
+                    Text("Join code", style = MaterialTheme.typography.labelMedium)
                     Text(code, style = MaterialTheme.typography.headlineMedium, fontFamily = FontFamily.Monospace)
                 }
                 IconButton(onClick = {
-                    // A tap at the expiry boundary must not copy an already expired code.
-                    access.activeJoinCode(Instant.now())?.let { clipboard.setText(AnnotatedString(it)) }
+                    // A delayed timer/backgrounded phone must not copy a code past its boundary.
+                    now = Instant.now()
+                    access.activeJoinCode(now)?.let { clipboard.setText(AnnotatedString(it)) }
                 }) {
-                    Icon(Icons.Outlined.ContentCopy, contentDescription = stringResource(R.string.groups_copy_join_code))
+                    Icon(Icons.Outlined.ContentCopy, contentDescription = "Copy join code")
                 }
             }
         }
         val remaining = ((Duration.between(now, access.expiresAt).toMillis() + 999) / 1_000).coerceAtLeast(0)
-        Text(stringResource(
-            R.string.groups_code_expires_in_valid_only_during_the_first,
-            remaining / 60,
-            (remaining % 60).toString().padStart(2, '0')
-        ))
+        Text("Code expires in ${remaining / 60}:${(remaining % 60).toString().padStart(2, '0')}. Valid only during the first 5 minutes after group creation.")
     }
 }

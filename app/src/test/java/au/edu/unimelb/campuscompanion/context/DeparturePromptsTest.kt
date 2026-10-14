@@ -1,7 +1,5 @@
 package au.edu.unimelb.campuscompanion.context
 
-import au.edu.unimelb.campuscompanion.english
-
 import au.edu.unimelb.campuscompanion.data.TravelMode
 import au.edu.unimelb.campuscompanion.data.building.BuildingLocation
 import au.edu.unimelb.campuscompanion.data.model.EstimateSource
@@ -75,7 +73,7 @@ class DeparturePromptsTest {
         assertEquals(1, f.shade.alerts.size)
         assertEquals(1, f.shade.updates.size)
         assertEquals(
-            "Mobile Computing starts at 11:00 AM in Alan Gilbert Building 104. Travel time: 7 min on foot. Leave by 10:53 AM (within 10 min).",
+            "Mobile Computing starts at 11:00 AM in Alan Gilbert Building 104. About 7 min on foot.",
             f.shade.textOf(f.key)
         )
         // The same details again change nothing.
@@ -99,6 +97,34 @@ class DeparturePromptsTest {
     }
 
     @Test
+    fun aChangedLiveDeadlineUpdatesThePreparationPromptSilently() {
+        val f = Fixture()
+        val first = f.snapshot(state = ContextState.LEAVE_SOON).copy(leaveBy = START.minusMinutes(25))
+        f.reminders.consider(first)
+        assertTrue(f.shade.textOf(f.key)!!.contains("Leave by 10:35 AM."))
+
+        f.reminders.consider(first.copy(leaveBy = START.minusMinutes(30)))
+
+        assertEquals(1, f.shade.alerts.size)
+        assertEquals(1, f.shade.updates.size)
+        assertTrue(f.shade.textOf(f.key)!!.contains("Leave by 10:30 AM."))
+    }
+
+    @Test
+    fun aSnapshotUsingPreviousPreparationDoesNotChangeTheShade() {
+        val f = Fixture()
+        f.reminders.consider(f.snapshot(state = ContextState.LEAVE_SOON))
+        f.preference = f.preference.copy(preparationMinutes = 0)
+
+        f.reminders.consider(f.snapshot(state = ContextState.ARRIVED))
+
+        assertEquals(setOf(f.key), f.shade.shownKeys())
+        assertTrue(f.shade.withdrawn.isEmpty())
+        f.reminders.consider(f.snapshot(state = ContextState.ARRIVED).copy(preparationMinutes = 0))
+        assertTrue(f.shade.shown.isEmpty())
+    }
+
+    @Test
     fun aPromptStaysWhileTheClassIsStillAheadButNoLongerDue() {
         // A faster route or a smaller buffer moved the deadline back after the warning.
         val f = Fixture()
@@ -106,8 +132,8 @@ class DeparturePromptsTest {
 
         assertNull(f.reminders.consider(f.snapshot(minutes = 9, state = ContextState.UPCOMING)))
         assertEquals(setOf(f.key), f.shade.shownKeys())
-        assertEquals("Leave within 40 min · COMP90018", f.shade.shown[f.key]?.first)
-        assertTrue(f.shade.textOf(f.key)!!.contains("Travel time: 9 min on foot"))
+        assertEquals("Prepare to leave for COMP90018", f.shade.shown[f.key]?.first)
+        assertTrue(f.shade.textOf(f.key)!!.contains("About 9 min on foot"))
 
         // Due again later: still only the one alert.
         assertNull(f.reminders.consider(f.snapshot(minutes = 9, state = ContextState.LEAVE_SOON)))
@@ -138,7 +164,7 @@ class DeparturePromptsTest {
         // Due at the new time: one alert for the new start.
         val reminder = f.reminders.consider(f.snapshot(later, state = ContextState.LEAVE_SOON))
         assertEquals(later.departurePromptKey(), reminder?.key)
-        assertTrue(reminder!!.text.english().startsWith("Mobile Computing starts at 11:10 AM"))
+        assertTrue(reminder!!.text.startsWith("Mobile Computing starts at 11:10 AM"))
 
         // Moved back: the original start was already announced, so it is not announced again.
         assertNull(f.reminders.consider(f.snapshot(state = ContextState.LEAVE_SOON)))
@@ -155,8 +181,8 @@ class DeparturePromptsTest {
         assertNull(f.reminders.consider(f.snapshot(minutes = 12, state = ContextState.LEAVE_SOON)))
 
         assertEquals(2, f.shade.alerts.size)
-        assertEquals("Leave now for COMP90018", f.shade.shown[f.key]?.first)
-        assertTrue(f.shade.textOf(f.key)!!.contains("Travel time: 12 min on foot"))
+        assertEquals("Running late for COMP90018", f.shade.shown[f.key]?.first)
+        assertTrue(f.shade.textOf(f.key)!!.contains("About 12 min on foot"))
     }
 
     @Test
@@ -210,27 +236,14 @@ class DeparturePromptsTest {
 
         assertEquals(1, f.shade.alerts.size)
         assertEquals(1, f.shade.updates.size)
-        assertTrue(f.shade.textOf(f.key)!!.contains("Travel time: 14 min on foot"))
-    }
-
-    @Test
-    fun anUnknownEtaKeepsOnlyTheCurrentClassPromptAndNeverInventsAWarning() {
-        val f = Fixture()
-        f.reminders.consider(f.snapshot(state = ContextState.LEAVE_SOON))
-        assertNull(f.reminders.consider(f.snapshot(minutes = null, state = ContextState.LEAVE_SOON)))
-        assertEquals(setOf(f.key), f.shade.shownKeys())
-
-        val next = f.lecture.copy(id = "next", start = f.lecture.start.plusHours(2), end = f.lecture.end.plusHours(2))
-        assertNull(f.reminders.consider(f.snapshot(next, minutes = null, state = ContextState.UPCOMING)))
-        assertTrue(f.shade.shown.isEmpty())
-        assertEquals(1, f.shade.alerts.size)
+        assertTrue(f.shade.textOf(f.key)!!.contains("About 14 min on foot"))
     }
 
     private class Fixture {
         val shade = FakeDepartureShade()
         var preference = CourseReminderPreference()
         var userId: String? = "student-a"
-        private val history = mutableSetOf<Triple<String, String, DepartureReminderStage>>()
+        private val history = mutableSetOf<Triple<String, String, ContextState>>()
         val lecture = CourseSession(
             id = "lecture",
             code = "COMP90018",
@@ -268,12 +281,7 @@ class DeparturePromptsTest {
             estimate = minutes?.let {
                 TravelEstimate(TravelMode.Walking, it * 60L, 1_200, EstimateSource.Routing, Instant.EPOCH)
             },
-            leadMinutes = lead,
-            evaluatedAt = session.start.toInstant().minusSeconds(when (state) {
-                ContextState.RUNNING_LATE -> ((minutes ?: 15) - 1) * 60L
-                ContextState.LEAVE_SOON -> ((minutes ?: 15) + lead) * 60L
-                else -> ((minutes ?: 15) + lead + 30) * 60L
-            })
+            leadMinutes = lead
         )
     }
 

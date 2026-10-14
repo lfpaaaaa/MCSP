@@ -1,14 +1,12 @@
 package au.edu.unimelb.campuscompanion.data
 
-import au.edu.unimelb.campuscompanion.ui.text.UiText
-import au.edu.unimelb.campuscompanion.R
 import au.edu.unimelb.campuscompanion.data.remote.toDataError
 
 /**
  * A failure explained for the user: what happened, in plain words, and what they can do next
  * (heuristic 9, "help users recognise, diagnose and recover from errors").
  */
-data class UserMessage(val title: UiText, val body: UiText, val action: RecoveryAction?)
+data class UserMessage(val title: String, val body: String, val action: RecoveryAction?)
 
 /** The action a screen offers next to a [UserMessage]. */
 enum class RecoveryAction {
@@ -20,55 +18,55 @@ enum class RecoveryAction {
 /** The title, body and recovery action shown for this error: what happened and what to do next. */
 fun DataError.toUserMessage(): UserMessage = when (this) {
     is DataError.Offline -> UserMessage(
-        title = UiText(R.string.error_no_connection),
-        body = UiText(R.string.error_check_your_wi_fi_or_mobile_data_then),
+        title = "No connection",
+        body = "Check your Wi-Fi or mobile data, then try again. Anything already loaded stays on screen.",
         action = RecoveryAction.Retry
     )
     is DataError.Unauthenticated -> UserMessage(
-        title = UiText(R.string.error_signed_out),
-        body = UiText(R.string.error_your_session_has_ended_sign_in_again_to),
+        title = "Signed out",
+        body = "Your session has ended. Sign in again to continue.",
         action = RecoveryAction.SignIn
     )
     is DataError.Forbidden -> UserMessage(
-        title = UiText(R.string.permissions_section_not_allowed),
-        body = UiText(R.string.error_you_may_have_left_this_group_or_only),
+        title = "Not allowed",
+        body = "You may have left this group, or only the person who added this item can change it.",
         action = null
     )
     is DataError.NotFound -> UserMessage(
-        title = UiText(R.string.error_no_longer_available),
-        body = UiText(R.string.error_it_may_have_been_deleted_refresh_to_see),
+        title = "No longer available",
+        body = "It may have been deleted. Refresh to see the latest version.",
         action = RecoveryAction.Retry
     )
     is DataError.InvalidInvite -> when (reason) {
         DataError.InvalidInvite.Reason.Unknown -> UserMessage(
-            title = UiText(R.string.error_invite_not_recognised),
-            body = UiText(R.string.error_this_code_or_link_is_not_a_campus),
+            title = "Invite not recognised",
+            body = "This code or link is not a Campus Companion invite. Ask a group member to show a new QR code.",
             action = RecoveryAction.ScanNewInvite
         )
         DataError.InvalidInvite.Reason.Expired -> UserMessage(
-            title = UiText(R.string.error_invite_expired),
-            body = UiText(R.string.error_invites_work_for_10_minutes_ask_a_group),
+            title = "Invite expired",
+            body = "Invites work for 10 minutes. Ask a group member to show a new QR code.",
             action = RecoveryAction.ScanNewInvite
         )
         DataError.InvalidInvite.Reason.UsedUp -> UserMessage(
-            title = UiText(R.string.error_invite_used_up),
-            body = UiText(R.string.error_this_invite_has_been_used_by_as_many),
+            title = "Invite used up",
+            body = "This invite has been used by as many people as it allows. Ask a group member for a new one.",
             action = RecoveryAction.ScanNewInvite
         )
     }
     is DataError.RateLimited -> UserMessage(
-        title = UiText(R.string.error_too_many_requests),
-        body = UiText(R.string.error_wait_a_minute_then_try_again),
+        title = "Too many requests",
+        body = "Wait a minute, then try again.",
         action = RecoveryAction.Retry
     )
     is DataError.Validation -> UserMessage(
-        title = UiText(R.string.error_check_your_input),
-        body = userMessage,
+        title = "Check your input",
+        body = message ?: "Some of the details are not valid.",
         action = null
     )
     is DataError.Unexpected -> UserMessage(
-        title = UiText(R.string.error_something_went_wrong),
-        body = UiText(R.string.error_try_again_if_it_keeps_happening_restart_the),
+        title = "Something went wrong",
+        body = "Try again. If it keeps happening, restart the app.",
         action = RecoveryAction.Retry
     )
 }

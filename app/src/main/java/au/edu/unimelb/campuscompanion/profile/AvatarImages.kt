@@ -1,7 +1,5 @@
 package au.edu.unimelb.campuscompanion.profile
 
-import au.edu.unimelb.campuscompanion.ui.text.UiText
-import au.edu.unimelb.campuscompanion.R
 import android.content.Context
 import android.graphics.*
 import android.media.ExifInterface
@@ -26,7 +24,7 @@ object AvatarImages {
 
     suspend fun readForUpload(context: Context, uri: Uri): ByteArray = withContext(Dispatchers.IO) {
         val source = localBytes(context, uri)
-        val bitmap = decode(source) ?: throw DataError.Validation(UiText(R.string.validation_this_photo_could_not_be_read_choose_another))
+        val bitmap = decode(source) ?: throw DataError.Validation("This photo could not be read. Choose another image.")
         val square = Bitmap.createBitmap(512, 512, Bitmap.Config.ARGB_8888)
         try {
             val side = min(bitmap.width, bitmap.height)
@@ -65,8 +63,8 @@ object AvatarImages {
 
     private fun localBytes(context: Context, uri: Uri): ByteArray {
         val bytes = context.contentResolver.openInputStream(uri)?.use { it.readUpTo(MAX_SOURCE_BYTES + 1) }
-            ?: throw DataError.Validation(UiText(R.string.validation_the_selected_photo_is_unavailable_choose_it_again))
-        if (bytes.isEmpty() || bytes.size > MAX_SOURCE_BYTES) throw DataError.Validation(UiText(R.string.validation_choose_an_image_smaller_than_20_mb))
+            ?: throw DataError.Validation("The selected photo is unavailable. Choose it again.")
+        if (bytes.isEmpty() || bytes.size > MAX_SOURCE_BYTES) throw DataError.Validation("Choose an image smaller than 20 MB.")
         return bytes
     }
 

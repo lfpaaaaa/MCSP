@@ -1,7 +1,5 @@
 package au.edu.unimelb.campuscompanion.data.remote
 
-import au.edu.unimelb.campuscompanion.ui.text.UiText
-import au.edu.unimelb.campuscompanion.R
 import au.edu.unimelb.campuscompanion.data.DataError
 import io.github.jan.supabase.exceptions.HttpRequestException
 import io.github.jan.supabase.exceptions.RestException
@@ -26,12 +24,8 @@ fun Throwable.toDataError(): DataError = when (this) {
  */
 fun dataErrorFor(statusCode: Int, message: String?, cause: Throwable? = null): DataError =
     when (message) {
-        "transcript_conflict" -> DataError.Validation(UiText(R.string.transcript_edit_conflict))
-        "transcript_not_ready" -> DataError.Validation(UiText(R.string.transcript_not_ready_to_edit))
-        "invalid_transcript_edit" -> DataError.Validation(UiText(R.string.transcript_edit_invalid))
-        "not_file_uploader" -> DataError.Forbidden(cause)
-        "invalid_nickname" -> DataError.Validation(UiText(R.string.validation_group_nicknames_need_1_to_40_characters))
-        "join_code_expired" -> DataError.Validation(UiText(R.string.validation_the_6_character_code_expired_5_minutes_after))
+        "invalid_nickname" -> DataError.Validation("Group nicknames need 1 to 40 characters.")
+        "join_code_expired" -> DataError.Validation("The 6-character code expired 5 minutes after group creation. Join using QR or NFC.")
         "invite_not_found" -> DataError.InvalidInvite(DataError.InvalidInvite.Reason.Unknown, cause)
         "invite_expired" -> DataError.InvalidInvite(DataError.InvalidInvite.Reason.Expired, cause)
         "invite_used_up" -> DataError.InvalidInvite(DataError.InvalidInvite.Reason.UsedUp, cause)

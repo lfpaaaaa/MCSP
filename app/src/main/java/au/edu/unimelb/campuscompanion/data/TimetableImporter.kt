@@ -1,7 +1,6 @@
 package au.edu.unimelb.campuscompanion.data
 
-import au.edu.unimelb.campuscompanion.ui.text.UiText
-import au.edu.unimelb.campuscompanion.R
+import au.edu.unimelb.campuscompanion.context.ContextConfig
 import au.edu.unimelb.campuscompanion.ui.model.trimTrailingCommas
 import au.edu.unimelb.campuscompanion.data.model.TimetableGroupSpec
 import au.edu.unimelb.campuscompanion.ui.model.CourseGroup
@@ -39,7 +38,7 @@ import java.time.zone.ZoneRules
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * What a calendar parsed into: the sessions of the coming months, the course groups they imply
+ * What a calendar parsed into: recent post-class and upcoming sessions, the course groups they imply
  * and how many events the calendar held.
  */
 data class TimetableImport(
@@ -74,22 +73,22 @@ class TimetableImporter(
 
             if (!response.status.isSuccess()) {
                 throw TimetableImportException(
-                    UiText(R.string.timetable_the_timetable_server_returned_http_check_the_url, response.status.value)
+                    "The timetable server returned HTTP ${response.status.value}. Check the URL and try again."
                 )
             }
 
             val declaredLength = response.headers[HttpHeaders.ContentLength]?.toLongOrNull()
             if (declaredLength != null && declaredLength > MAX_CALENDAR_BYTES) {
-                throw TimetableImportException(UiText(R.string.timetable_this_calendar_is_too_large_to_import))
+                throw TimetableImportException("This calendar is too large to import.")
             }
 
             val bytes: ByteArray = response.body()
             if (bytes.size > MAX_CALENDAR_BYTES) {
-                throw TimetableImportException(UiText(R.string.timetable_this_calendar_is_too_large_to_import))
+                throw TimetableImportException("This calendar is too large to import.")
             }
             if (!bytes.toString(Charsets.UTF_8).contains("BEGIN:VCALENDAR", ignoreCase = true)) {
                 throw TimetableImportException(
-                    UiText(R.string.timetable_this_url_did_not_return_an_icalendar_file)
+                    "This URL did not return an iCalendar file. Use the private subscription URL, not the timetable web page."
                 )
             }
             Result.success(bytes)
@@ -100,13 +99,13 @@ class TimetableImporter(
         } catch (error: HttpRequestTimeoutException) {
             Result.failure(
                 TimetableImportException(
-                    UiText(R.string.timetable_the_timetable_server_did_not_respond_in_time)
+                    "The timetable server did not respond in time. Check your connection and try again."
                 )
             )
         } catch (error: Exception) {
             Result.failure(
                 TimetableImportException(
-                    UiText(R.string.timetable_the_timetable_could_not_be_downloaded_or_read),
+                    "The timetable could not be downloaded or read. Check your connection and subscription URL.",
                     error
                 )
             )
@@ -130,7 +129,7 @@ class TimetableImporter(
             Result.failure(error)
         } catch (error: Exception) {
             Result.failure(
-                TimetableImportException(UiText(R.string.timetable_the_timetable_could_not_be_read_check_your), error)
+                TimetableImportException("The timetable could not be read. Check your subscription URL.", error)
             )
         }
     }
@@ -157,7 +156,9 @@ class TimetableImporter(
  * Parses an iCalendar timetable into the sessions from the day before [parse]'s `now` to six
  * months after it, expanding recurring events and showing them in the given display zone.
  */
-class IcsTimetableParser {
+class IcsTimetableParser(
+    private val postClassMinutes: Int = ContextConfig().postClassMinutes
+) {
     fun parse(
         bytes: ByteArray,
         now: ZonedDateTime,
@@ -167,11 +168,11 @@ class IcsTimetableParser {
             CalendarBuilder(AndroidTimeZoneRegistry()).build(ByteArrayInputStream(bytes))
         } catch (error: LinkageError) {
             throw TimetableImportException(
-                UiText(R.string.timetable_this_calendar_uses_a_time_zone_format_that),
+                "This calendar uses a time-zone format that is not supported on this device.",
                 error
             )
         } catch (error: Exception) {
-            throw TimetableImportException(UiText(R.string.timetable_the_downloaded_file_is_not_a_valid_icalendar), error)
+            throw TimetableImportException("The downloaded file is not a valid iCalendar timetable.", error)
         }
 
         val events = calendar.componentList.all
@@ -187,7 +188,7 @@ class IcsTimetableParser {
         }
         val rangeStart = now.minusDays(1)
         val rangeEnd = now.plusMonths(6)
-        val sessions = events.flatMapIndexed { index, event ->
+        val occurrences = events.flatMapIndexed { index, event ->
             val eventDetails = detailsFor(event)
             if (eventDetails.code != FALLBACK_EVENT_CODE) {
                 courseTitles.putIfAbsent(eventDetails.code, eventDetails.title)
@@ -215,14 +216,18 @@ class IcsTimetableParser {
             }
         }
             .distinctBy { it.id }
-            .filter { session ->
-                session.end.isAfter(now.withZoneSameInstant(session.end.zone))
-            }
             .sortedBy { it.start.toInstant() }
+        val nowInstant = now.toInstant()
+        // Recent history must not consume the existing upcoming quota or create slot memberships.
+        val upcoming = occurrences.filter { it.end.toInstant().isAfter(nowInstant) }
             .take(MAX_IMPORTED_SESSIONS)
+        val recent = occurrences.filter {
+            !it.end.toInstant().isAfter(nowInstant) && it.isRetainedForContext(nowInstant, postClassMinutes)
+        }
+        val sessions = (recent + upcoming).sortedBy { it.start.toInstant() }
 
         val specs = courseTitles.map { (code, title) -> TimetableGroupSpec(code, title.take(60), "course") } +
-            sessions.mapNotNull { session ->
+            upcoming.mapNotNull { session ->
                 session.copy(title = courseTitles[session.code] ?: session.title).timetableGroupSpec()
             }.distinctBy { it.key }
         val groups = specs.map { spec ->
@@ -366,9 +371,9 @@ class IcsTimetableParser {
 
 /** A calendar that could not be downloaded or parsed; [message] is written for the user. */
 class TimetableImportException(
-    val userMessage: UiText,
+    message: String,
     cause: Throwable? = null
-) : Exception("Timetable import failed", cause)
+) : Exception(message, cause)
 
 private class AndroidTimeZoneRegistry : TimeZoneRegistry {
     private val embeddedZones = ConcurrentHashMap<String, IcalTimeZone>()

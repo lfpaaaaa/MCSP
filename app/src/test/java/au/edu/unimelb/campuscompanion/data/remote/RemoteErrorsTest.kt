@@ -61,13 +61,6 @@ class RemoteErrorsTest {
         assertTrue(IllegalStateException("boom").toDataError() is DataError.Unexpected)
     }
 
-    @Test fun transcriptValidationAndConflictHaveActionableMessages() {
-        assertTrue(dataErrorFor(409, "transcript_conflict") is DataError.Validation)
-        assertTrue(dataErrorFor(400, "transcript_not_ready") is DataError.Validation)
-        assertTrue(dataErrorFor(400, "invalid_transcript_edit") is DataError.Validation)
-        assertTrue(dataErrorFor(403, "not_file_uploader") is DataError.Forbidden)
-    }
-
     private fun inviteReason(error: DataError): DataError.InvalidInvite.Reason =
         (error as DataError.InvalidInvite).reason
 }

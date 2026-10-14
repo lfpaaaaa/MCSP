@@ -1,11 +1,5 @@
 package au.edu.unimelb.campuscompanion.context
 
-import au.edu.unimelb.campuscompanion.english
-
-import au.edu.unimelb.campuscompanion.ui.model.buildHomeCardState
-import au.edu.unimelb.campuscompanion.ui.model.buildHomeCardGuidance
-import au.edu.unimelb.campuscompanion.ui.model.reminderTiming
-import au.edu.unimelb.campuscompanion.ui.model.CourseReminderTiming
 import au.edu.unimelb.campuscompanion.data.TravelMode
 import au.edu.unimelb.campuscompanion.data.TravelPreferences
 import au.edu.unimelb.campuscompanion.data.model.EstimateSource
@@ -36,34 +30,32 @@ import java.time.ZonedDateTime
 /** Keeps course preferences, context decisions and notification eligibility in the same pipeline. */
 class ContextReminderIntegrationTest {
     @Test
-    fun theSavedLeadPreparesTenMinutesBeforeDepartureWithoutAnExtraEarlyAlert() = runBlocking<Unit> {
+    fun theSavedArrivalBufferDrivesTheWarningAndActualLateness() = runBlocking<Unit> {
         val trip = Trip()
-        trip.engine.updateLeadMinutes(60) // Per-course settings override the global fallback.
+        // The saved course preference must override this unrelated global fallback.
+        trip.engine.updateLeadMinutes(60)
 
-        val early = trip.refresh(at(10, 25))
-        assertEquals(at(10, 40), early.leaveBy)
-        assertEquals(10, early.leadMinutes)
-        assertEquals(ContextState.UPCOMING, early.state)
-        assertNull(trip.reminders.consider(early)) // The preparation window has not opened yet.
-        assertNull(trip.reminders.consider(trip.refresh(at(10, 30).minusSeconds(1))))
+        val beforeWarning = trip.refresh(at(10, 25).minusSeconds(1))
+        assertEquals(at(10, 30), beforeWarning.leaveBy)
+        assertEquals(10, beforeWarning.leadMinutes)
+        assertEquals(ContextState.UPCOMING, beforeWarning.state)
+        assertNull(trip.reminders.consider(beforeWarning))
 
-        val warning = trip.refresh(at(10, 30))
-        val preparation = trip.reminders.consider(warning)!!
-        assertEquals(DepartureReminderStage.Prepare, preparation.stage)
-        val home = buildHomeCardGuidance(buildHomeCardState(listOf(trip.lecture), warning, at(10, 30)), at(10, 30))
-        assertEquals("Leave in 10 minutes", home.headline.english())
-        assertEquals("Leave by 10:40 AM", home.departureLine?.english())
-        assertTrue(preparation.text.english().contains("Leave by 10:40 AM"))
-        assertEquals(CourseReminderTiming.Ready(at(10, 40), at(10, 30), 20), trip.lecture.reminderTiming(warning, 10))
-        assertNull(trip.reminders.consider(trip.refresh(at(10, 31))))
+        val warning = trip.refresh(at(10, 25))
+        assertEquals(ContextState.LEAVE_SOON, warning.state)
+        assertEquals(ContextState.LEAVE_SOON, trip.reminders.consider(warning)?.state)
 
-        val deadline = trip.refresh(at(10, 40))
-        assertEquals(ContextState.LEAVE_SOON, deadline.state)
-        assertEquals(DepartureReminderStage.LeaveNow, trip.reminders.consider(deadline)?.stage)
+        // Losing the arrival buffer does not yet mean the student will miss the class start.
+        assertEquals(ContextState.LEAVE_SOON, trip.refresh(at(10, 30)).state)
+        assertNull(trip.reminders.consider(trip.engine.snapshot.value))
+        assertEquals(ContextState.LEAVE_SOON, trip.refresh(at(10, 40)).state)
+        assertNull(trip.reminders.consider(trip.engine.snapshot.value))
+
         val late = trip.refresh(at(10, 40).plusSeconds(1))
         assertEquals(ContextState.RUNNING_LATE, late.state)
+        assertEquals(ContextState.RUNNING_LATE, trip.reminders.consider(late)?.state)
         assertNull(trip.reminders.consider(late))
-        assertEquals(listOf(DepartureReminderStage.Prepare, DepartureReminderStage.LeaveNow), trip.sent.map { it.stage })
+        assertEquals(listOf(ContextState.LEAVE_SOON, ContextState.RUNNING_LATE), trip.sent.map { it.state })
         assertEquals(trip.sent[0].notificationId, trip.sent[1].notificationId)
     }
 
@@ -72,26 +64,26 @@ class ContextReminderIntegrationTest {
         val trip = Trip(config = ContextConfig(entryAllowanceMinutes = 3))
         trip.rainfall = 0.4
 
-        // Depart at 10:32 after travel, rain and entry; the 10-minute warning is at 10:22.
-        val beforeWarning = trip.refresh(at(10, 22).minusSeconds(1))
-        assertEquals(at(10, 32), beforeWarning.leaveBy)
+        // 11:00 - 20-minute trip - 10-minute arrival buffer - 5-minute rain - 3-minute entry.
+        val beforeWarning = trip.refresh(at(10, 17).minusSeconds(1))
+        assertEquals(at(10, 22), beforeWarning.leaveBy)
         assertEquals(5, beforeWarning.weatherBufferMinutes)
         assertEquals(3, beforeWarning.entryAllowanceMinutes)
         assertEquals(ContextState.UPCOMING, beforeWarning.state)
         assertNull(trip.reminders.consider(beforeWarning))
 
-        val warning = trip.refresh(at(10, 22))
+        val warning = trip.refresh(at(10, 17))
         assertEquals(ContextState.LEAVE_SOON, warning.state)
         val reminder = trip.reminders.consider(warning)
         assertNotNull(reminder)
-        assertTrue(reminder!!.text.english().contains("Includes 5 min extra for weather"))
+        assertTrue(reminder!!.text.contains("Allow 5 min more for the weather."))
         assertEquals(1, trip.sent.size)
     }
 
     @Test
     fun aCoursePreferenceChangeUpdatesTheRunningPipelineWithoutAnotherLocationFix() = runBlocking<Unit> {
         val trip = Trip()
-        trip.now = at(10, 30)
+        trip.now = at(10, 25)
         trip.savePreference(trip.lecture, CourseReminderPreference(leadMinutes = 0))
         trip.engine.updateOrigin(AWAY)
         val delivered = Channel<DepartureReminder>(Channel.UNLIMITED)
@@ -115,9 +107,9 @@ class ContextReminderIntegrationTest {
             trip.preferenceChanges.value++
 
             val reminder = withTimeout(2_000) { delivered.receive() }
-            assertEquals(DepartureReminderStage.Prepare, reminder.stage)
+            assertEquals(ContextState.LEAVE_SOON, reminder.state)
             assertEquals(trip.lecture.id, reminder.sessionId)
-            assertEquals(at(10, 40), trip.engine.snapshot.value.leaveBy)
+            assertEquals(at(10, 30), trip.engine.snapshot.value.leaveBy)
         } finally {
             engineJob.cancel()
             reminderJob.cancel()
@@ -131,8 +123,8 @@ class ContextReminderIntegrationTest {
     fun settingOffEarlyAndWaitingSuppressRemindersThroughArrivalAndClassStart() = runBlocking<Unit> {
         val trip = Trip()
         trip.refresh(at(10, 0))
-        // The optional fused verdict is not a veto of raw movement plus closing distance.
-        trip.engine.updateEnRouteSignal(false)
+        // Unavailable fusion permits fresh movement plus closing distance.
+        trip.engine.updateEnRouteSignal(null)
         val settingOff = trip.refresh(at(10, 2), origin = CLOSER, moving = true)
         assertSuppressed(trip, settingOff, ContextState.EN_ROUTE)
 
@@ -155,9 +147,9 @@ class ContextReminderIntegrationTest {
         assertSuppressed(trip, trip.refresh(at(10, 2), CLOSER, moving = true), ContextState.EN_ROUTE)
 
         // More than 150 m farther from the building than the closest point of this trip.
-        val turnedBack = trip.refresh(at(10, 30), FARTHER, moving = true)
+        val turnedBack = trip.refresh(at(10, 25), FARTHER, moving = true)
         assertEquals(ContextState.LEAVE_SOON, turnedBack.state)
-        assertEquals(DepartureReminderStage.Prepare, trip.reminders.consider(turnedBack)?.stage)
+        assertEquals(ContextState.LEAVE_SOON, trip.reminders.consider(turnedBack)?.state)
         assertEquals(1, trip.sent.size)
     }
 
@@ -185,7 +177,7 @@ class ContextReminderIntegrationTest {
     }
 
     @Test
-    fun aKnownPositionWithoutAnEtaDoesNotInventADepartureDeadline() = runBlocking<Unit> {
+    fun aKnownPositionStillAllowsALateReminderWithoutAnEta() = runBlocking<Unit> {
         val trip = Trip()
         trip.travelMinutes = null
 
@@ -194,66 +186,29 @@ class ContextReminderIntegrationTest {
         assertNull(late.estimate)
         assertNull(late.leaveBy)
         assertEquals(ContextState.RUNNING_LATE, late.state)
-        assertNull(trip.reminders.consider(late))
-        assertTrue(trip.sent.isEmpty())
+        assertEquals(ContextState.RUNNING_LATE, trip.reminders.consider(late)?.state)
+        assertEquals(1, trip.sent.size)
 
         val graceEnded = trip.refresh(at(11, 15))
         assertSuppressed(trip, graceEnded, ContextState.IN_CLASS)
-        assertTrue(trip.sent.isEmpty())
+        assertEquals(1, trip.sent.size)
     }
 
     @Test
-    fun anExpiredPositionDoesNotSupplyAnEtaOrDepartureReminder() = runBlocking<Unit> {
+    fun theCurrentLocationPolicyKeepsTheLastFixAfterThreeMinutes() = runBlocking<Unit> {
         val trip = Trip()
-        trip.refresh(at(10, 27))
+        trip.refresh(at(10, 22))
 
-        trip.now = at(10, 30)
+        // Preserve the feature's location policy during integration; expiry is a separate change.
+        trip.now = at(10, 25)
         trip.engine.refresh()
-        val stale = trip.engine.snapshot.value
-        assertNull(stale.estimate)
-        assertNull(stale.distanceMeters)
-        assertNull(stale.leaveBy)
-        assertNull(trip.reminders.consider(stale))
+        val warning = trip.engine.snapshot.value
 
-        // The next fresh fix makes the real 10-minute warning available again.
-        val fresh = trip.refresh(at(10, 30))
-        assertNotNull(fresh.estimate)
-        assertEquals(DepartureReminderStage.Prepare, trip.reminders.consider(fresh)?.stage)
-    }
-
-    @Test
-    fun stationaryUrgencyAtFiveMinutesAgreesAcrossHomeAndNotifications() = runBlocking<Unit> {
-        val trip = Trip()
-        trip.reminders.consider(trip.refresh(at(10, 30)))
-        repeat(6) { index ->
-            val snapshot = trip.refresh(at(10, 34).plusSeconds(index * 10L))
-            assertNull(trip.reminders.consider(snapshot))
-        }
-        val urgent = trip.refresh(at(10, 35))
-        assertEquals(DepartureReminderStage.LeaveNow, trip.reminders.consider(urgent)?.stage)
-        val card = buildHomeCardState(listOf(trip.lecture), urgent, at(10, 35))
-        assertTrue(card.urgentDeparture)
-        assertEquals("Leave now", buildHomeCardGuidance(card, at(10, 35)).headline.english())
-        assertEquals("Leave by 10:40 AM", buildHomeCardGuidance(card, at(10, 35)).departureLine?.english())
-        assertNull(trip.reminders.consider(trip.refresh(at(10, 40))))
-        assertEquals(2, trip.sent.size)
-    }
-
-    @Test
-    fun preparationLeadChangesOnlyWarningTimeAndNeverHomeDepartureDeadline() = runBlocking<Unit> {
-        for (lead in listOf(0, 5, 10, 20)) {
-            val trip = Trip()
-            trip.savePreference(trip.lecture, CourseReminderPreference(leadMinutes = lead))
-            val preparationAt = at(10, 40).minusMinutes(lead.toLong())
-            val before = trip.refresh(preparationAt.minusSeconds(1))
-            assertNull(trip.reminders.consider(before))
-            val due = trip.refresh(preparationAt)
-            assertEquals(at(10, 40), due.leaveBy)
-            assertEquals(CourseReminderTiming.Ready(at(10, 40), preparationAt, 20), trip.lecture.reminderTiming(due, lead))
-            assertNotNull(trip.reminders.consider(due))
-            val guidance = buildHomeCardGuidance(buildHomeCardState(listOf(trip.lecture), due, preparationAt), preparationAt)
-            assertEquals("Leave by 10:40 AM", guidance.departureLine?.english())
-        }
+        assertNotNull(warning.estimate)
+        assertNotNull(warning.distanceMeters)
+        assertEquals(at(10, 30), warning.leaveBy)
+        assertEquals(ContextState.LEAVE_SOON, warning.state)
+        assertNotNull(trip.reminders.consider(warning))
     }
 
     private fun assertSuppressed(trip: Trip, snapshot: TravelSnapshot, expected: ContextState) {

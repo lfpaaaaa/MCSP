@@ -1,7 +1,5 @@
 package au.edu.unimelb.campuscompanion.data.repository
 
-import au.edu.unimelb.campuscompanion.ui.text.UiText
-import au.edu.unimelb.campuscompanion.R
 import au.edu.unimelb.campuscompanion.data.DataError
 import au.edu.unimelb.campuscompanion.data.local.MessageDao
 import au.edu.unimelb.campuscompanion.data.local.MessageEntity
@@ -39,7 +37,7 @@ import java.util.concurrent.ConcurrentHashMap
  * Offline-first [ChatRepository]. Screens read messages from the on-device cache, which is kept up
  * to date while a chat is observed:
  *
- * - opening a chat fetches the messages missed since the newest cached one, or the latest page;
+ * - opening a chat reconciles its cached timeline, or fetches the latest page;
  * - new messages arrive through the realtime feed, and every reconnection fetches missed ones;
  * - a sent message appears at once as [MessageStatus.Sending] and then becomes
  *   [MessageStatus.Sent] or [MessageStatus.Failed]. A retry keeps the client id, so the server
@@ -62,6 +60,11 @@ class DefaultChatRepository(
     override val connection: StateFlow<ChatConnection> = connectionState.asStateFlow()
 
     private val syncLock = Mutex()
+    // Only successful history reads advance these cursors. Realtime and send confirmations may
+    // populate newer rows while a gap remains, so the newest cached row is not a sync checkpoint.
+    private data class SyncCheckpoint(val cursor: MessageCursor?, val completed: Boolean)
+
+    private val syncCheckpoints = mutableMapOf<Pair<String?, String>, SyncCheckpoint>()
     private val memberNames = ConcurrentHashMap<String, Map<String, String>>()
 
     override fun observeMessages(groupId: String): Flow<List<ChatMessage>> = channelFlow {
@@ -85,7 +88,7 @@ class DefaultChatRepository(
         val text = body.trim()
         if (text.isEmpty() || text.length > ChatRepository.MAX_MESSAGE_LENGTH) {
             return Result.failure(
-                DataError.Validation(UiText(R.string.validation_messages_need_1_to_characters, ChatRepository.MAX_MESSAGE_LENGTH))
+                DataError.Validation("Messages need 1 to ${ChatRepository.MAX_MESSAGE_LENGTH} characters.")
             )
         }
         val user = currentUser() ?: return Result.failure(DataError.Unauthenticated())
@@ -141,17 +144,28 @@ class DefaultChatRepository(
     /** Keeps the cache of [groupId] up to date for as long as the caller is active. */
     private suspend fun keepInSync(groupId: String) {
         connectionState.value = ChatConnection.Connecting
+        val syncKey = currentUser()?.id to groupId
+        syncLock.withLock {
+            val oldest = messages.oldest(groupId, MessageStatus.Sent.name)
+            if (syncKey !in syncCheckpoints || oldest == null) {
+                // A previous process may have cached a live row without completing recovery.
+                // Replay from the oldest retained row instead of assuming the cache has no gaps.
+                syncCheckpoints[syncKey] = SyncCheckpoint(oldest?.cursor(), completed = false)
+            }
+        }
         coroutineScope {
             launch { keepMemberNamesFresh(groupId) }
-            launch { catchUpUntilSuccessful(groupId) }
+            launch { catchUpUntilSuccessful(groupId, syncKey) }
             var attempt = 0
             while (true) {
                 try {
                     remote.messageEvents(groupId).collect { event ->
                         attempt = 0
                         when (event) {
-                            ChatEvent.Subscribed -> launch { catchUpUntilSuccessful(groupId) }
-                            is ChatEvent.Inserted -> dataResult { store(groupId, listOf(event.message)) }
+                            ChatEvent.Subscribed -> launch { catchUpUntilSuccessful(groupId, syncKey) }
+                            is ChatEvent.Inserted -> dataResult {
+                                syncLock.withLock { store(groupId, listOf(event.message)) }
+                            }
                         }
                     }
                 } catch (cancellation: CancellationException) {
@@ -166,10 +180,10 @@ class DefaultChatRepository(
         }
     }
 
-    private suspend fun catchUpUntilSuccessful(groupId: String) {
+    private suspend fun catchUpUntilSuccessful(groupId: String, syncKey: Pair<String?, String>) {
         var attempt = 0
         while (true) {
-            if (dataResult { catchUp(groupId) }.isSuccess) {
+            if (dataResult { catchUp(groupId, syncKey) }.isSuccess) {
                 connectionState.value = ChatConnection.Live
                 resendFailed(groupId)
                 return
@@ -198,24 +212,36 @@ class DefaultChatRepository(
         }
     }
 
-    /** Fetches the messages missed since the newest cached one, or the latest page when none are cached. */
-    private suspend fun catchUp(groupId: String) {
+    /** Advances the checkpoint only when the retained timeline has been reconciled completely. */
+    private suspend fun catchUp(groupId: String, syncKey: Pair<String?, String>) {
         syncLock.withLock {
             dataResult { refreshMemberNames(groupId) }
-            var cursor = messages.newest(groupId, MessageStatus.Sent.name)?.cursor()
+            val checkpoint = syncCheckpoints.getValue(syncKey)
+            var cursor = checkpoint.cursor
+            if (!checkpoint.completed && cursor != null) {
+                // Even the oldest retained row may be a lone realtime insertion from a process
+                // whose first history request failed. Always restore the latest window too.
+                store(groupId, remote.fetchBefore(groupId, before = null, limit = ChatRepository.DEFAULT_PAGE_SIZE))
+            }
             var pages = 0
             while (cursor != null && pages < MAX_CATCH_UP_PAGES) {
                 val rows = remote.fetchAfter(groupId, cursor, CATCH_UP_PAGE_SIZE)
                 store(groupId, rows)
-                if (rows.size < CATCH_UP_PAGE_SIZE) return
-                cursor = rows.last().cursor()
+                cursor = rows.lastOrNull()?.cursor() ?: cursor
+                if (rows.size < CATCH_UP_PAGE_SIZE) {
+                    syncCheckpoints[syncKey] = SyncCheckpoint(cursor, completed = true)
+                    return
+                }
                 pages++
             }
+            val latest = remote.fetchBefore(groupId, before = null, limit = ChatRepository.DEFAULT_PAGE_SIZE)
             if (cursor != null) {
                 // Too many messages were missed to fill the gap; start again from the latest page.
+                // Fetch first so a failed request does not erase the previously visible cache.
                 messages.deleteGroupMessages(groupId, MessageStatus.Sent.name)
             }
-            store(groupId, remote.fetchBefore(groupId, before = null, limit = ChatRepository.DEFAULT_PAGE_SIZE))
+            store(groupId, latest)
+            syncCheckpoints[syncKey] = SyncCheckpoint(latest.firstOrNull()?.cursor(), completed = true)
         }
     }
 

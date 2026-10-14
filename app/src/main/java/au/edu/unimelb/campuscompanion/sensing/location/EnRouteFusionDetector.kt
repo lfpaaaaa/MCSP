@@ -1,158 +1,109 @@
 package au.edu.unimelb.campuscompanion.sensing.location
 
-import android.util.Log
+import au.edu.unimelb.campuscompanion.sensing.activity.UserActivityState
 
+/** Activity/movement fusion. Unavailable observations are distinct from evidence against starting travel. */
 class EnRouteFusionDetector {
-
     companion object {
-
-        /*
-         * User direction can differ from the exact building
-         * bearing because walking paths are not perfectly straight.
-         */
         private const val MAX_HEADING_DIFFERENCE_DEGREES = 60.0
-
-        /*
-         * Number of consecutive positive decisions required
-         * before entering EN_ROUTE.
-         */
+        private const val CONSERVATIVE_CLOSING_METERS = 50.0
         private const val ENTER_CONFIRMATION_COUNT = 3
-
-        /*
-         * Number of consecutive negative decisions required
-         * before leaving EN_ROUTE.
-         */
         private const val EXIT_CONFIRMATION_COUNT = 3
+        private const val MAX_SAMPLE_GAP_NANOS = 30_000_000_000L
     }
 
-    private var stableEnRoute =
-        false
-
-    private var positiveCount =
-        0
-
-    private var negativeCount =
-        0
+    private var positiveCount = 0
+    private var negativeCount = 0
+    private var lastObservedAtNanos: Long? = null
+    private var currentVerdict: Boolean? = null
 
     fun update(
-        isMoving: Boolean,
-        isRotating: Boolean,
+        isMoving: Boolean?,
+        isRotating: Boolean?,
         distanceTrend: DistanceTrend,
-        headingDifferenceDegrees: Double?
+        headingDifferenceDegrees: Double?,
+        closingMeters: Double,
+        observedAtNanos: Long,
+        activity: UserActivityState? = null
     ): EnRouteFusionResult {
+        val previousObservation = lastObservedAtNanos
+        if (observedAtNanos < 0L ||
+            (previousObservation != null && observedAtNanos <= previousObservation)
+        ) {
+            // A replay is not another confirmation and carries no new fusion authority.
+            return result(null, null, isMoving, isRotating, distanceTrend, headingDifferenceDegrees, closingMeters, activity)
+        }
+        if (previousObservation != null && observedAtNanos - previousObservation > MAX_SAMPLE_GAP_NANOS) {
+            reset()
+        }
+        lastObservedAtNanos = observedAtNanos
 
-        val headingMatches =
-            headingDifferenceDegrees != null &&
-                    headingDifferenceDegrees <=
-                    MAX_HEADING_DIFFERENCE_DEGREES
+        val headingMatches = headingDifferenceDegrees != null &&
+            headingDifferenceDegrees.isFinite() &&
+            headingDifferenceDegrees in 0.0..MAX_HEADING_DIFFERENCE_DEGREES &&
+            isRotating == false
 
-        val approaching =
-            distanceTrend ==
-                    DistanceTrend.APPROACHING
+        val movement = activity?.isMoving ?: isMoving
 
-        /*
-         * Raw fusion rule.
-         *
-         * User should:
-         * - be moving
-         * - be getting closer to the building
-         * - generally face the destination direction
-         * - not be in a strong phone-rotation event
-         */
-        val rawEnRoute =
-            isMoving &&
-                    approaching &&
-                    headingMatches &&
-                    !isRotating
-
-        // ---------------------------------------------------------
-        // Hysteresis
-        // ---------------------------------------------------------
-
-        if (rawEnRoute) {
-
-            positiveCount += 1
-
-            negativeCount =
-                0
-
-            if (
-                !stableEnRoute &&
-                positiveCount >= ENTER_CONFIRMATION_COUNT
-            ) {
-
-                stableEnRoute =
-                    true
-
-                positiveCount =
-                    0
-            }
-
-        } else {
-
-            negativeCount += 1
-
-            positiveCount =
-                0
-
-            if (
-                stableEnRoute &&
-                negativeCount >= EXIT_CONFIRMATION_COUNT
-            ) {
-
-                stableEnRoute =
-                    false
-
-                negativeCount =
-                    0
-            }
+        val rawVerdict = when {
+            distanceTrend == DistanceTrend.UNKNOWN -> null
+            distanceTrend == DistanceTrend.MOVING_AWAY -> false
+            distanceTrend == DistanceTrend.STABLE && movement != null -> false
+            distanceTrend == DistanceTrend.APPROACHING && movement == true &&
+                closingMeters.isFinite() && closingMeters >= 0.0 &&
+                (activity == UserActivityState.IN_VEHICLE || headingMatches ||
+                    closingMeters >= CONSERVATIVE_CLOSING_METERS) -> true
+            // Missing sensors, phone rotation/orientation, or conflicting stationary/progress
+            // evidence do not veto the distance-and-movement fallback.
+            else -> null
         }
 
-        val result =
-            EnRouteFusionResult(
-                rawEnRoute =
-                    rawEnRoute,
-                stableEnRoute =
-                    stableEnRoute,
-                isMoving =
-                    isMoving,
-                isRotating =
-                    isRotating,
-                distanceTrend =
-                    distanceTrend,
-                headingDifferenceDegrees =
-                    headingDifferenceDegrees
-            )
-
-        Log.d(
-            "EnRouteFusion",
-            "rawEnRoute=${result.rawEnRoute}, " +
-                    "stableEnRoute=${result.stableEnRoute}, " +
-                    "moving=$isMoving, " +
-                    "rotating=$isRotating, " +
-                    "distanceTrend=$distanceTrend, " +
-                    "headingDifference=" +
-                    "${headingDifferenceDegrees?.toInt() ?: "unknown"}°, " +
-                    "positiveCount=$positiveCount, " +
-                    "negativeCount=$negativeCount"
-        )
-
-        return result
+        currentVerdict = when (rawVerdict) {
+            true -> {
+                positiveCount = (positiveCount + 1).coerceAtMost(ENTER_CONFIRMATION_COUNT)
+                negativeCount = 0
+                if (positiveCount >= ENTER_CONFIRMATION_COUNT) true else null
+            }
+            false -> {
+                negativeCount = (negativeCount + 1).coerceAtMost(EXIT_CONFIRMATION_COUNT)
+                positiveCount = 0
+                if (negativeCount >= EXIT_CONFIRMATION_COUNT) false else null
+            }
+            null -> {
+                positiveCount = 0
+                negativeCount = 0
+                null
+            }
+        }
+        return result(currentVerdict, rawVerdict, isMoving, isRotating, distanceTrend, headingDifferenceDegrees, closingMeters, activity)
     }
 
-    fun isEnRoute(): Boolean {
-        return stableEnRoute
-    }
+    fun isEnRoute(): Boolean = currentVerdict == true
 
     fun reset() {
-
-        stableEnRoute =
-            false
-
-        positiveCount =
-            0
-
-        negativeCount =
-            0
+        positiveCount = 0
+        negativeCount = 0
+        lastObservedAtNanos = null
+        currentVerdict = null
     }
+
+    private fun result(
+        verdict: Boolean?,
+        rawVerdict: Boolean?,
+        isMoving: Boolean?,
+        isRotating: Boolean?,
+        distanceTrend: DistanceTrend,
+        headingDifferenceDegrees: Double?,
+        closingMeters: Double,
+        activity: UserActivityState?
+    ) = EnRouteFusionResult(
+        verdict = verdict,
+        rawVerdict = rawVerdict,
+        isMoving = isMoving,
+        isRotating = isRotating,
+        distanceTrend = distanceTrend,
+        headingDifferenceDegrees = headingDifferenceDegrees,
+        closingMeters = closingMeters,
+        activity = activity
+    )
 }

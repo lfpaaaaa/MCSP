@@ -25,29 +25,6 @@ class NavigationSessionTest {
         updateLocation(LocationSample(0.0, 0.0, 5f, t), t)
         loadRoutes(t)
     }
-    @Test fun `opening a class initializes the navigation page with the resolved mode`() {
-        for (mode in TravelMode.entries) {
-            val session = session()
-            session.open(destination, mode)
-            assertEquals(mode, session.state.value.mode)
-        }
-    }
-    @Test fun `reopening the same class applies a changed preference and discards old routes`() {
-        val session = session()
-        session.prepare()
-        assertTrue(session.state.value.routes.isNotEmpty())
-        session.open(destination, TravelMode.Driving)
-        assertEquals(TravelMode.Driving, session.state.value.mode)
-        assertTrue(session.state.value.routes.isEmpty())
-    }
-    @Test fun `opening the same class does not replace a running transit reminder`() {
-        val session = session()
-        session.prepare()
-        assertTrue(session.start())
-        session.open(destination, TravelMode.Driving)
-        assertTrue(session.state.value.active)
-        assertEquals(TravelMode.PublicTransport, session.state.value.mode)
-    }
     @Test fun `no fresh GPS means no remote API request`() {
         val session = session()
         session.open(destination)

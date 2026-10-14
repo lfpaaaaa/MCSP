@@ -2,14 +2,14 @@ package au.edu.unimelb.campuscompanion.context
 
 import au.edu.unimelb.campuscompanion.data.TravelMode
 import au.edu.unimelb.campuscompanion.data.building.BuildingLocation
+import au.edu.unimelb.campuscompanion.data.model.GeoPoint
 import au.edu.unimelb.campuscompanion.data.model.TravelEstimate
 import au.edu.unimelb.campuscompanion.data.model.WeatherSnapshot
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
+import au.edu.unimelb.campuscompanion.ui.model.DEFAULT_COURSE_REMINDER_PREPARATION_MINUTES
 import au.edu.unimelb.campuscompanion.ui.model.RouteEstimate
 import au.edu.unimelb.campuscompanion.ui.model.matchesTimetableSession
 import java.time.ZonedDateTime
-import java.time.Instant
-import au.edu.unimelb.campuscompanion.sensing.location.DistanceTrend
 
 /** What the app currently knows about the trip to the next class. */
 data class TravelSnapshot(
@@ -29,11 +29,11 @@ data class TravelSnapshot(
     val weather: WeatherSnapshot? = null,
     /** Extra minutes added to the departure buffer because of the weather. */
     val weatherBufferMinutes: Int = 0,
-    /** Minutes before departure to send the preparation reminder. */
+    /** The student's own buffer, set on the schedule screen. */
     val leadMinutes: Int = 0,
     /** Minutes allowed to get from the building entrance to the room. */
     val entryAllowanceMinutes: Int = 0,
-    /** When to leave: start - travel - weather - entry allowance. Null when the travel time is unknown. */
+    /** When to leave: start - travel - buffers - entry allowance. Null when the travel time is unknown. */
     val leaveBy: ZonedDateTime? = null,
     /** The class that finished in the last few minutes, if any; shown while the state is POST_CLASS. */
     val finishedSession: CourseSession? = null,
@@ -43,10 +43,10 @@ data class TravelSnapshot(
      * Departure reminders keep what the student can see until the next result decides.
      */
     val pending: Boolean = false,
-    /** Time of the current ETA/state calculation, including exact notification boundaries. */
-    val evaluatedAt: Instant? = null,
-    /** Recent GPS progress toward this class, or UNKNOWN without sufficient fresh evidence. */
-    val destinationProgress: DistanceTrend = DistanceTrend.UNKNOWN
+    /** Sampled routing origin; distanceMeters may describe a newer physical observation. */
+    val estimateOrigin: GeoPoint? = null,
+    /** Warning lead time used for this decision; does not change [leaveBy]. */
+    val preparationMinutes: Int = DEFAULT_COURSE_REMINDER_PREPARATION_MINUTES
 ) {
     /** The sessions with the tracked one carrying its travel time and route, for the screens. */
     fun applyTo(sessions: List<CourseSession>): List<CourseSession> {

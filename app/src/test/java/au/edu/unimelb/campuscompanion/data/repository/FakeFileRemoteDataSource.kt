@@ -17,8 +17,15 @@ class FakeFileRemoteDataSource : FileRemoteDataSource {
     var fetchFailure: DataError? = null
     var uploadFailure: DataError? = null
     var recordFailure: DataError? = null
+    var uploadResponseFailure: DataError? = null
+    var recordResponseFailure: DataError? = null
+    var objectDeletionFailure: DataError? = null
+    var fetchRequest: (suspend (String) -> List<SharedFileRow>)? = null
 
     val stored = mutableListOf<SharedFileRow>()
+    val objects = mutableMapOf<String, ByteArray>()
+    val lookups = mutableListOf<String>()
+    val finalizations = mutableListOf<NewFileRecord>()
     val uploadedPaths = mutableListOf<String>()
     val deletedPaths = mutableListOf<String>()
     val deletedRecords = mutableListOf<String>()
@@ -28,20 +35,34 @@ class FakeFileRemoteDataSource : FileRemoteDataSource {
     override suspend fun fetchFiles(groupId: String): List<SharedFileRow> {
         fetchCount.value += 1
         fetchFailure?.let { throw it }
+        fetchRequest?.let { return it(groupId) }
         return stored.filter { it.groupId == groupId }.sortedByDescending { it.createdAt }
+    }
+
+    override suspend fun fetchFileRecord(fileId: String): SharedFileRow? {
+        lookups += fileId
+        fetchFailure?.let { throw it }
+        return stored.firstOrNull { it.id == fileId }
     }
 
     override fun uploadObject(path: String, bytes: ByteArray, mimeType: String): Flow<Long> = flow {
         uploadedPaths += path
         uploadFailure?.let { throw it }
+        if (objects.containsKey(path)) throw DataError.Unexpected() // Storage never upserts.
         emit(bytes.size / 2L)
+        objects[path] = bytes.copyOf()
+        uploadResponseFailure?.let { throw it }
         emit(bytes.size.toLong())
     }
 
-    override suspend fun insertFileRecord(record: NewFileRecord): SharedFileRow {
+    override suspend fun finalizeFileRecord(record: NewFileRecord): SharedFileRow {
+        finalizations += record
+        stored.firstOrNull { it.id == record.uploadId }?.let { return it }
         recordFailure?.let { throw it }
+        val bytes = objects[record.storagePath] ?: throw DataError.NotFound()
+        if (bytes.size.toLong() != record.sizeBytes) throw DataError.Validation("invalid_upload")
         val row = SharedFileRow(
-            id = "file-${stored.size + 100}",
+            id = record.uploadId,
             groupId = record.groupId,
             uploaderId = record.storagePath.split('/')[1],
             fileName = record.fileName,
@@ -49,10 +70,22 @@ class FakeFileRemoteDataSource : FileRemoteDataSource {
             sizeBytes = record.sizeBytes,
             storagePath = record.storagePath,
             allowDownloads = record.allowDownloads,
+            durationMillis = record.durationMillis,
+            isVoiceRecording = record.isVoiceRecording,
             createdAt = "2026-09-25T06:00:00Z"
         )
         stored += row
+        recordResponseFailure?.let { throw it }
         return row
+    }
+
+    private val deletedFileIds = mutableSetOf<String>()
+    override suspend fun deleteFile(fileId: String) {
+        if (fileId in deletedFileIds) return
+        val row = stored.firstOrNull { it.id == fileId } ?: throw DataError.NotFound()
+        deleteObject(row.storagePath)
+        deleteFileRecord(fileId)
+        deletedFileIds += fileId
     }
 
     override suspend fun deleteFileRecord(fileId: String): Int {
@@ -62,6 +95,8 @@ class FakeFileRemoteDataSource : FileRemoteDataSource {
 
     override suspend fun deleteObject(path: String) {
         deletedPaths += path
+        objectDeletionFailure?.let { throw it }
+        objects.remove(path)
     }
 
     val accessRequests = mutableListOf<Pair<String, Boolean>>()

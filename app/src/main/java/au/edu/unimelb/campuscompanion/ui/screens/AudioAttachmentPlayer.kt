@@ -1,72 +1,90 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.liveRegion
-import au.edu.unimelb.campuscompanion.ui.text.spokenDuration
-import au.edu.unimelb.campuscompanion.ui.text.textResources
-
-import android.media.MediaPlayer
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import au.edu.unimelb.campuscompanion.R
+import au.edu.unimelb.campuscompanion.ui.model.AudioPlaybackController
+import au.edu.unimelb.campuscompanion.ui.model.AudioPlaybackPhase
+import au.edu.unimelb.campuscompanion.ui.model.formatAudioDuration
 import kotlinx.coroutines.delay
 import java.io.File
 
 @Composable
-internal fun AudioAttachmentPlayer(source: File) {
-    val textResources = textResources()
-    var player by remember(source.path) { mutableStateOf<MediaPlayer?>(null) }
-    var playing by remember(source.path) { mutableStateOf(false) }
-    var position by remember(source.path) { mutableIntStateOf(0) }
-    var duration by remember(source.path) { mutableIntStateOf(0) }
-    var failed by remember(source.path) { mutableStateOf(false) }
+internal fun AudioAttachmentPlayer(
+    source: File,
+    modifier: Modifier = Modifier,
+    controllerFactory: ((String) -> AudioPlaybackController)? = null
+) {
+    val context = LocalContext.current.applicationContext
+    val controller = remember(source.absolutePath, controllerFactory, context) {
+        controllerFactory?.invoke(source.absolutePath) ?: AudioPlaybackController(source.absolutePath,
+            createBackend = { AndroidAudioPlaybackBackend() }, audioFocus = AndroidPlaybackAudioFocus(context))
+    }
+    val state by controller.state.collectAsState()
+    var scrubPosition by remember(controller) { mutableStateOf<Float?>(null) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    DisposableEffect(source.path, lifecycle) {
-        val media = MediaPlayer()
-        player = media
-        media.setOnPreparedListener { duration = it.duration }
-        media.setOnCompletionListener { playing = false; position = duration }
-        media.setOnErrorListener { _, _, _ -> failed = true; playing = false; true }
-        runCatching { media.setDataSource(source.path); media.prepareAsync() }.onFailure { failed = true }
+    DisposableEffect(controller, lifecycle) {
+        controller.prepare()
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) { runCatching { media.pause() }; playing = false }
+            if (event == Lifecycle.Event.ON_STOP) controller.pause()
         }
         lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer); media.release(); player = null }
+        onDispose { lifecycle.removeObserver(observer); controller.dispose() }
     }
-    LaunchedEffect(playing) {
-        while (playing) { position = runCatching { player?.currentPosition ?: 0 }.getOrDefault(0); delay(250) }
+    LaunchedEffect(controller, state.phase) {
+        while (state.phase == AudioPlaybackPhase.Playing) {
+            controller.pollPosition()
+            delay(250)
+        }
     }
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        if (failed) Text(stringResource(R.string.audio_playback_failed), color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
-        else {
-            Text(textResources.getString(R.string.audio_playback_position, audioTime(position / 1000), audioTime(duration / 1000)))
-            Slider(value = position.toFloat().coerceIn(0f, duration.toFloat().coerceAtLeast(1f)),
-                onValueChange = { position = it.toInt(); player?.seekTo(position) },
-                valueRange = 0f..duration.toFloat().coerceAtLeast(1f), enabled = duration > 0,
-                modifier = Modifier.fillMaxWidth().semantics {
-                    contentDescription = textResources.getString(R.string.a11y_audio_position)
-                    stateDescription = textResources.getString(R.string.a11y_audio_progress,
-                        textResources.spokenDuration(position / 1000), textResources.spokenDuration(duration / 1000))
-                })
-            OutlinedButton(enabled = duration > 0, onClick = {
-                runCatching {
-                    if (playing) player?.pause() else { if (position >= duration) player?.seekTo(0); player?.start() }
-                    playing = !playing
-                }.onFailure { failed = true }
-            }) { Text(stringResource(if (playing) R.string.audio_pause else R.string.audio_play)) }
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        when (state.phase) {
+            AudioPlaybackPhase.Preparing -> {
+                CircularProgressIndicator(modifier = Modifier.semantics { contentDescription = "Preparing audio" })
+                Text("Preparing audio…")
+            }
+            AudioPlaybackPhase.Failed -> {
+                Text(state.error ?: "This audio could not be played. Tap Retry.", color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                TextButton(onClick = { scrubPosition = null; controller.prepare() }) { Text("Retry playback") }
+            }
+            AudioPlaybackPhase.Released -> Unit
+            AudioPlaybackPhase.Ready, AudioPlaybackPhase.Playing -> {
+                val position = scrubPosition?.toLong() ?: state.positionMillis.toLong()
+                Text("${formatAudioDuration(position)} / ${formatAudioDuration(state.durationMillis.toLong())}")
+                Slider(
+                    value = (scrubPosition ?: state.positionMillis.toFloat()).coerceIn(0f, state.durationMillis.toFloat().coerceAtLeast(1f)),
+                    onValueChange = { scrubPosition = it },
+                    onValueChangeFinished = { scrubPosition?.let { controller.seekTo(it.toInt()) }; scrubPosition = null },
+                    valueRange = 0f..state.durationMillis.toFloat().coerceAtLeast(1f),
+                    enabled = state.durationMillis > 0,
+                    modifier = Modifier.fillMaxWidth().semantics {
+                        contentDescription = "Audio playback position"
+                        stateDescription = "${formatAudioDuration(position)} of ${formatAudioDuration(state.durationMillis.toLong())}"
+                    }
+                )
+                OutlinedButton(onClick = {
+                    if (state.phase == AudioPlaybackPhase.Playing) controller.pause() else controller.play()
+                }) { Text(if (state.phase == AudioPlaybackPhase.Playing) "Pause" else "Play") }
+            }
         }
     }
 }
-
-internal fun audioTime(seconds: Int): String = "%02d:%02d".format(seconds / 60, seconds % 60)

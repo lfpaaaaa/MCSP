@@ -1,6 +1,5 @@
 package au.edu.unimelb.campuscompanion.ui.model
 
-import au.edu.unimelb.campuscompanion.english
 import au.edu.unimelb.campuscompanion.context.ContextState
 import au.edu.unimelb.campuscompanion.context.TravelSnapshot
 import au.edu.unimelb.campuscompanion.data.TravelMode
@@ -49,11 +48,11 @@ class HomeCardGuidanceTest {
     fun leaveSoonCountdownRoundsUpAndChangesToLeaveNowAtTheEngineDeadline() {
         val snapshot = snapshot().copy(leaveBy = now.plusMinutes(5))
 
-        assertEquals("Leave in 5 minutes", guidance(snapshot).headline.english())
-        assertEquals("Leave in 1 minute", guidance(snapshot, now.plusMinutes(4).plusSeconds(30)).headline.english())
-        assertEquals("Leave in 1 minute", guidance(snapshot, now.plusMinutes(5).minusNanos(1)).headline.english())
-        assertEquals("Leave now", guidance(snapshot, now.plusMinutes(5)).headline.english())
-        assertEquals("Leave now", guidance(snapshot, now.plusMinutes(5).plusSeconds(1)).headline.english())
+        assertEquals("Leave in 5 minutes", guidance(snapshot).headline)
+        assertEquals("Leave in 1 minute", guidance(snapshot, now.plusMinutes(4).plusSeconds(30)).headline)
+        assertEquals("Leave in 1 minute", guidance(snapshot, now.plusMinutes(5).minusNanos(1)).headline)
+        assertEquals("Leave now", guidance(snapshot, now.plusMinutes(5)).headline)
+        assertEquals("Leave now", guidance(snapshot, now.plusMinutes(5).plusSeconds(1)).headline)
     }
 
     @Test
@@ -68,17 +67,17 @@ class HomeCardGuidanceTest {
 
         val guidance = guidance(snapshot)
 
-        assertEquals("Leave by 2:42 PM", guidance.departureLine?.english())
+        assertEquals("Leave by 2:42 PM", guidance.departureLine)
     }
 
     @Test
     fun availableTravelWithoutADeadlineDoesNotFabricateDepartureGuidance() {
         val guidance = guidance(snapshot().copy(leaveBy = null))
 
-        assertFalse(guidance.headline.english().startsWith("Leave in "))
-        assertFalse(guidance.headline.english() == "Leave now")
-        assertNull(guidance.departureLine?.english())
-        assertNull(guidance.bufferExplanation?.english())
+        assertFalse(guidance.headline.startsWith("Leave in "))
+        assertFalse(guidance.headline == "Leave now")
+        assertNull(guidance.departureLine)
+        assertNull(guidance.bufferExplanation)
         assertFalse(guidance.showWeatherCredit)
         assertTrue(guidance.showTravelDetails)
     }
@@ -93,11 +92,11 @@ class HomeCardGuidanceTest {
         )
         val messages = cases.map { snapshot ->
             val guidance = guidance(snapshot)
-            assertEquals("Class starts in 35 minutes", guidance.headline.english())
-            assertNull(guidance.departureLine?.english())
-            assertNull(guidance.bufferExplanation?.english())
+            assertEquals("Class starts in 35 minutes", guidance.headline)
+            assertNull(guidance.departureLine)
+            assertNull(guidance.bufferExplanation)
             assertTrue(guidance.showTravelDetails)
-            requireNotNull(guidance.travelUnavailableMessage?.english())
+            requireNotNull(guidance.travelUnavailableMessage)
         }
 
         assertTrue(messages.all(String::isNotBlank))
@@ -111,10 +110,9 @@ class HomeCardGuidanceTest {
             weatherBufferMinutes = 4,
             entryAllowanceMinutes = 6
         ))
-        val explanation = requireNotNull(guidance.bufferExplanation?.english())
+        val explanation = requireNotNull(guidance.bufferExplanation)
 
-        assertFalse(explanation.contains("arrival buffer"))
-        assertFalse(explanation.contains("3 min"))
+        assertTrue(explanation.contains("3 min arrival buffer"))
         assertTrue(explanation.contains("4 min for weather"))
         assertTrue(explanation.contains("6 min to reach the room"))
         assertFalse(explanation.contains("10 min"))
@@ -127,7 +125,7 @@ class HomeCardGuidanceTest {
         val inClass = guidance(snapshot(ContextState.IN_CLASS), nextClass.start.plusMinutes(5))
 
         assertFalse(withoutWeather.showWeatherCredit)
-        assertNull(inClass.bufferExplanation?.english())
+        assertNull(inClass.bufferExplanation)
         assertFalse(inClass.showWeatherCredit)
         assertFalse(inClass.showTravelDetails)
     }
@@ -136,9 +134,9 @@ class HomeCardGuidanceTest {
     fun enRouteGuidanceDoesNotAskTheStudentToDepartAgain() {
         val guidance = guidance(snapshot(ContextState.EN_ROUTE))
 
-        assertEquals("On your way", guidance.headline.english())
-        assertNull(guidance.departureLine?.english())
-        assertNull(guidance.bufferExplanation?.english())
+        assertEquals("On your way", guidance.headline)
+        assertNull(guidance.departureLine)
+        assertNull(guidance.bufferExplanation)
         assertTrue(guidance.showTravelDetails)
     }
 
@@ -148,16 +146,16 @@ class HomeCardGuidanceTest {
             estimate = estimate.copy(source = EstimateSource.StraightLine)
         ))
 
-        assertEquals("On your way", guidance.headline.english())
-        assertEquals("About 23 min remaining · Class starts at 3:00 PM", guidance.detail?.english())
+        assertEquals("On your way", guidance.headline)
+        assertEquals("About 23 min remaining · Class starts at 3:00 PM", guidance.detail)
     }
 
     @Test
     fun arrivedGuidanceCountsDownToClassStartInsteadOfDeparture() {
         val guidance = guidance(snapshot(ContextState.ARRIVED), nextClass.start.minusMinutes(6))
 
-        assertEquals("Class starts in 6 minutes", guidance.headline.english())
-        assertNull(guidance.departureLine?.english())
+        assertEquals("Class starts in 6 minutes", guidance.headline)
+        assertNull(guidance.departureLine)
         assertFalse(guidance.showTravelDetails)
     }
 
@@ -165,17 +163,17 @@ class HomeCardGuidanceTest {
     fun inClassGuidanceShowsTheClassEndInsteadOfAnExpiredDeadline() {
         val guidance = guidance(snapshot(ContextState.IN_CLASS), nextClass.start.plusMinutes(6))
 
-        assertEquals("In class until 4:00 PM", guidance.headline.english())
-        assertNull(guidance.departureLine?.english())
-        assertNull(guidance.bufferExplanation?.english())
+        assertEquals("In class until 4:00 PM", guidance.headline)
+        assertNull(guidance.departureLine)
+        assertNull(guidance.bufferExplanation)
     }
 
     @Test
     fun runningLateBeforeClassPromptsDepartureAndExplainsTheTravelShortfall() {
         val guidance = guidance(snapshot(ContextState.RUNNING_LATE), nextClass.start.minusMinutes(15))
 
-        assertEquals("Leave now", guidance.headline.english())
-        assertEquals("You may arrive about 8 minutes after class starts.", guidance.detail?.english())
+        assertEquals("Leave now", guidance.headline)
+        assertEquals("You may arrive about 8 minutes after class starts.", guidance.detail)
         assertTrue(guidance.showTravelDetails)
     }
 
@@ -183,8 +181,8 @@ class HomeCardGuidanceTest {
     fun runningLateAfterClassStartShowsElapsedTimeAndRemainingTravel() {
         val guidance = guidance(snapshot(ContextState.RUNNING_LATE), nextClass.start.plusMinutes(5))
 
-        assertEquals("Class started 5 minutes ago", guidance.headline.english())
-        assertEquals("About 23 min remaining", guidance.detail?.english())
+        assertEquals("Class started 5 minutes ago", guidance.headline)
+        assertEquals("About 23 min remaining", guidance.detail)
         assertTrue(guidance.showTravelDetails)
     }
 
@@ -192,11 +190,11 @@ class HomeCardGuidanceTest {
     fun elapsedClassTimeDoesNotRoundUpBeforeAMinuteHasActuallyPassed() {
         val snapshot = snapshot(ContextState.RUNNING_LATE)
 
-        assertEquals("Class starts now", guidance(snapshot, nextClass.start).headline.english())
-        assertEquals("Class started less than a minute ago", guidance(snapshot, nextClass.start.plusNanos(1)).headline.english())
-        assertEquals("Class started less than a minute ago", guidance(snapshot, nextClass.start.plusSeconds(59)).headline.english())
-        assertEquals("Class started 1 minute ago", guidance(snapshot, nextClass.start.plusMinutes(1)).headline.english())
-        assertEquals("Class started 1 minute ago", guidance(snapshot, nextClass.start.plusSeconds(119)).headline.english())
+        assertEquals("Class starts now", guidance(snapshot, nextClass.start).headline)
+        assertEquals("Class started less than a minute ago", guidance(snapshot, nextClass.start.plusNanos(1)).headline)
+        assertEquals("Class started less than a minute ago", guidance(snapshot, nextClass.start.plusSeconds(59)).headline)
+        assertEquals("Class started 1 minute ago", guidance(snapshot, nextClass.start.plusMinutes(1)).headline)
+        assertEquals("Class started 1 minute ago", guidance(snapshot, nextClass.start.plusSeconds(119)).headline)
     }
 
     @Test
@@ -209,8 +207,8 @@ class HomeCardGuidanceTest {
 
         val guidance = guidance(snapshot, sessions = listOf(later))
 
-        assertEquals("Free for 1 hour 30 minutes", guidance.headline.english())
-        assertEquals("Leave by 3:55 PM", guidance.departureLine?.english())
+        assertEquals("Free for 1 hour 30 minutes", guidance.headline)
+        assertEquals("Leave by 3:55 PM", guidance.departureLine)
         assertTrue(guidance.showTravelDetails)
     }
 
@@ -218,13 +216,13 @@ class HomeCardGuidanceTest {
     fun longBreakWithoutTravelDoesNotClaimTheWholeTimeUntilClassIsFree() {
         val guidance = guidance(snapshot(ContextState.LONG_BREAK).copy(estimate = null, leaveBy = null))
 
-        assertEquals("A break before your next class", guidance.headline.english())
-        assertFalse(guidance.headline.english().contains("Free"))
-        assertTrue(requireNotNull(guidance.detail?.english()).contains("Next class starts at 3:00 PM"))
-        assertNull(guidance.departureLine?.english())
-        assertNull(guidance.bufferExplanation?.english())
+        assertEquals("A break before your next class", guidance.headline)
+        assertFalse(guidance.headline.contains("Free"))
+        assertTrue(requireNotNull(guidance.detail).contains("Next class starts at 3:00 PM"))
+        assertNull(guidance.departureLine)
+        assertNull(guidance.bufferExplanation)
         assertTrue(guidance.showTravelDetails)
-        assertTrue(requireNotNull(guidance.travelUnavailableMessage?.english()).isNotBlank())
+        assertTrue(requireNotNull(guidance.travelUnavailableMessage).isNotBlank())
     }
 
     @Test
@@ -241,9 +239,9 @@ class HomeCardGuidanceTest {
         assertEquals(ContextState.POST_CLASS, card.state)
         assertEquals(finished, card.finishedSession)
         assertEquals(snapshot.leaveBy, card.leaveBy)
-        assertEquals("Next class starts at 3:00 PM", guidance.headline.english())
-        assertFalse(guidance.headline.english().startsWith("Leave"))
-        assertNull(guidance.departureLine?.english())
+        assertEquals("Next class starts at 3:00 PM", guidance.headline)
+        assertFalse(guidance.headline.startsWith("Leave"))
+        assertNull(guidance.departureLine)
     }
 
     @Test
@@ -254,8 +252,8 @@ class HomeCardGuidanceTest {
             sessions = listOf(finished)
         )
 
-        assertEquals("COMP90018 just finished", guidance.headline.english())
-        assertNull(guidance.departureLine?.english())
+        assertEquals("COMP90018 just finished", guidance.headline)
+        assertNull(guidance.departureLine)
         assertFalse(guidance.showTravelDetails)
     }
 
@@ -267,9 +265,9 @@ class HomeCardGuidanceTest {
             sessions = listOf(tomorrow)
         )
 
-        assertEquals("No more classes today", guidance.headline.english())
-        assertEquals("Next class starts on Tue, 13 Oct at 3:00 PM", guidance.detail?.english())
-        assertNull(guidance.departureLine?.english())
+        assertEquals("No more classes today", guidance.headline)
+        assertEquals("Next class starts on Tue, 13 Oct at 3:00 PM", guidance.detail)
+        assertNull(guidance.departureLine)
         assertFalse(guidance.showTravelDetails)
     }
 
@@ -277,10 +275,10 @@ class HomeCardGuidanceTest {
     fun noUpcomingSessionExplainsTheEmptyTimetableWithoutTravelDetails() {
         val guidance = guidance(TravelSnapshot(), sessions = emptyList())
 
-        assertEquals("No more classes today", guidance.headline.english())
-        assertEquals("Your timetable has no upcoming classes.", guidance.detail?.english())
-        assertNull(guidance.departureLine?.english())
-        assertNull(guidance.bufferExplanation?.english())
+        assertEquals("No more classes today", guidance.headline)
+        assertEquals("Your timetable has no upcoming classes.", guidance.detail)
+        assertNull(guidance.departureLine)
+        assertNull(guidance.bufferExplanation)
         assertFalse(guidance.showTravelDetails)
     }
 
@@ -290,10 +288,10 @@ class HomeCardGuidanceTest {
         val stale = guidance(snapshot().copy(session = nextClass.copy(id = "stale-class")))
 
         for (guidance in listOf(startup, stale)) {
-            assertFalse(guidance.headline.english().startsWith("Leave in "))
-            assertFalse(guidance.headline.english() == "Leave now")
-            assertNull(guidance.departureLine?.english())
-            assertNull(guidance.bufferExplanation?.english())
+            assertFalse(guidance.headline.startsWith("Leave in "))
+            assertFalse(guidance.headline == "Leave now")
+            assertNull(guidance.departureLine)
+            assertNull(guidance.bufferExplanation)
             assertFalse(guidance.showTravelDetails)
             assertFalse(guidance.showWeatherCredit)
         }
@@ -303,9 +301,9 @@ class HomeCardGuidanceTest {
     fun anUpdatingClassAlreadyInProgressDoesNotClaimItIsTheNextClass() {
         val guidance = guidance(TravelSnapshot(), nextClass.start.plusMinutes(1))
 
-        assertEquals("CURRENT CLASS", guidance.cardLabel.english())
-        assertEquals("Updating class guidance", guidance.headline.english())
-        assertNull(guidance.departureLine?.english())
+        assertEquals("CURRENT CLASS", guidance.cardLabel)
+        assertEquals("Updating class guidance", guidance.headline)
+        assertNull(guidance.departureLine)
         assertFalse(guidance.showTravelDetails)
     }
 
@@ -318,10 +316,10 @@ class HomeCardGuidanceTest {
 
         val overseasGuidance = guidance(snapshot, overseasClock)
 
-        assertEquals("Leave in 5 minutes", overseasGuidance.headline.english())
-        assertEquals("Leave by 2:30 PM", overseasGuidance.departureLine?.english())
+        assertEquals("Leave in 5 minutes", overseasGuidance.headline)
+        assertEquals("Leave by 2:30 PM", overseasGuidance.departureLine)
         val inClass = guidance(snapshot.copy(state = ContextState.IN_CLASS), nextClass.start.withZoneSameInstant(ZoneId.of("UTC")))
-        assertEquals("In class until 4:00 PM", inClass.headline.english())
+        assertEquals("In class until 4:00 PM", inClass.headline)
     }
 
     private fun snapshot(state: ContextState = ContextState.LEAVE_SOON) = TravelSnapshot(

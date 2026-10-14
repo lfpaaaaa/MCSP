@@ -40,7 +40,7 @@ jobs:
         run: supabase stop --no-backup
 
   functions:
-    name: Edge Function type check
+    name: Edge Function checks and cleanup tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -54,8 +54,11 @@ jobs:
       # packages in node_modules; the functions take theirs from Deno's own cache instead.
       - name: Type-check the Edge Functions
         run: |
-          for function in supabase/functions/*/; do
+          for function in supabase/functions/*/index.ts; do
             echo "::group::$function"
-            deno check --node-modules-dir=none "$function"index.ts
+            deno check --node-modules-dir=none "$function"
             echo "::endgroup::"
           done
+
+      - name: Run durable cleanup regression tests
+        run: deno test --node-modules-dir=none supabase/functions/_shared/group-file-cleanup.test.ts

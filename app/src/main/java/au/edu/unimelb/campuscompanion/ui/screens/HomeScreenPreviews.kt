@@ -82,7 +82,7 @@ private fun PreviewHomeCard(state: ContextState, now: ZonedDateTime, hasTravel: 
     CampusCompanionTheme {
         Surface {
             Column(Modifier.padding(16.dp)) {
-                NextClassCard(previewSession, card, buildHomeCardGuidance(card, now), onNavigate = {}, onOpenCompass = {})
+                NextClassCard(previewSession, card, buildHomeCardGuidance(card, now), onNavigate = {})
             }
         }
     }
@@ -178,7 +178,7 @@ private fun PreviewPostClassHome(hasUpdates: Boolean = true, hasUrgentNextClass:
                 verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
                 if (nextSession != null) {
-                    NextClassCard(nextSession, card, guidance, onNavigate = {}, onOpenCompass = {})
+                    NextClassCard(nextSession, card, guidance, onNavigate = {})
                 } else {
                     HomeDayCard(guidance)
                 }

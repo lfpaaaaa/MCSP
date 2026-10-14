@@ -1,11 +1,11 @@
 package au.edu.unimelb.campuscompanion.data.fake
 
-import au.edu.unimelb.campuscompanion.ui.text.UiText
-import au.edu.unimelb.campuscompanion.R
 import au.edu.unimelb.campuscompanion.data.model.TimetableGroupSpec
+
 import au.edu.unimelb.campuscompanion.data.slotLabel
 import au.edu.unimelb.campuscompanion.data.DataError
 import au.edu.unimelb.campuscompanion.data.model.Group
+import au.edu.unimelb.campuscompanion.data.model.GroupInvite
 import au.edu.unimelb.campuscompanion.data.model.GroupMember
 import au.edu.unimelb.campuscompanion.data.model.GroupRole
 import au.edu.unimelb.campuscompanion.data.model.GroupSummary
@@ -84,10 +84,20 @@ class FakeGroupRepository(
         return Result.success(group)
     }
 
+    override suspend fun joinWithToken(token: String): Result<Group> {
+        delay(latencyMillis)
+        val group = when (token) {
+            FakeData.DEMO_INVITE_TOKEN -> findGroup(FakeData.JOINABLE_GROUP_ID)
+            else -> GroupInvite.joinCodeFromText(token)?.let(::findGroupByJoinCode)
+        } ?: return Result.failure(DataError.InvalidInvite(DataError.InvalidInvite.Reason.Unknown))
+        addCurrentUser(group)
+        return Result.success(group)
+    }
+
     override suspend fun setMyNickname(groupId: String, nickname: String): Result<String> {
         val name = nickname.trim()
         if (name.isEmpty() || name.length > 40)
-            return Result.failure(DataError.Validation(UiText(R.string.validation_group_nicknames_need_1_to_40_characters)))
+            return Result.failure(DataError.Validation("Group nicknames need 1 to 40 characters."))
         if (members.value[groupId].orEmpty().none { it.userId == currentUserId })
             return Result.failure(DataError.Forbidden())
         members.update { map -> map + (groupId to map[groupId].orEmpty().map {

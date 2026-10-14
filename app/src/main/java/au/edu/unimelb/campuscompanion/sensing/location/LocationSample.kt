@@ -4,5 +4,6 @@ data class LocationSample(
     val latitude: Double,
     val longitude: Double,
     val accuracyMeters: Float,
-    val timestampMillis: Long
+    val timestampMillis: Long,
+    val elapsedRealtimeNanos: Long = 0L
 )

@@ -74,11 +74,6 @@ kotlin {
 }
 
 dependencies {
-    constraints {
-        implementation(libs.androidx.fragment) {
-            because("Activity Result APIs require a current Fragment when brought in by Play Services")
-        }
-    }
     coreLibraryDesugaring(libs.desugar.jdk.libs)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

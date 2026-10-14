@@ -8,8 +8,8 @@ import au.edu.unimelb.campuscompanion.data.remote.dataResult
 import au.edu.unimelb.campuscompanion.data.remote.toModel
 
 /**
- * [InviteRepository] backed by [remote]. After a successful join, [groups] is refreshed so that
- * the new group appears in the group list straight away.
+ * [InviteRepository] backed by [remote]. Joins run through [groups] so that the returned group
+ * is published and cached even when the subsequent summary refresh fails.
  */
 class DefaultInviteRepository(
     private val remote: GroupRemoteDataSource,
@@ -25,7 +25,6 @@ class DefaultInviteRepository(
         if (normalized.isEmpty() || normalized.any(Char::isWhitespace)) {
             return Result.failure(DataError.InvalidInvite(DataError.InvalidInvite.Reason.Unknown))
         }
-        return dataResult { remote.joinWithToken(normalized).toModel() }
-            .onSuccess { groups.refresh() }
+        return groups.joinWithToken(normalized)
     }
 }

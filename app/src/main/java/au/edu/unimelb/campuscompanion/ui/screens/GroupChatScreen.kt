@@ -1,19 +1,5 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.liveRegion
-import androidx.compose.runtime.setValue
-
-import androidx.compose.runtime.getValue
-
-import au.edu.unimelb.campuscompanion.ui.text.textResources
-import au.edu.unimelb.campuscompanion.R
-import androidx.compose.ui.res.stringResource
-import androidx.compose.material.icons.outlined.Mic
-import au.edu.unimelb.campuscompanion.data.discardLocalRecording
 import android.Manifest
 import android.content.Context
 import android.content.Intent
@@ -28,6 +14,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
@@ -37,6 +24,9 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
@@ -57,6 +47,7 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.Videocam
 import androidx.compose.material3.CircularProgressIndicator
@@ -75,12 +66,15 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.material3.Switch
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
@@ -97,16 +91,24 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import au.edu.unimelb.campuscompanion.data.AppRepositories
+import au.edu.unimelb.campuscompanion.data.AttachmentUploadQueue
+import au.edu.unimelb.campuscompanion.data.DataError
 import au.edu.unimelb.campuscompanion.data.model.ChatConnection
 import au.edu.unimelb.campuscompanion.data.model.MessageStatus
 import au.edu.unimelb.campuscompanion.data.model.SharedFile
 import au.edu.unimelb.campuscompanion.data.repository.ChatRepository
+import au.edu.unimelb.campuscompanion.data.repository.ChatMessageSender
 import au.edu.unimelb.campuscompanion.data.repository.FileRepository
+import au.edu.unimelb.campuscompanion.data.recording.RecordingController
+import au.edu.unimelb.campuscompanion.data.recording.RecordingDraft
+import au.edu.unimelb.campuscompanion.data.recording.RecordingDraftPhase
+import au.edu.unimelb.campuscompanion.data.recording.RecordingDraftStore
 import au.edu.unimelb.campuscompanion.ui.chat.ChatImageLoader
 import au.edu.unimelb.campuscompanion.ui.chat.ChatTimelineItem
 import au.edu.unimelb.campuscompanion.ui.chat.GroupChatSession
@@ -118,6 +120,9 @@ import au.edu.unimelb.campuscompanion.ui.model.CourseGroup
 import au.edu.unimelb.campuscompanion.ui.model.GroupOrigin
 import au.edu.unimelb.campuscompanion.ui.model.MAX_PENDING_DOCUMENTS
 import au.edu.unimelb.campuscompanion.ui.model.PendingDocument
+import au.edu.unimelb.campuscompanion.ui.model.formatAudioDuration
+import au.edu.unimelb.campuscompanion.ui.model.sharedAudioLabel
+import au.edu.unimelb.campuscompanion.ui.model.stopAllAudioPlayback
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -128,6 +133,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import java.io.File
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -155,8 +161,8 @@ private enum class AttachmentKind {
     File,
     Photo,
     Video,
-    Audio,
-    Camera
+    Camera,
+    Audio
 }
 
 /**
@@ -178,14 +184,17 @@ fun GroupChatScreen(
     onCapturedCameraPhotoConsumed: () -> Unit,
     modifier: Modifier = Modifier,
     chatRepository: ChatRepository = AppRepositories.chat,
-    fileRepository: FileRepository = AppRepositories.files
+    fileRepository: FileRepository = AppRepositories.files,
+    attachmentUploadQueue: AttachmentUploadQueue = AppRepositories.attachmentUploads,
+    messageSender: ChatMessageSender = AppRepositories.chatSender,
+    recordingStore: RecordingDraftStore = AppRepositories.recordings,
+    recordingControllerFactory: ((CoroutineScope) -> RecordingController)? = null
 ) {
-    val textResources = textResources()
     val listState = rememberLazyListState()
     val focusManager = LocalFocusManager.current
     val context = LocalContext.current
-    val sessionScope = remember(group.id) { CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate) }
-    val session = remember(group.id) {
+    val sessionScope = remember(group.id, currentUserId) { CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate) }
+    val session = remember(group.id, currentUserId, chatRepository, fileRepository) {
         GroupChatSession(
             groupId = group.id,
             currentUserId = currentUserId,
@@ -196,7 +205,7 @@ fun GroupChatScreen(
             onLatency = ::logLatency
         )
     }
-    val images = remember(group.id) { ChatImageLoader(fileRepository, sessionScope) }
+    val images = remember(group.id, currentUserId, fileRepository) { ChatImageLoader(fileRepository, sessionScope) }
     DisposableEffect(sessionScope) {
         session.start()
         onDispose { sessionScope.cancel() }
@@ -222,26 +231,41 @@ fun GroupChatScreen(
     }
     val state by session.state.collectAsState()
     val rows = remember(state.items) { timelineRows(state.items) }
-    val sender = remember { AppRepositories.chatSender }
-    val uploadQueue = remember { AppRepositories.attachmentUploads }
+    val sender = messageSender
+    val uploadQueue = attachmentUploadQueue
     val allUploads by uploadQueue.uploads.collectAsState()
     val sharedIds = state.items.filterIsInstance<ChatTimelineItem.File>().mapTo(mutableSetOf()) { it.file.id }
     val uploads = allUploads.filter {
         it.userId == currentUserId && it.groupId == group.id && it.fileId !in sharedIds
     }
-    LaunchedEffect(group.id, sharedIds) { uploadQueue.acknowledge(sharedIds) }
-    var selectedFileId by rememberSaveable(group.id) { mutableStateOf<String?>(null) }
-    state.items.filterIsInstance<ChatTimelineItem.File>().firstOrNull { it.file.id == selectedFileId }?.file?.let { file ->
-        ChatAttachmentViewer(file, currentUserId, onDismiss = { selectedFileId = null })
+    LaunchedEffect(group.id, sharedIds) {
+        runCatching { uploadQueue.acknowledge(sharedIds) }.onFailure(session::report)
     }
+    var selectedFile by remember(group.id, currentUserId) { mutableStateOf<SharedFile?>(null) }
+    selectedFile?.let { file -> ChatAttachmentViewer(file, currentUserId, onDismiss = { selectedFile = null }, repository = fileRepository) }
 
-    var draft by rememberSaveable(group.id) { mutableStateOf("") }
-    var localAttachment by rememberSaveable(group.id, stateSaver = localAttachmentSaver) { mutableStateOf<LocalAttachment?>(null) }
-    var blockedDownloadUris by rememberSaveable(group.id) { mutableStateOf(arrayListOf<String>()) }
+    var draft by rememberSaveable(group.id, currentUserId) { mutableStateOf("") }
+    var localAttachment by rememberSaveable(group.id, currentUserId, stateSaver = localAttachmentSaver) { mutableStateOf<LocalAttachment?>(null) }
+    var blockedDownloadUris by rememberSaveable(group.id, currentUserId) { mutableStateOf(arrayListOf<String>()) }
+    var stagedRecording by remember(currentUserId, group.id, recordingStore) { mutableStateOf<RecordingDraft?>(null) }
+    var showRecording by rememberSaveable(currentUserId, group.id) { mutableStateOf(false) }
+    // Staging is durable. Reconcile the enqueue-before-markQueued crash window using its stable ID.
+    LaunchedEffect(currentUserId, group.id, recordingStore, uploadQueue) {
+        runCatching {
+            val restored = recordingStore.load(currentUserId, group.id)
+            restored.warning?.let { session.report(DataError.Validation(it)) }
+            val clip = restored.draft
+            if (clip?.phase == RecordingDraftPhase.Staged) {
+                val queued = uploadQueue.uploads.value.any {
+                    it.userId == currentUserId && it.groupId == group.id && it.uploadId == clip.id && it.isVoiceRecording
+                }
+                if (queued) recordingStore.markQueued(clip) else stagedRecording = clip
+            }
+        }.onFailure(session::report)
+    }
     fun setDownloadAllowed(uri: String, allowed: Boolean) {
         blockedDownloadUris = ArrayList(if (allowed) blockedDownloadUris - uri else (blockedDownloadUris + uri).distinct())
     }
-    var showRecording by rememberSaveable(group.id) { mutableStateOf(false) }
     var showAttachmentSheet by remember { mutableStateOf(false) }
     var cameraPermissionDenied by remember { mutableStateOf(false) }
     val attachmentSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -250,19 +274,33 @@ fun GroupChatScreen(
     // Persist the URI before reading bytes; uploads survive leaving the chat and can be retried.
     fun uploadFromUri(uri: Uri, fallbackName: String, fallbackType: String = "application/octet-stream") {
         uploadQueue.enqueue(group.id, uri.toString(), fallbackName,
-            context.contentResolver.getType(uri) ?: fallbackType, allowDownloads = uri.toString() !in blockedDownloadUris)
+            context.contentResolver.getType(uri) ?: fallbackType, allowDownloads = uri.toString() !in blockedDownloadUris,
+            expectedUserId = currentUserId)
     }
 
     fun sendDraft() {
         val text = draft.trim()
         val documents = pendingDocuments
         val local = localAttachment
-        if (text.isEmpty() && documents.isEmpty() && local == null) return
+        val recording = stagedRecording
+        if (text.isEmpty() && documents.isEmpty() && local == null && recording == null) return
         try {
+            recording?.let { clip ->
+                if (clip.userId != currentUserId || clip.groupId != group.id) throw DataError.Unauthenticated()
+                stopAllAudioPlayback()
+                uploadQueue.enqueue(group.id, File(clip.localPath).toURI().toString(), clip.fileName,
+                    "audio/mp4", allowDownloads = clip.allowDownloads, durationMillis = clip.durationMillis,
+                    isVoiceRecording = true, uploadId = clip.id, expectedUserId = clip.userId)
+                stagedRecording = null
+                // The original remains available for queue retries until confirmation or dismissal.
+                runCatching { recordingStore.markQueued(clip) }.onFailure {
+                    session.report(DataError.Validation("The clip is queued for upload. Its local draft will be reconciled when chat reopens."))
+                }
+            }
             documents.forEach { document -> uploadFromUri(Uri.parse(document.uri), document.displayName) }
             local?.let {
                 uploadFromUri(it.uri, it.displayName,
-                    when (it.kind) { AttachmentKind.Video -> "video/mp4"; AttachmentKind.Audio -> "audio/mp4"; else -> "image/jpeg" })
+                    if (it.kind == AttachmentKind.Video) "video/mp4" else "image/jpeg")
             }
         } catch (error: Exception) {
             session.report(error)
@@ -279,12 +317,18 @@ fun GroupChatScreen(
         focusManager.clearFocus()
     }
 
+    if (showRecording) {
+        RecordingDialog(currentUserId, group.id, recordingStore,
+            onDismiss = { showRecording = false },
+            onUse = { clip -> stagedRecording = clip; showRecording = false },
+            controllerFactory = recordingControllerFactory)
+    }
+
     fun openFile(file: SharedFile) {
-        selectedFileId = file.id
+        selectedFile = file
     }
 
     fun stageAttachment(uri: Uri, fallbackName: String, kind: AttachmentKind) {
-        localAttachment?.let { discardLocalRecording(context, it.uri.toString()) }
         runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
         localAttachment = LocalAttachment(
             uri = uri,
@@ -296,12 +340,12 @@ fun GroupChatScreen(
     val photoPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri ->
-        uri?.let { stageAttachment(it, textResources.getString(R.string.chat_attachments_photo), AttachmentKind.Photo) }
+        uri?.let { stageAttachment(it, "Photo", AttachmentKind.Photo) }
     }
     val videoPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri ->
-        uri?.let { stageAttachment(it, textResources.getString(R.string.chat_attachments_video), AttachmentKind.Video) }
+        uri?.let { stageAttachment(it, "Video", AttachmentKind.Video) }
     }
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -323,7 +367,7 @@ fun GroupChatScreen(
     // Stage captured photos as well, so consent is chosen before the original bytes are sent.
     LaunchedEffect(group.id, capturedCameraUri) {
         val uri = capturedCameraUri?.let(Uri::parse) ?: return@LaunchedEffect
-        val fileName = textResources.getString(R.string.presentation_photo_jpg, LocalDateTime.now().format(photoNameFormatter))
+        val fileName = "Photo ${LocalDateTime.now().format(photoNameFormatter)}.jpg"
         stageAttachment(uri, fileName, AttachmentKind.Camera)
         onCapturedCameraPhotoConsumed()
     }
@@ -355,12 +399,6 @@ fun GroupChatScreen(
             session.clearNotice()
         }
     }
-
-    if (showRecording) RecordingDialog(onDismiss = { showRecording = false }, onUse = { uri, name ->
-        localAttachment?.let { discardLocalRecording(context, it.uri.toString()) }
-        localAttachment = LocalAttachment(uri, name, AttachmentKind.Audio)
-        showRecording = false
-    })
 
     if (showAttachmentSheet) {
         ModalBottomSheet(
@@ -405,185 +443,215 @@ fun GroupChatScreen(
         }
     }
 
-    Column(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
             .imePadding()
     ) {
-        ConnectionBanner(connection = state.connection)
-        LazyColumn(
-            state = listState,
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 18.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            item(key = "group-notice") {
-                GroupNotice(
-                    group = group,
-                    isLoadingOlder = state.isLoadingOlder,
-                    isStartOfChat = !state.hasOlderMessages
-                )
-            }
-            items(
-                items = rows,
-                key = TimelineRow::key
-            ) { row ->
-                when (row) {
-                    is TimelineRow.Day -> DayLabel(label = row.label.resolve(textResources))
-                    is TimelineRow.Entry -> when (val item = row.item) {
-                        is ChatTimelineItem.Message -> ChatBubble(
-                            item = item,
-                            onRetry = {
-                                val delivery = sender.retry(group.id, item.message.clientId)
-                                coroutineScope.launch { delivery.await().onFailure(session::report) }
-                            }
-                        )
-                        is ChatTimelineItem.File -> FileBubble(
-                            item = item,
-                            images = images,
-                            onOpen = { openFile(item.file) }
-                        )
-                    }
-                }
-            }
-            items(items = uploads, key = { "upload:${it.id}" }) { upload ->
-                AttachmentUploadBubble(upload,
-                    onRetry = { uploadQueue.retry(upload.id) },
-                    onDismiss = { uploadQueue.dismiss(upload.id) })
-            }
-        }
-
-        state.notice?.let { notice ->
-            NoticeRow(text = notice.resolve(textResources), onDismiss = session::clearNotice)
-        }
-
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-        Surface(color = MaterialTheme.colorScheme.surfaceContainerLowest) {
-            Row(
+        val recordingPreviewHeight = (maxHeight * 0.4f).coerceIn(80.dp, 280.dp)
+        Column(Modifier.fillMaxSize()) {
+            ConnectionBanner(connection = state.connection)
+            LazyColumn(
+                state = listState,
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.Bottom,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 18.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                IconButton(
-                    onClick = {
-                        focusManager.clearFocus()
-                        showAttachmentSheet = true
-                    }
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.AddCircleOutline,
-                        contentDescription = textResources.getString(R.string.group_chat_add_attachment),
-                        tint = MaterialTheme.colorScheme.primary
+                item(key = "group-notice") {
+                    GroupNotice(
+                        group = group,
+                        isLoadingOlder = state.isLoadingOlder,
+                        isStartOfChat = !state.hasOlderMessages
                     )
                 }
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    if (pendingDocuments.isNotEmpty() || localAttachment != null) {
-                        LazyRow(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            contentPadding = PaddingValues(end = 4.dp)
-                        ) {
-                            items(
-                                items = pendingDocuments,
-                                key = PendingDocument::uri
-                            ) { document ->
-                                PendingAttachment(
-                                    displayName = document.displayName,
-                                    kind = AttachmentKind.File,
-                                    sizeBytes = document.sizeBytes,
-                                    allowDownloads = document.uri !in blockedDownloadUris,
-                                    onAllowDownloadsChange = { setDownloadAllowed(document.uri, it) },
-                                    onRemove = {
-                                        setDownloadAllowed(document.uri, true)
-                                        onPendingDocumentRemoved(document.uri)
-                                    }
-                                )
-                            }
-                            localAttachment?.let { attachment ->
-                                item(key = "local-attachment") {
-                                    PendingAttachment(
-                                        displayName = attachment.displayName,
-                                        kind = attachment.kind,
-                                        sizeBytes = null,
-                                        allowDownloads = attachment.uri.toString() !in blockedDownloadUris,
-                                        onAllowDownloadsChange = { setDownloadAllowed(attachment.uri.toString(), it) },
-                                        onRemove = {
-                                            discardLocalRecording(context, attachment.uri.toString())
-                                            setDownloadAllowed(attachment.uri.toString(), true)
-                                            localAttachment = null
-                                        }
-                                    )
+                items(
+                    items = rows,
+                    key = TimelineRow::key
+                ) { row ->
+                    when (row) {
+                        is TimelineRow.Day -> DayLabel(label = row.label)
+                        is TimelineRow.Entry -> when (val item = row.item) {
+                            is ChatTimelineItem.Message -> ChatBubble(
+                                item = item,
+                                onRetry = {
+                                    val delivery = sender.retry(group.id, item.message.clientId)
+                                    coroutineScope.launch { delivery.await().onFailure(session::report) }
                                 }
-                            }
-                        }
-                        if (pendingDocuments.isNotEmpty()) {
-                            Text(
-                                text = textResources.getQuantityString(R.plurals.document_capacity, MAX_PENDING_DOCUMENTS, pendingDocuments.size, MAX_PENDING_DOCUMENTS),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            is ChatTimelineItem.File -> FileBubble(
+                                item = item,
+                                images = images,
+                                onOpen = { openFile(item.file) }
                             )
                         }
                     }
-                    pendingDocumentError?.let { error ->
-                        Text(
-                            text = error,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.error
-                        )
-                    }
-                    TextField(
-                        value = draft,
-                        onValueChange = { draft = it.take(ChatRepository.MAX_MESSAGE_LENGTH) },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text(textResources.getString(R.string.group_chat_message)) },
-                        maxLines = 4,
-                        shape = RoundedCornerShape(6.dp),
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                        keyboardActions = KeyboardActions(onSend = { sendDraft() }),
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = MaterialTheme.colorScheme.surface,
-                            unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                            disabledIndicatorColor = Color.Transparent
-                        )
-                    )
                 }
-                IconButton(
-                    onClick = {
-                        focusManager.clearFocus()
-                        showRecording = true
-                    }
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Mic,
-                        contentDescription = stringResource(R.string.record_audio),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                }
-                val canSend = draft.isNotBlank() || pendingDocuments.isNotEmpty() || localAttachment != null
-                IconButton(
-                    onClick = { sendDraft() },
-                    enabled = canSend
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.Send,
-                        contentDescription = textResources.getString(R.string.group_chat_send_message),
-                        tint = if (canSend) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        }
-                    )
+                items(items = uploads, key = { "upload:${it.id}" }) { upload ->
+                    AttachmentUploadBubble(upload,
+                        onRetry = { runCatching { uploadQueue.retry(upload.id) }.onFailure(session::report) },
+                        onDismiss = { runCatching { uploadQueue.dismiss(upload.id) }.onFailure(session::report) })
                 }
             }
+
+            state.notice?.let { notice ->
+                NoticeRow(text = notice, onDismiss = session::clearNotice)
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Surface(color = MaterialTheme.colorScheme.surfaceContainerLowest) {
+                Column(Modifier.fillMaxWidth()) {
+                    stagedRecording?.let { clip ->
+                        StagedRecording(clip, maxHeight = recordingPreviewHeight,
+                            onAllowDownloadsChange = { allowed ->
+                                runCatching { recordingStore.setDownloadAllowed(clip, allowed) }
+                                    .onSuccess { stagedRecording = it }.onFailure(session::report)
+                            },
+                            onRemove = {
+                                runCatching {
+                                    stopAllAudioPlayback()
+                                    if (!recordingStore.discard(clip)) throw DataError.Validation("This recording has already been sent or is unavailable.")
+                                    stagedRecording = null
+                                }.onFailure(session::report)
+                            })
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.Bottom,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        IconButton(
+                            onClick = {
+                                focusManager.clearFocus()
+                                showAttachmentSheet = true
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.AddCircleOutline,
+                                contentDescription = "Add attachment",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            if (pendingDocuments.isNotEmpty() || localAttachment != null) {
+                                LazyRow(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    contentPadding = PaddingValues(end = 4.dp)
+                                ) {
+                                    items(
+                                        items = pendingDocuments,
+                                        key = PendingDocument::uri
+                                    ) { document ->
+                                        PendingAttachment(
+                                            displayName = document.displayName,
+                                            kind = AttachmentKind.File,
+                                            sizeBytes = document.sizeBytes,
+                                            allowDownloads = document.uri !in blockedDownloadUris,
+                                            onAllowDownloadsChange = { setDownloadAllowed(document.uri, it) },
+                                            onRemove = {
+                                                setDownloadAllowed(document.uri, true)
+                                                onPendingDocumentRemoved(document.uri)
+                                            }
+                                        )
+                                    }
+                                    localAttachment?.let { attachment ->
+                                        item(key = "local-attachment") {
+                                            PendingAttachment(
+                                                displayName = attachment.displayName,
+                                                kind = attachment.kind,
+                                                sizeBytes = null,
+                                                allowDownloads = attachment.uri.toString() !in blockedDownloadUris,
+                                                onAllowDownloadsChange = { setDownloadAllowed(attachment.uri.toString(), it) },
+                                                onRemove = {
+                                                    setDownloadAllowed(attachment.uri.toString(), true)
+                                                    localAttachment = null
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                                if (pendingDocuments.isNotEmpty()) {
+                                    Text(
+                                        text = "${pendingDocuments.size}/$MAX_PENDING_DOCUMENTS documents",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            pendingDocumentError?.let { error ->
+                                Text(
+                                    text = error,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+                            TextField(
+                                value = draft,
+                                onValueChange = { draft = it.take(ChatRepository.MAX_MESSAGE_LENGTH) },
+                                modifier = Modifier.fillMaxWidth(),
+                                placeholder = { Text("Message", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                maxLines = 4,
+                                shape = RoundedCornerShape(6.dp),
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                                keyboardActions = KeyboardActions(onSend = { sendDraft() }),
+                                colors = TextFieldDefaults.colors(
+                                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                                    focusedIndicatorColor = Color.Transparent,
+                                    unfocusedIndicatorColor = Color.Transparent,
+                                    disabledIndicatorColor = Color.Transparent
+                                )
+                            )
+                        }
+                        IconButton(onClick = { focusManager.clearFocus(); showRecording = true }, enabled = stagedRecording == null) {
+                            Icon(Icons.Outlined.Mic, contentDescription = "Record voice message", tint = MaterialTheme.colorScheme.primary)
+                        }
+                        val canSend = draft.isNotBlank() || pendingDocuments.isNotEmpty() || localAttachment != null || stagedRecording != null
+                        IconButton(
+                            onClick = { sendDraft() },
+                            enabled = canSend
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Send,
+                                contentDescription = "Send message",
+                                tint = if (canSend) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StagedRecording(clip: RecordingDraft, maxHeight: Dp, onAllowDownloadsChange: (Boolean) -> Unit, onRemove: () -> Unit) {
+    Surface(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+        shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+        Column(Modifier.heightIn(max = maxHeight).verticalScroll(rememberScrollState()).padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Voice message · ${formatAudioDuration(clip.durationMillis)}", Modifier.weight(1f),
+                    style = MaterialTheme.typography.labelLarge)
+                IconButton(onClick = onRemove) { Icon(Icons.Outlined.Close, "Remove recording") }
+            }
+            Text("Ready to send", style = MaterialTheme.typography.labelSmall)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Allow downloads", Modifier.weight(1f), style = MaterialTheme.typography.labelSmall)
+                Switch(checked = clip.allowDownloads, onCheckedChange = onAllowDownloadsChange,
+                    modifier = Modifier.semantics { contentDescription = "Allow voice message downloads" })
+            }
+            AudioAttachmentPlayer(File(clip.localPath))
         }
     }
 }
@@ -593,7 +661,6 @@ private fun ConnectionBanner(
     connection: ChatConnection,
     modifier: Modifier = Modifier
 ) {
-    val textResources = textResources()
     // A short connecting phase is normal, so the banner only appears when it drags on.
     var showConnecting by remember { mutableStateOf(false) }
     LaunchedEffect(connection) {
@@ -605,12 +672,12 @@ private fun ConnectionBanner(
     }
     val text = when (connection) {
         ChatConnection.Live -> return
-        ChatConnection.Connecting -> if (showConnecting) textResources.getString(R.string.group_chat_connecting) else return
+        ChatConnection.Connecting -> if (showConnecting) "Connecting…" else return
         ChatConnection.Offline ->
-            textResources.getString(R.string.group_chat_you_re_offline_saved_messages_and_files_are)
+            "You're offline. Saved messages and files are shown; unsent messages go out once you're back online."
     }
     Surface(
-        modifier = modifier.fillMaxWidth().semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
+        modifier = modifier.fillMaxWidth(),
         color = if (connection == ChatConnection.Offline) {
             MaterialTheme.colorScheme.errorContainer
         } else {
@@ -631,7 +698,7 @@ private fun ConnectionBanner(
                 )
             } else {
                 CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp).clearAndSetSemantics {},
+                    modifier = Modifier.size(16.dp),
                     strokeWidth = 2.dp
                 )
             }
@@ -655,7 +722,6 @@ private fun GroupNotice(
     isStartOfChat: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val textResources = textResources()
     Column(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -663,7 +729,7 @@ private fun GroupNotice(
     ) {
         if (isLoadingOlder) {
             CircularProgressIndicator(
-                modifier = Modifier.size(20.dp).semantics { contentDescription = textResources.getString(R.string.a11y_loading_messages) },
+                modifier = Modifier.size(20.dp),
                 strokeWidth = 2.dp
             )
         }
@@ -674,9 +740,9 @@ private fun GroupNotice(
             ) {
                 Text(
                     text = when (group.origin) {
-                        GroupOrigin.Timetable -> textResources.getString(R.string.group_chat_you_joined_from_your_timetable, group.name)
-                        GroupOrigin.CreatedByUser -> textResources.getString(R.string.group_chat_you_created_this_group)
-                        GroupOrigin.Joined -> textResources.getString(R.string.group_chat_you_joined_this_group)
+                        GroupOrigin.Timetable -> "You joined ${group.name} from your timetable"
+                        GroupOrigin.CreatedByUser -> "You created this group"
+                        GroupOrigin.Joined -> "You joined this group"
                     },
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                     style = MaterialTheme.typography.labelMedium,
@@ -698,7 +764,6 @@ private fun DayLabel(
     ) {
         Text(
             text = label,
-            modifier = Modifier.semantics { heading() },
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -711,7 +776,6 @@ private fun ChatBubble(
     onRetry: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val textResources = textResources()
     val message = item.message
     val isMine = item.isMine
     val isFailed = message.status == MessageStatus.Failed
@@ -728,10 +792,7 @@ private fun ChatBubble(
         Surface(
             modifier = Modifier
                 .widthIn(max = 292.dp)
-                .semantics(mergeDescendants = true) {}
-                .then(if (isFailed) Modifier.clickable(role = Role.Button,
-                    onClickLabel = textResources.getString(R.string.a11y_retry_message), onClick = onRetry)
-                else Modifier),
+                .then(if (isFailed) Modifier.clickable(onClick = onRetry) else Modifier),
             shape = bubbleShape(isMine),
             color = when {
                 isFailed -> MaterialTheme.colorScheme.errorContainer
@@ -765,8 +826,8 @@ private fun ChatBubble(
                 )
                 Text(
                     text = when (message.status) {
-                        MessageStatus.Sending -> textResources.getString(R.string.group_chat_sending)
-                        MessageStatus.Failed -> textResources.getString(R.string.group_chat_not_sent_tap_to_try_again)
+                        MessageStatus.Sending -> "Sending…"
+                        MessageStatus.Failed -> "Not sent. Tap to try again"
                         MessageStatus.Sent -> formatTime(message.createdAt)
                     },
                     modifier = Modifier.align(Alignment.End),
@@ -778,7 +839,7 @@ private fun ChatBubble(
 
         if (isMine) {
             Spacer(Modifier.width(10.dp))
-            ChatAvatar(label = textResources.getString(R.string.chat_attachments_you), isMine = true)
+            ChatAvatar(label = "You", isMine = true)
         }
     }
 }
@@ -790,13 +851,11 @@ private fun FileBubble(
     onOpen: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val textResources = textResources()
     val file = item.file
     val isMine = item.isMine
     val isImage = file.mimeType.startsWith("image/")
-    var thumbnail by remember(file.id, isImage, images) { mutableStateOf<ImageBitmap?>(null) }
-    LaunchedEffect(file.id, isImage, images) {
-        if (isImage) thumbnail = images.load(file.id)
+    val thumbnail by produceState<ImageBitmap?>(initialValue = null, key1 = file.id, key2 = isImage) {
+        value = if (isImage) images.load(file.id) else null
     }
     Row(
         modifier = modifier.fillMaxWidth(),
@@ -811,7 +870,7 @@ private fun FileBubble(
         Surface(
             modifier = Modifier
                 .widthIn(min = 200.dp, max = 292.dp)
-                .clickable(role = Role.Button, onClickLabel = textResources.getString(R.string.a11y_open_file, file.fileName), onClick = onOpen),
+                .clickable(onClick = onOpen),
             shape = bubbleShape(isMine),
             color = if (isMine) {
                 MaterialTheme.colorScheme.primary
@@ -841,7 +900,7 @@ private fun FileBubble(
                 thumbnail?.let { image ->
                     Image(
                         bitmap = image,
-                        contentDescription = null, // The file name is already in this merged button.
+                        contentDescription = file.fileName,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(180.dp),
@@ -867,7 +926,9 @@ private fun FileBubble(
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = textResources.getString(R.string.attachment_summary, fileKind(file.mimeType).label(), formatFileSize(file.sizeBytes)),
+                            text = "${sharedAudioLabel(file) ?: fileKind(file.mimeType).label()} · " +
+                                (file.durationMillis?.let { "${formatAudioDuration(it)} · " } ?: "") + "${formatFileSize(file.sizeBytes)} · " +
+                                "Tap to open",
                             style = MaterialTheme.typography.labelSmall,
                             color = contentColor.copy(alpha = 0.78f)
                         )
@@ -875,7 +936,7 @@ private fun FileBubble(
                 }
                 if (!file.allowDownloads) {
                     Text(
-                        text = if (isMine) textResources.getString(R.string.files_preview_only) else textResources.getString(R.string.group_chat_preview_only),
+                        text = if (isMine) "Downloads disabled for others" else "Preview only",
                         style = MaterialTheme.typography.labelSmall,
                         color = contentColor.copy(alpha = 0.78f)
                     )
@@ -891,7 +952,7 @@ private fun FileBubble(
 
         if (isMine) {
             Spacer(Modifier.width(10.dp))
-            ChatAvatar(label = textResources.getString(R.string.chat_attachments_you), isMine = true)
+            ChatAvatar(label = "You", isMine = true)
         }
     }
 }
@@ -902,7 +963,6 @@ private fun NoticeRow(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val textResources = textResources()
     Surface(
         modifier = modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.errorContainer
@@ -913,14 +973,14 @@ private fun NoticeRow(
         ) {
             Text(
                 text = text,
-                modifier = Modifier.weight(1f).semantics { liveRegion = LiveRegionMode.Polite },
+                modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onErrorContainer
             )
             IconButton(onClick = onDismiss) {
                 Icon(
                     imageVector = Icons.Outlined.Close,
-                    contentDescription = textResources.getString(R.string.group_chat_dismiss),
+                    contentDescription = "Dismiss",
                     tint = MaterialTheme.colorScheme.onErrorContainer
                 )
             }
@@ -938,7 +998,6 @@ private fun PendingAttachment(
     onRemove: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val textResources = textResources()
     Surface(
         modifier = modifier.width(240.dp),
         shape = RoundedCornerShape(6.dp),
@@ -949,17 +1008,17 @@ private fun PendingAttachment(
                 Icon(kind.icon(), contentDescription = null, modifier = Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
                 Column(Modifier.weight(1f)) {
                     Text(displayName, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(sizeBytes?.takeIf { it >= 0L }?.let { textResources.getString(R.string.group_chat_ready_to_send, formatFileSize(it)) } ?: textResources.getString(R.string.group_chat_ready_to_send_2),
+                    Text(sizeBytes?.takeIf { it >= 0L }?.let { "${formatFileSize(it)} · Ready to send" } ?: "Ready to send",
                         style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                IconButton(onClick = onRemove, modifier = Modifier.size(48.dp)) {
-                    Icon(Icons.Outlined.Close, contentDescription = textResources.getString(R.string.a11y_remove_file, displayName))
+                IconButton(onClick = onRemove, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Outlined.Close, contentDescription = "Remove attachment")
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(textResources.getString(R.string.group_chat_allow_others_to_download), modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                Text("Allow others to download", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
                 Switch(checked = allowDownloads, onCheckedChange = onAllowDownloadsChange,
-                    modifier = Modifier.semantics { contentDescription = textResources.getString(R.string.group_chat_allow_others_to_download_2, displayName) })
+                    modifier = Modifier.semantics { contentDescription = "Allow others to download $displayName" })
             }
         }
     }
@@ -974,7 +1033,6 @@ private fun AttachmentPicker(
     onCameraClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val textResources = textResources()
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -982,7 +1040,7 @@ private fun AttachmentPicker(
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
         Text(
-            text = textResources.getString(R.string.group_chat_share),
+            text = "Share",
             style = MaterialTheme.typography.titleLarge
         )
         Row(
@@ -990,29 +1048,29 @@ private fun AttachmentPicker(
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
             AttachmentOption(
-                label = textResources.getString(R.string.chat_attachments_file),
+                label = "File",
                 icon = Icons.Outlined.Description,
                 onClick = onFileClick
             )
             AttachmentOption(
-                label = textResources.getString(R.string.chat_attachments_photo),
+                label = "Photo",
                 icon = Icons.Outlined.Image,
                 onClick = onPhotoClick
             )
             AttachmentOption(
-                label = textResources.getString(R.string.chat_attachments_video),
+                label = "Video",
                 icon = Icons.Outlined.Videocam,
                 onClick = onVideoClick
             )
             AttachmentOption(
-                label = textResources.getString(R.string.group_chat_camera),
+                label = "Camera",
                 icon = Icons.Outlined.PhotoCamera,
                 onClick = onCameraClick
             )
         }
         if (cameraPermissionDenied) {
             Text(
-                text = textResources.getString(R.string.group_chat_camera_permission_is_required_to_take_a_photo),
+                text = "Camera permission is required to take a photo.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.error
             )
@@ -1057,7 +1115,7 @@ private fun ChatAvatar(
     modifier: Modifier = Modifier
 ) {
     Surface(
-        modifier = modifier.size(38.dp).clearAndSetSemantics {},
+        modifier = modifier.size(38.dp),
         shape = RoundedCornerShape(6.dp),
         color = if (isMine) {
             MaterialTheme.colorScheme.secondaryContainer
@@ -1100,24 +1158,22 @@ private fun AttachmentKind.icon(): ImageVector = when (this) {
     AttachmentKind.File -> Icons.Outlined.Description
     AttachmentKind.Photo -> Icons.Outlined.Image
     AttachmentKind.Video -> Icons.Outlined.Videocam
-    AttachmentKind.Audio -> Icons.Outlined.Mic
     AttachmentKind.Camera -> Icons.Outlined.PhotoCamera
+    AttachmentKind.Audio -> Icons.Outlined.Mic
 }
 
-@Composable
 private fun AttachmentKind.label(): String = when (this) {
-    AttachmentKind.File -> stringResource(R.string.chat_attachments_file)
-    AttachmentKind.Photo -> stringResource(R.string.chat_attachments_photo)
-    AttachmentKind.Video -> stringResource(R.string.chat_attachments_video)
-    AttachmentKind.Audio -> stringResource(R.string.files_audio)
-    AttachmentKind.Camera -> stringResource(R.string.label_camera_photo)
+    AttachmentKind.File -> "File"
+    AttachmentKind.Photo -> "Photo"
+    AttachmentKind.Video -> "Video"
+    AttachmentKind.Camera -> "Camera photo"
+    AttachmentKind.Audio -> "Audio"
 }
 
-@Composable
-internal fun formatFileSize(sizeBytes: Long): String = when {
-    sizeBytes >= 1024L * 1024L -> stringResource(R.string.file_size_mb, sizeBytes / (1024.0 * 1024.0))
-    sizeBytes >= 1024L -> stringResource(R.string.file_size_kb, sizeBytes / 1024.0)
-    else -> stringResource(R.string.file_size_bytes, sizeBytes)
+private fun formatFileSize(sizeBytes: Long): String = when {
+    sizeBytes >= 1024L * 1024L -> "%.1f MB".format(sizeBytes / (1024.0 * 1024.0))
+    sizeBytes >= 1024L -> "%.1f KB".format(sizeBytes / 1024.0)
+    else -> "$sizeBytes B"
 }
 
 private fun formatTime(instant: Instant): String =

@@ -1,7 +1,5 @@
 package au.edu.unimelb.campuscompanion.context
 
-import au.edu.unimelb.campuscompanion.english
-
 /**
  * The notification shade as Android treats departure prompts: posting with sound adds or replaces a
  * prompt, a silent update only replaces one that is still shown, and the student can dismiss one.
@@ -18,7 +16,7 @@ class FakeDepartureShade : DepartureShade {
     fun post(reminder: DepartureReminder): Boolean {
         if (!canNotify) return false
         alerts += reminder
-        shown[reminder.key] = reminder.title.english() to reminder.text.english()
+        shown[reminder.key] = reminder.title to reminder.text
         return true
     }
 
@@ -27,7 +25,7 @@ class FakeDepartureShade : DepartureShade {
     override fun update(reminder: DepartureReminder) {
         if (reminder.key !in shown) return
         updates += reminder
-        shown[reminder.key] = reminder.title.english() to reminder.text.english()
+        shown[reminder.key] = reminder.title to reminder.text
     }
 
     override fun withdraw(key: String) {

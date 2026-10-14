@@ -1,7 +1,5 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
-import au.edu.unimelb.campuscompanion.ui.text.textResources
-import au.edu.unimelb.campuscompanion.R
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
@@ -22,7 +20,6 @@ import java.io.File
 /** Renders one bounded page at a time without exposing the original to another app. */
 @Composable
 internal fun PdfAttachmentPreview(file: File, onError: (String) -> Unit) {
-    val textResources = textResources()
     var page by remember(file) { mutableIntStateOf(0) }
     var pages by remember(file) { mutableIntStateOf(0) }
     var image by remember(file) { mutableStateOf<ImageBitmap?>(null) }
@@ -46,21 +43,20 @@ internal fun PdfAttachmentPreview(file: File, onError: (String) -> Unit) {
             image = rendered.first
             pages = rendered.second
         } catch (e: CancellationException) { throw e }
-        catch (_: Exception) { onError(textResources.getString(R.string.document_attachment_preview_this_pdf_cannot_be_previewed)) }
+        catch (_: Exception) { onError("This PDF cannot be previewed.") }
     }
     Column {
-        image?.let { Image(it, contentDescription = textResources.getString(R.string.document_attachment_preview_page, page + 1), modifier = Modifier.fillMaxWidth().heightIn(max = 340.dp)) }
+        image?.let { Image(it, contentDescription = "Page ${page + 1}", modifier = Modifier.fillMaxWidth().heightIn(max = 340.dp)) }
         if (pages > 0) Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-            TextButton(enabled = page > 0, onClick = { page-- }) { Text(textResources.getString(R.string.document_attachment_preview_previous)) }
-            Text(textResources.getString(R.string.document_page_progress, page + 1, pages), modifier = Modifier.padding(vertical = 12.dp))
-            TextButton(enabled = page + 1 < pages, onClick = { page++ }) { Text(textResources.getString(R.string.document_attachment_preview_next)) }
+            TextButton(enabled = page > 0, onClick = { page-- }) { Text("Previous") }
+            Text("${page + 1} / $pages", modifier = Modifier.padding(vertical = 12.dp))
+            TextButton(enabled = page + 1 < pages, onClick = { page++ }) { Text("Next") }
         }
     }
 }
 
 @Composable
 internal fun TextAttachmentPreview(file: File, onError: (String) -> Unit) {
-    val textResources = textResources()
     var content by remember(file) { mutableStateOf<String?>(null) }
     LaunchedEffect(file) {
         try {
@@ -73,11 +69,11 @@ internal fun TextAttachmentPreview(file: File, onError: (String) -> Unit) {
                         if (count < 0) break
                         length += count
                     }
-                    String(buffer, 0, minOf(length, 16_384)) + if (length > 16_384) textResources.getString(R.string.document_attachment_preview_preview_truncated) else ""
+                    String(buffer, 0, minOf(length, 16_384)) + if (length > 16_384) "\n…Preview truncated" else ""
                 }
             }
         } catch (e: CancellationException) { throw e }
-        catch (_: Exception) { onError(textResources.getString(R.string.document_attachment_preview_this_text_file_cannot_be_previewed)) }
+        catch (_: Exception) { onError("This text file cannot be previewed.") }
     }
     content?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
 }

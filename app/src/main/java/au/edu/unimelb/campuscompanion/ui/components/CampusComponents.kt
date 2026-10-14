@@ -1,11 +1,5 @@
 package au.edu.unimelb.campuscompanion.ui.components
 
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.onClick
-import androidx.compose.ui.res.stringResource
-import au.edu.unimelb.campuscompanion.ui.text.textResources
-import au.edu.unimelb.campuscompanion.R
 import au.edu.unimelb.campuscompanion.ui.model.trimTrailingCommas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -38,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import au.edu.unimelb.campuscompanion.ui.model.CourseGroup
@@ -63,7 +58,6 @@ fun SectionHeader(
     ) {
         Text(
             text = title,
-            modifier = Modifier.semantics { heading() },
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurface
         )
@@ -161,12 +155,11 @@ fun CourseSessionRow(
     onNavigate: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    val textResources = textResources()
     val status = session.statusAt()
     val today = LocalDate.now(session.start.zone)
     val dateLabel = when (session.startDate) {
-        today -> textResources.getString(R.string.campus_components_today)
-        today.plusDays(1) -> textResources.getString(R.string.campus_components_tomorrow)
+        today -> "Today"
+        today.plusDays(1) -> "Tomorrow"
         else -> session.startDate.format(dateFormatter)
     }
     val locationText = listOf(session.location, session.room)
@@ -248,7 +241,7 @@ fun CourseSessionRow(
         }
         onNavigate?.let { action ->
             androidx.compose.material3.TextButton(onClick = action, modifier = Modifier.padding(horizontal = 16.dp)) {
-                Text(textResources.getString(R.string.campus_components_navigate_with_google_maps))
+                Text("Navigate with Google Maps")
             }
         }
     }
@@ -261,10 +254,9 @@ fun GroupUpdateRow(
     muted: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    val textResources = textResources()
     Card(
         onClick = onClick,
-        modifier = modifier.fillMaxWidth().semantics { onClick(label = textResources.getString(R.string.campus_components_open_group), action = null) },
+        modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
@@ -286,10 +278,10 @@ fun GroupUpdateRow(
                     )
                     Text(
                         text = when {
-                            group.members > 0 -> textResources.getQuantityString(R.plurals.member_count, group.members, group.members)
-                            group.origin == GroupOrigin.Timetable -> textResources.getString(R.string.campus_components_detected_from_timetable)
-                            group.origin == GroupOrigin.CreatedByUser -> textResources.getString(R.string.campus_components_created_by_you)
-                            else -> textResources.getString(R.string.campus_components_joined_group)
+                            group.members > 0 -> "${group.members} members"
+                            group.origin == GroupOrigin.Timetable -> "Detected from timetable"
+                            group.origin == GroupOrigin.CreatedByUser -> "Created by you"
+                            else -> "Joined group"
                         },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -297,7 +289,7 @@ fun GroupUpdateRow(
                 }
                 if (group.unreadCount > 0) {
                     StatusPill(
-                        label = textResources.getQuantityString(R.plurals.unread_count, group.unreadCount, group.unreadCount),
+                        label = "${group.unreadCount} new",
                         status = SessionStatus.EnRoute
                     )
                 }
@@ -305,7 +297,7 @@ fun GroupUpdateRow(
                     Spacer(Modifier.width(8.dp))
                     Icon(
                         imageVector = Icons.Outlined.NotificationsOff,
-                        contentDescription = textResources.getString(R.string.campus_components_muted),
+                        contentDescription = "Muted",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(20.dp)
                     )
@@ -313,7 +305,7 @@ fun GroupUpdateRow(
                 Spacer(Modifier.width(8.dp))
                 Icon(
                     imageVector = Icons.Outlined.ChevronRight,
-                    contentDescription = null,
+                    contentDescription = "Open group",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
@@ -387,14 +379,13 @@ fun QuickActionChip(
     )
 }
 
-@Composable
 fun SessionStatus.displayName(): String = when (this) {
-    SessionStatus.Upcoming -> stringResource(R.string.label_upcoming)
-    SessionStatus.LeaveSoon -> stringResource(R.string.label_leave_soon)
-    SessionStatus.EnRoute -> stringResource(R.string.label_en_route)
-    SessionStatus.Arrived -> stringResource(R.string.label_arrived)
-    SessionStatus.InProgress -> stringResource(R.string.label_in_progress)
-    SessionStatus.Finished -> stringResource(R.string.label_finished)
+    SessionStatus.Upcoming -> "Upcoming"
+    SessionStatus.LeaveSoon -> "Leave soon"
+    SessionStatus.EnRoute -> "En route"
+    SessionStatus.Arrived -> "Arrived"
+    SessionStatus.InProgress -> "In progress"
+    SessionStatus.Finished -> "Finished"
 }
 
 object CampusIcons {

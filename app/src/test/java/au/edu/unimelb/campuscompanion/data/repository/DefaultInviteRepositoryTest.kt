@@ -2,6 +2,10 @@ package au.edu.unimelb.campuscompanion.data.repository
 
 import au.edu.unimelb.campuscompanion.data.DataError
 import au.edu.unimelb.campuscompanion.data.model.GroupInvite
+import au.edu.unimelb.campuscompanion.data.model.GroupRole
+import au.edu.unimelb.campuscompanion.data.remote.GroupSummaryRow
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -60,6 +64,74 @@ class DefaultInviteRepositoryTest {
     }
 
     @Test
+    fun joinByQrCodeAndNfcKeepsTheReturnedGroupWhenRefreshFails() = runBlocking<Unit> {
+        remote.summaryFailure = DataError.Offline()
+        // QR links, typed codes and NFC tokens use the same normalized join path.
+        listOf("campuscompanion://join?token=qr-token", "abc 234", "nfc-token").forEach { input ->
+            val joined = invites.joinWithToken(input).getOrThrow()
+            val summary = groups.observeMyGroups().first().single()
+            assertEquals(joined, summary.group)
+            assertEquals(GroupRole.Member, summary.myRole)
+        }
+        assertEquals(listOf("qr-token", "ABC234", "nfc-token"), remote.joinedTokens)
+    }
+
+    @Test
+    fun joinedGroupIsPublishedAndCachedBeforeSummaryRefreshCompletes() = runBlocking<Unit> {
+        val cache = InviteGroupListCache()
+        cache.save("user-1", listOf(summaryRow("existing")))
+        val cached = DefaultGroupRepository(remote, cache) { "user-1" }
+        val cachedInvites = DefaultInviteRepository(remote, cached)
+        val started = CompletableDeferred<Unit>()
+        val response = CompletableDeferred<List<GroupSummaryRow>>()
+        remote.summaryRequest = { started.complete(Unit); response.await() }
+        val join = async { cachedInvites.joinWithToken("abc123") }
+        try {
+            started.await()
+            val expected = setOf("existing", "joined-group")
+            assertEquals(expected, cached.observeMyGroups().first().map { it.group.id }.toSet())
+            assertEquals(expected, cache.load("user-1")!!.map { it.id }.toSet())
+        } finally {
+            response.complete(listOf(summaryRow("joined-group"), summaryRow("existing")))
+            assertTrue(join.await().isSuccess)
+        }
+    }
+
+    @Test
+    fun joinedGroupSurvivesFailedRefreshAndRepositoryRestart() = runBlocking<Unit> {
+        val cache = InviteGroupListCache()
+        cache.save("user-1", listOf(summaryRow("existing")))
+        val cached = DefaultGroupRepository(remote, cache) { "user-1" }
+        remote.summaryFailure = DataError.Offline()
+
+        val joined = DefaultInviteRepository(remote, cached).joinWithToken("abc123").getOrThrow()
+        cached.clearSession()
+        val restored = DefaultGroupRepository(remote, cache) { "user-1" }.observeMyGroups().first()
+
+        assertEquals(setOf("existing", joined.id), restored.map { it.group.id }.toSet())
+        assertEquals(joined, restored.first { it.group.id == joined.id }.group)
+    }
+
+    @Test
+    fun joiningAnExistingMembershipKeepsItsRoleAndActivityWhenRefreshFails() = runBlocking<Unit> {
+        remote.summaries = listOf(summaryRow("joined-group", role = "owner").copy(
+            unreadCount = 4, memberCount = 3,
+            latestActivityAt = "2026-09-25T02:00:00+00:00", latestMessagePreview = "Revision at noon"
+        ))
+        groups.refresh().getOrThrow()
+        remote.summaryFailure = DataError.Offline()
+
+        invites.joinWithToken("abc123").getOrThrow()
+
+        val summary = groups.observeMyGroups().first().single()
+        assertEquals(GroupRole.Owner, summary.myRole)
+        assertEquals(4, summary.unreadCount)
+        assertEquals(3, summary.memberCount)
+        assertEquals("Revision at noon", summary.latestMessagePreview)
+        assertEquals(Instant.parse("2026-09-25T02:00:00Z"), summary.latestActivityAt)
+    }
+
+    @Test
     fun expiredInvitesKeepTheirReason() = runBlocking<Unit> {
         remote.failure = DataError.InvalidInvite(DataError.InvalidInvite.Reason.Expired)
 
@@ -67,4 +139,10 @@ class DefaultInviteRepositoryTest {
 
         assertEquals(DataError.InvalidInvite.Reason.Expired, (error as DataError.InvalidInvite).reason)
     }
+}
+
+private class InviteGroupListCache : GroupListCache {
+    private val lists = mutableMapOf<String, List<GroupSummaryRow>>()
+    override fun load(userId: String): List<GroupSummaryRow>? = lists[userId]
+    override fun save(userId: String, rows: List<GroupSummaryRow>) { lists[userId] = rows }
 }

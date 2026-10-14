@@ -1,8 +1,7 @@
 package au.edu.unimelb.campuscompanion.ui.model
 
-import au.edu.unimelb.campuscompanion.ui.text.UiText
-import au.edu.unimelb.campuscompanion.R
 import au.edu.unimelb.campuscompanion.data.model.TimetableGroupSpec
+
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -97,7 +96,6 @@ data class CourseGroup(
     val timetableKey: String? = null,
     val timetableSlot: String? = null,
     val timetableSpec: TimetableGroupSpec? = null,
-    /** Original server creation time + five minutes; opening the code never renews it. */
     val joinCodeExpiresAt: Instant? = null
 )
 
@@ -109,16 +107,16 @@ data class TimetableState(
     val detectedEventCount: Int = 0,
     val isConnected: Boolean = false,
     val isLoading: Boolean = false,
-    val errorMessage: UiText? = null,
+    val errorMessage: String? = null,
     val groupSyncError: String? = null,
     val isSyncingGroups: Boolean = false,
     val isCached: Boolean = false,
     val lastSyncedAt: Instant? = null
 ) {
-    fun offlineNotice(zone: ZoneId = ZoneId.systemDefault()): UiText? {
+    fun offlineNotice(zone: ZoneId = ZoneId.systemDefault()): String? {
         val saved = lastSyncedAt ?: return null
         if (!isCached || errorMessage == null) return null
-        val formatter = DateTimeFormatter.ofPattern("EEE d MMM", Locale.ENGLISH)
-        return UiText(R.string.timetable_could_not_refresh_the_timetable_showing_the_copy, saved.atZone(zone).format(formatter), saved.atZone(zone).format(DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH)))
+        val formatter = DateTimeFormatter.ofPattern("EEE d MMM 'at' h:mm a", Locale.ENGLISH)
+        return "Could not refresh the timetable. Showing the copy saved on ${saved.atZone(zone).format(formatter)}."
     }
 }

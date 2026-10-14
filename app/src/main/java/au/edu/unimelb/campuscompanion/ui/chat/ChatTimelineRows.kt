@@ -1,7 +1,5 @@
 package au.edu.unimelb.campuscompanion.ui.chat
 
-import au.edu.unimelb.campuscompanion.ui.text.UiText
-import au.edu.unimelb.campuscompanion.R
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -11,8 +9,8 @@ import java.util.Locale
 sealed interface TimelineRow {
     val key: String
 
-    data class Day(val date: LocalDate, val label: UiText) : TimelineRow {
-        override val key: String get() = "day:$date"
+    data class Day(val label: String) : TimelineRow {
+        override val key: String get() = "day:$label"
     }
 
     data class Entry(val item: ChatTimelineItem) : TimelineRow {
@@ -35,15 +33,15 @@ fun timelineRows(
         val day = item.createdAt.atZone(zone).toLocalDate()
         if (day != currentDay) {
             currentDay = day
-            rows += TimelineRow.Day(day, dayLabel(day, today))
+            rows += TimelineRow.Day(dayLabel(day, today))
         }
         rows += TimelineRow.Entry(item)
     }
     return rows
 }
 
-internal fun dayLabel(day: LocalDate, today: LocalDate): UiText = when (day) {
-    today -> UiText(R.string.campus_components_today)
-    today.minusDays(1) -> UiText(R.string.date_yesterday)
-    else -> UiText.Literal(day.format(dayFormatter))
+internal fun dayLabel(day: LocalDate, today: LocalDate): String = when (day) {
+    today -> "Today"
+    today.minusDays(1) -> "Yesterday"
+    else -> day.format(dayFormatter)
 }

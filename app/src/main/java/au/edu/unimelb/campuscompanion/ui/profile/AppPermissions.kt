@@ -1,7 +1,5 @@
 package au.edu.unimelb.campuscompanion.ui.profile
 
-import au.edu.unimelb.campuscompanion.ui.text.UiText
-import au.edu.unimelb.campuscompanion.R
 import android.Manifest
 import android.app.Activity
 import android.content.ActivityNotFoundException
@@ -15,31 +13,45 @@ import android.provider.Settings
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import au.edu.unimelb.campuscompanion.push.Notifications
+import au.edu.unimelb.campuscompanion.sensing.location.LocationPermissionState
+import au.edu.unimelb.campuscompanion.sensing.location.locationPermissionState
 
 /** A permission the app asks for, with the reason shown on the Profile screen. */
-enum class AppPermission(val title: UiText, val purpose: UiText) {
+enum class AppPermission(val title: String, val purpose: String) {
     Location(
-        title = UiText(R.string.permission_location),
-        purpose = UiText(R.string.permission_how_far_you_are_from_your_next_class_2)
+        title = "Location",
+        purpose = "Precise location provides travel times, departure guidance and GPS arrival around class times."
+    ),
+    BackgroundArrival(
+        title = "Background arrival",
+        purpose = "Optional location access lets Android detect arrival near your class building while the app is closed."
     ),
     Notifications(
-        title = UiText(R.string.permission_notifications),
-        purpose = UiText(R.string.permission_departure_reminders_and_new_messages_in_your_groups)
+        title = "Notifications",
+        purpose = "Departure reminders and new messages in your groups."
     ),
     Camera(
-        title = UiText(R.string.group_chat_camera),
-        purpose = UiText(R.string.permission_photos_for_the_group_chat_and_scanning_invitation)
+        title = "Camera",
+        purpose = "Photos for the group chat and scanning invitation QR codes."
     ),
-    Microphone(title = UiText(R.string.permission_microphone), purpose = UiText(R.string.permission_record_audio_to_share_in_a_group_recording)),
+    Microphone(
+        title = "Microphone",
+        purpose = "Record voice messages to share with your groups."
+    ),
     PhysicalActivity(
-        title = UiText(R.string.permission_physical_activity),
-        purpose = UiText(R.string.permission_tells_walking_from_riding_so_travel_times_use)
+        title = "Physical activity",
+        purpose = "Helps confirm walking, running or riding toward class so departure prompts can be withdrawn."
     );
 
     /** The runtime permissions to request for this entry, or none when the system handles it. */
     val runtimePermissions: List<String>
         get() = when (this) {
             Location -> listOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+            BackgroundArrival -> if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) {
+                listOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+            } else {
+                emptyList()
+            }
             Notifications -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 listOf(Manifest.permission.POST_NOTIFICATIONS)
             } else {
@@ -60,53 +72,91 @@ data class PermissionStatus(
     val permission: AppPermission,
     val granted: Boolean,
     /** One line describing the state, such as "Precise location" or "Not allowed". */
-    val detail: UiText
+    val detail: String
 )
 
 /** Reads the real permission state and opens the system pages where it can be changed. */
 object AppPermissions {
 
-    fun read(context: Context): List<PermissionStatus> = listOf(
-        location(
-            fine = context.has(Manifest.permission.ACCESS_FINE_LOCATION),
-            coarse = context.has(Manifest.permission.ACCESS_COARSE_LOCATION)
-        ),
-        notifications(allowed = Notifications.canNotify(context)),
-        camera(granted = context.has(Manifest.permission.CAMERA)),
-        PermissionStatus(AppPermission.Microphone, context.has(Manifest.permission.RECORD_AUDIO), if (context.has(Manifest.permission.RECORD_AUDIO)) UiText(R.string.permissions_section_allowed) else UiText(R.string.permission_asked_for_when_you_start_a_recording)),
-        physicalActivity(
-            granted = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
-                context.has(Manifest.permission.ACTIVITY_RECOGNITION)
+    fun read(context: Context): List<PermissionStatus> {
+        val locationState = locationPermissionState(context)
+        return listOf(
+            location(fine = locationState.fine, coarse = locationState.coarse),
+            backgroundArrival(locationState),
+            notifications(allowed = Notifications.canNotify(context)),
+            camera(granted = context.has(Manifest.permission.CAMERA)),
+            microphone(granted = context.has(Manifest.permission.RECORD_AUDIO)),
+            physicalActivity(
+                granted = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
+                    context.has(Manifest.permission.ACTIVITY_RECOGNITION)
+            )
         )
-    )
+    }
 
     internal fun location(fine: Boolean, coarse: Boolean) = PermissionStatus(
         permission = AppPermission.Location,
         granted = fine || coarse,
         detail = when {
-            fine -> UiText(R.string.permission_precise_location)
-            coarse -> UiText(R.string.permission_approximate_location_only_precise_location_makes_arrival_detection)
-            else -> UiText(R.string.permission_not_allowed_the_next_class_card_cannot_show)
+            fine -> "Precise location"
+            coarse -> "Approximate location only; timetable-only guidance, without fresh travel times or arrival detection"
+            else -> "Not allowed; timetable-only guidance, without travel times or arrival detection"
+        }
+    )
+
+    internal fun backgroundArrival(location: LocationPermissionState) = PermissionStatus(
+        permission = AppPermission.BackgroundArrival,
+        granted = location.canMonitorBackgroundArrival,
+        detail = when {
+            !location.fine && location.background && location.sdkInt >= 29 ->
+                "Background access allowed; precise location is needed for arrival monitoring"
+            !location.fine -> "Precise foreground location is needed first"
+            location.sdkInt < 29 -> "Allowed with precise location on this Android version"
+            location.background -> "Allowed all the time with precise location"
+            else -> "Not allowed; GPS arrival stays available while foreground sensing is running"
         }
     )
 
     internal fun notifications(allowed: Boolean) = PermissionStatus(
         permission = AppPermission.Notifications,
         granted = allowed,
-        detail = if (allowed) UiText(R.string.permissions_section_allowed) else UiText(R.string.permission_not_allowed_reminders_and_message_alerts_stay_silent)
+        detail = if (allowed) "Allowed" else "Not allowed; reminders and message alerts stay silent"
     )
 
     internal fun camera(granted: Boolean) = PermissionStatus(
         permission = AppPermission.Camera,
         granted = granted,
-        detail = if (granted) UiText(R.string.permissions_section_allowed) else UiText(R.string.permission_asked_for_when_you_first_take_a_photo)
+        detail = if (granted) "Allowed" else "Asked for when you first take a photo or scan a code"
     )
 
     internal fun physicalActivity(granted: Boolean) = PermissionStatus(
         permission = AppPermission.PhysicalActivity,
         granted = granted,
-        detail = if (granted) UiText(R.string.permissions_section_allowed) else UiText(R.string.permission_not_allowed_travel_times_assume_you_are_walking)
+        detail = if (granted) "Allowed" else "Not allowed; motion sensors provide the walking fallback"
     )
+
+    internal fun microphone(granted: Boolean) = PermissionStatus(
+        permission = AppPermission.Microphone,
+        granted = granted,
+        detail = if (granted) "Allowed" else "Asked for when you start a voice recording"
+    )
+
+    /** Separate education before the optional background request; foreground access comes first. */
+    fun backgroundExplanation(context: Context): String {
+        val state = locationPermissionState(context)
+        if (!state.fine) {
+            return "Background arrival monitoring needs precise location. Allow precise location first. " +
+                "With approximate location, Campus Companion provides timetable-only guidance."
+        }
+        val settingsInstruction = if (state.sdkInt >= 30) {
+            val option = context.packageManager.backgroundPermissionOptionLabel
+            "In Settings, open Permissions, then Location, and choose “$option”. "
+        } else {
+            "Choose “Allow all the time” in the next Android permission dialog. "
+        }
+        return "Campus Companion uses background location to detect arrival near your class building " +
+            "while the app is closed. $settingsInstruction" +
+            "This is optional. You can keep using timetable guidance and GPS arrival while foreground sensing is running."
+    }
 
     /** True when the system has granted [permission] (a `Manifest.permission` name) to this app. */
     fun isGranted(context: Context, permission: String): Boolean = context.has(permission)

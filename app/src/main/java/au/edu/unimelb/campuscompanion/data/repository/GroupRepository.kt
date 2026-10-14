@@ -25,6 +25,9 @@ interface GroupRepository {
     /** Creates a group with the signed-in user as its owner. */
     suspend fun createGroup(name: String, courseCode: String?): Result<Group>
 
+    /** Joins with a normalized invite/code and saves the returned group before refreshing. */
+    suspend fun joinWithToken(token: String): Result<Group>
+
     fun observeMembers(groupId: String): Flow<List<GroupMember>>
 
     suspend fun transferAndLeave(groupId: String, newOwnerId: String): Result<Unit>

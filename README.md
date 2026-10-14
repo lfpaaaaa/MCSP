@@ -1,6 +1,6 @@
 # MCSP Campus Companion
 
-Campus Companion is a context-aware Android app built for COMP90018 (University of Melbourne, 2026 Semester 2). It reads the student's timetable, follows the trip to the next class with the phone's location and motion sensors and routed travel times, and gives each class a group with real-time chat, shared files, six-character join codes and NFC invitations. The app is Kotlin and Jetpack Compose; the backend is Supabase (Postgres with row-level security, Realtime, Storage and Edge Functions).
+Campus Companion is a context-aware Android app built for COMP90018 (University of Melbourne, 2026 Semester 2). It reads the student's timetable, follows the trip to the next class with the phone's location and motion sensors and routed travel times, and gives each class a group with real-time chat, shared files, six-character join codes and QR invitations. The app is Kotlin and Jetpack Compose; the backend is Supabase (Postgres with row-level security, Realtime, Storage and Edge Functions).
 
 Two commands check a fresh clone:
 
@@ -94,7 +94,11 @@ npx supabase db push
 
 ### Group codes and invitations
 
-Every group gets a six-character join code when it is created (`groups.join_code`, letters and digits that are hard to confuse). The code is shown to the person who starts the group and works for five minutes, long enough to read it out in class; after that the group is joined through QR codes and NFC tags, which carry short-lived invite tokens. `join_group_with_token` accepts both, and a wrong code costs a one-second wait on the server, which keeps guessing impractical. Groups created from the timetable (`sync_timetable_groups`, see `docs/timetable-groups.md`) are joined automatically by everyone who imports the same class.
+Every group gets a six-character join code when it is created (`groups.join_code`, letters and digits that are hard to confuse). The code is shown to the person who starts the group and works for five minutes, long enough to read it out in class; after that the group is joined through QR invitations, which carry short-lived invite tokens. `join_group_with_token` accepts codes and invite tokens, and a wrong code costs a one-second wait on the server, which keeps guessing impractical. Groups created from the timetable (`sync_timetable_groups`, see `docs/timetable-groups.md`) are joined automatically by everyone who imports the same class.
+
+NFC join/invite buttons are temporarily hidden on the Groups page, in group settings and in
+the join-code fallback, following inconsistent behavior across phones. QR sharing/scanning and
+six-character join codes remain available; the NFC implementation is retained for later fixes.
 
 The QR code (group settings > QR code) encodes the invite link `campuscompanion://join?token=…`, so it works both with the app's own scanner (Groups > Scan QR, built on ZXing) and with the phone's camera app, which opens the link in Campus Companion. The scanner also accepts a QR code that simply contains a six-character join code, and the image can be saved or shared from the dialog.
 
@@ -108,9 +112,9 @@ Apply migration `20261010120000_group_nicknames.sql` before installing this vers
 
 The `route-eta` Edge Function returns travel times for departure reminders. Walking and driving times come from the [FOSSGIS OSRM servers](https://routing.openstreetmap.de/about.html) and public transport times from [Transitous](https://transitous.org/api/); neither needs an API key. Both services are run by volunteers, so the function rounds positions to about 110 m, caches answers, starts calls to each service at least one second apart, and applies the fair-use limits in `private.route_limits`. When a limit is reached or a service is unavailable, the app falls back to a straight-line estimate, which the next-class card marks as approximate ("~12 min", "Walking (approx.)").
 
-On the device, `context/TravelEngine` joins the timetable, location and motion sensors and travel estimates into a context state and physical departure deadline. `context/DepartureReminders` sends a preparation notification (ten minutes before departure by default), followed by an urgent notification five minutes before departure if fresh GPS fixes show no progress toward the destination. The Schedule screen's "Departure reminders" page controls the preparation lead independently for each course's Lecture, Tutorial and Workshop. Home and the settings preview use the same departure deadline; changing the preparation lead changes only the warning time. Settings are saved per account and read by the notifier in the background. Turning an activity off removes its visible departure notifications without muting other activities or group messages. Existing reminder choices are retained until the activity is edited. The building of each class is looked up from the location code in the timetable (for example `PAR-160`) in `assets/uom_building_outlines.geojson`. Rain or heat at the class's building adds a few minutes to the departure buffer; the weather comes from [Open-Meteo](https://open-meteo.com), which needs no key, is free for non-commercial use and licenses its data CC BY 4.0, so screens that show it must say "Weather data by Open-Meteo.com".
+On the device, `context/TravelEngine` joins the timetable, the location and motion sensors and these travel times into the full context state and buffered departure deadline; `context/DepartureReminders` turns the "leave soon" and "running late" states into one notification each per class, which the activity switches on the Schedule screen's "Departure reminders" page control. Its "Arrival buffer" slider adds extra time to arrive before class, separately from weather and classroom-entry allowances. The leave-soon warning remains fixed at five minutes before the engine's calculated departure deadline. The settings preview shows that same live deadline and warning time when a travel estimate is available for the current or next class. Each course's Lecture, Tutorial and Workshop have independent settings, shared across that activity's recurring classes. Settings are saved on the device per account; the notifier reads the matching activity's saved setting directly, including in the background. Turning an activity off removes its visible departure notifications without muting other activities or group messages. Existing reminder choices are retained until the activity is edited. The building of each class is looked up from the location code in the timetable (for example `PAR-160`) in `assets/uom_building_outlines.geojson`. Rain or heat at the class's building adds a few minutes to the departure buffer; the weather comes from [Open-Meteo](https://open-meteo.com), which needs no key, is free for non-commercial use and licenses its data CC BY 4.0, so screens that show it must say "Weather data by Open-Meteo.com".
 
-Home receives `TravelSnapshot` directly. One combined card shows class details, the engine's current instruction, its departure deadline/countdown, the travel estimate and the weather and room-entry allowances, alongside Google Maps navigation. Instructions change from "Leave in 5 minutes" or "Leave now" to "On your way", "Class starts in …" and "In class until …". Travel estimates stay labelled when approximate, with the appropriate routing and weather credits. Departure prompts stop once the student is travelling or has arrived; long breaks and days without more classes have their own guidance. An updating state prevents a previous class's snapshot from supplying a new class's guidance.
+Home receives `TravelSnapshot` directly. One combined card shows class details, the engine's current instruction, its departure deadline/countdown, the travel estimate and the individual arrival, weather and room-entry buffers, alongside Google Maps navigation. Instructions change from "Leave in 5 minutes" or "Leave now" to "On your way", "Class starts in …" and "In class until …". Travel estimates stay labelled when approximate, with the appropriate routing and weather credits. Departure prompts stop once the student is travelling or has arrived; long breaks and days without more classes have their own guidance. An updating state prevents a previous class's snapshot from supplying a new class's guidance.
 
 Changing a class's venue or times with the same occurrence ID now clears outdated guidance immediately. The engine resolves the current building on each refresh, resets arrival and movement history when the tracked class or its resolved building changes, and rejects ETA/weather results started before a timetable change or account reset. Room, title and time corrections within the same building keep the student's arrival: arrival is entered within 75 m and kept until 200 m because indoor GPS is often that far off, so resetting it would turn a student who is already there into "Running late" or "Time to leave", and the reminder history (keyed by class ID and start) would let that alert through. Home, timetable ETA enrichment and reminder timing previews share an occurrence comparison that includes course/activity, times and venue while excluding display titles and transient estimates. Global GPS/movement inputs remain available for the new trip. Known-to-unknown venue changes clear travel guidance; unknown-to-known changes begin resolving normally. Manual timetable editing must save the building and room consistently because imported room text can include a full building code.
 
@@ -119,6 +123,8 @@ Departure reminders stay synchronized with the current next class. At most one i
 For the engine's 15-minute post-class window, Home uses the finished occurrence validated by `HomeCard` to put that course's group below the class guidance, labelled **After COMP90018** (for example). It shows the existing unread count, latest message preview and latest shared filename; these summaries do not imply the activity happened after class. Selection prefers the canonical `COMP90018|course` group, then the exact tutorial/workshop `timetableKey`, then a joined or user-created group tagged with the course. Other tutorial slots never match by course code alone. The next class's guidance remains first, including when departure is urgent.
 
 A matching repository membership can appear on Home even if it folded automatically after its final class; explicit user folds are honoured and the Groups screen keeps its normal folding rules. Home shows at most two distinct groups, retaining ordinary order when there is no validated finished occurrence or no match. Empty matching groups still open normally and show the repository's empty-message summary. Removing or editing the finished occurrence clears its context, and expiry comes from the engine rather than a second Home timer.
+
+The ICS parser and account-scoped timetable cache retain finished occurrences for this same 15-minute window, including refreshes and session reconstruction after recreation or offline restart. Retained history does not consume the 500 upcoming-class import slots or create new tutorial/workshop memberships. Schedule marks these rows finished; the engine removes the post-class selection at the exclusive expiry boundary on reevaluation.
 
 Deploy the function after pushing the migrations:
 
@@ -182,7 +188,7 @@ Debug builds turn on `StrictMode` in `CampusCompanionApplication`: disk and netw
 - The app only ever holds the publishable key; the service-role key stays in the dashboard and in Edge Function secrets. Invite tokens expire after ten minutes and have a use limit; a wrong join code costs a one-second server-side wait.
 - Positions are coarsened before they leave the device (about 110 m for routing, about 1 km for weather). The server keeps travel times in a cache keyed by the rounded points and a per-user request count per day, never a user's positions; the sensor readings themselves stay on the phone, and only the derived travel state is shown.
 - `allowBackup` is off, so the on-device message cache and the sign-in session are not copied into cloud backups or device transfers; everything is re-fetched after sign-in.
-- Permissions are limited to what the features use: location (travel context and geofencing), activity recognition (motion state), camera (photos for the chat and QR codes), NFC (invitations), notifications and the foreground-service permissions for the sensing service. Audio recording is available from the microphone button beside the chat input, with microphone permission requested only when recording starts. See [recording and transcription](services/transcription/README.md) for the local Whisper worker and deployment setup. The Profile screen shows the real state of each permission (`ui/profile/AppPermissions.kt`); tapping a row asks for the permission or opens the app's system settings when the system no longer shows the dialog.
+- Permissions are limited to what the features use: location (travel context and geofencing), activity recognition (motion state), camera (photos for the chat and QR codes), NFC (invitations), notifications and the foreground-service permissions for the sensing service. The app does not record audio. The Profile screen shows the real state of each permission (`ui/profile/AppPermissions.kt`); tapping a row asks for the permission or opens the app's system settings when the system no longer shows the dialog.
 - Nothing secret is committed: `.env`, `local.properties`, `google-services.json` and OAuth or service-role keys are ignored by git.
 
 ## Front-end structure
@@ -203,12 +209,12 @@ Debug builds turn on `StrictMode` in `CampusCompanionApplication`: disk and netw
 - Schedule: switch between a date-grouped list (10 classes per page, with all imported upcoming classes accessible through paging) and a Monday–Sunday calendar selector with all classes for the selected day. Date headings appear once per day, times use a 24-hour clock, and each class retains Google Maps navigation. Sync and departure reminder settings remain available.
 - Attachments: each staged photo, video, camera capture or document has an **Allow others to download** switch (on by default). Camera confirmation stages the photo so the sender can choose before tapping Send. Consent is saved with the upload queue and in `shared_files.allow_downloads`; older attachments default to enabled. Members can preview images, videos, PDFs and text in the app; only permitted recipients and the uploader can download or open the original in another app. Unsupported formats show a preview-unavailable message. There is no private-attachment/device-unlock feature.
 - Timetable connection: imports a MyTimetable subscription and saves the URL, parsed sessions, class-group information and last successful update time per account. Home and Schedule show saved classes immediately on restart while refreshing in the background. Failed refreshes keep the cache; Refresh retries without re-entering the URL. Removing the subscription deletes its cache.
-- Groups: course groups, join by code, QR code or NFC, and the group chat: messages and shared files come from Supabase (realtime feed plus the Room cache, so saved messages stay readable offline), with optimistic sending, retry of failed messages, paging of older history, upload progress and photo previews.
+- Groups: course groups, join by code or QR code, and the group chat: messages and shared files come from Supabase (realtime feed plus the Room cache, so saved messages stay readable offline), with optimistic sending, retry of failed messages, paging of older history, upload progress and photo previews.
 - Profile: account summary, travel preferences (walking range and the mode for longer trips), the timetable URL, the real state of each permission with a note on where location data goes, credits for the data sources, the app version, and sign-out.
 
 ## Status and next steps
 
-Working end to end: sign-in (Google and email code), timetable import from a MyTimetable subscription URL (with a saved copy for offline use), the next-class card with travel estimates, routed travel times with weather buffers, departure reminders ("time to leave" and "running late" notifications, switched on and timed per course from the Schedule screen), groups with join codes, QR and NFC invitations, real-time chat with an offline cache that resends what failed offline, shared files and photos, push notifications for new messages, and a Profile screen with the real permission state and the data credits.
+Working end to end: sign-in (Google and email code), timetable import from a MyTimetable subscription URL (with a saved copy for offline use), the next-class card with travel estimates, routed travel times with weather buffers, departure reminders ("time to leave" and "running late" notifications, switched on and timed per course from the Schedule screen), groups with join codes and QR invitations, real-time chat with an offline cache that resends what failed offline, shared files and photos, push notifications for new messages, and a Profile screen with the real permission state and the data credits.
 
 In a 50-message, two-emulator test against the Sydney Supabase project, send confirmation had a 58 ms median and 77 ms p95; peer delivery took about 0.1–0.6 seconds, with no lost messages.
 
@@ -260,34 +266,40 @@ This setup does not switch the context engine's ETA provider to Google.
 
 ### Live Home travel time and departure notifications
 
-Home shows **Travel time** (duration and mode), without a distance metric. Current GPS fixes feed the
-application-owned travel engine about every 10 seconds while its location foreground service runs;
-the engine also reevaluates the clock every 30 seconds. Positions older than two minutes cannot supply a travel estimate. The engine combines motion
-input with recent, timestamped GPS progress toward the classroom; repeated or inaccurate fixes
-do not count as additional evidence.
+Home shows **Travel time** (duration and mode), without a distance metric. The location foreground
+service requests fixes every 10 seconds during active class/navigation sensing and every 60 seconds
+in battery-saving NORMAL mode; the engine also reevaluates the clock every 30 seconds. Fresh,
+target-scoped GPS, motion/activity and nullable fusion evidence arrive together. New physical
+decisions require usable measurements; a temporary signal outage can preserve an established trip
+and last-known guidance. Explicit stop, permission loss or account replacement clears sensing
+evidence and guidance. Walking, running and vehicle activity require progress toward the classroom.
 Routing requests are limited to once per destination every three minutes. Walking/driving estimates
 are cached for one day, transit estimates for ten minutes, and a recent routed estimate can be reused
 for ten minutes while the user moves. Otherwise the offline straight-line estimate is used.
 
-The default ten-minute setting is a **preparation reminder lead**. Departure deadline = class start
-− travel minutes − classroom entry allowance − weather allowance. Home, reminder settings and
-notifications use this same physical deadline. For an 11:00 class and a 20-minute trip, Home shows
-10:40 as the departure deadline, and the preparation notification arrives at 10:30. If fresh GPS
-samples show that the student is stationary or moving away, Home and a second notification urge
-immediate departure at 10:35. This five-minute urgent check is independent of the preparation slider.
-Approaching the destination or arriving suppresses the warning. Each warning stage is delivered at
-most once per account and class occurrence. Lecture/tutorial/workshop switches still apply.
+The default ten-minute setting is an **arrival buffer**. Departure deadline = class start − travel
+minutes − arrival buffer − classroom entry allowance − weather allowance. For example, with entry
+and weather allowances set to zero, a class at 11:00 with a 20-minute journey and ten-minute arrival
+buffer has a 10:30 departure deadline; Leave soon starts at 10:25. Notifications follow the context
+engine's Leave soon or Running late state and are suppressed in its other states, including En route,
+Arrived and In class. Lecture/tutorial/workshop switches and individual buffers still apply.
 Notifications are generated on the phone, so FCM/server push credentials are not
 required. Android notifications and location permission must be enabled; the foreground service must
 be running. Force-stop prevents background delivery until the app is opened again.
 
 The application restores the signed-in user's cached timetable for reminders and no longer clears
 it when a screen is destroyed. Successful reminder deliveries are saved on the device by account,
-class ID, class start time and warning stage, so restarting the app does not repeat them. A delivered
-urgent alert also prevents a later preparation warning from replacing it. Failed delivery
+class ID, class start time and context state, so restarting the app does not repeat them. A delivered
+Running late alert also prevents a later Leave soon warning from replacing it. Failed delivery
 attempts remain eligible on the next travel snapshot or reminder preference update, while the
-current timing and movement still call for a reminder. Saved records expire when the class ends and are pruned on the
+context still calls for a reminder. Saved records expire when the class ends and are pruned on the
 next successful delivery. The notification links to Schedule.
+
+Step 6 adds journey and emulator acceptance tests, plus a disposable ICS fixture generator at
+`scripts/create-context-rehearsal-ics.py`. Debug `DeparturePrompt` logs identify
+notification post/update/withdraw API submissions without logging account IDs or reminder text.
+Physical recognition, actual geofence delivery, battery measurement and live-backend rehearsal
+remain separate acceptance work. The fixture Home recreation host exists only in debug builds.
 
 ## Editing a profile
 
@@ -324,39 +336,100 @@ For local development use `supabase migration up --local` and `supabase function
 
 The UI rechecks server permission before exporting cached bytes or sharing a FileProvider URI. Preview necessarily sends content to a device; this restriction is not DRM and cannot prevent screenshots or extraction by a modified client. Unsupported document formats are not passed to external viewers when downloads are disabled.
 
-Regression coverage: `attachment_download_permissions.test.sql` verifies defaults, uploader/member/outsider access, Storage policy checks and denied recipient changes; Kotlin tests cover consent decoding/caching, upload restart/retry, and preview versus download requests.
+## Shared delivery reliability
 
-## Interface text
+Before running the updated Android client, apply `20261014090000_shared_delivery_reliability.sql`
+and deploy the deletion and cleanup functions to the same backend as the app:
 
-User-facing labels, accessibility descriptions, errors and notification copy live in
-`app/src/main/res/values/strings.xml`. Use `stringResource` in Compose, or capture
-`textResources()` for event callbacks. Models and validation errors carry `UiText` and resolve
-it at the display boundary; they must not retain an Activity. Keep user names, course titles,
-messages and server content as data. Use positional format arguments for dynamic text and
-`getQuantityString` for counts. Put complete sentences in resources, rather than joining
-English fragments. The default catalog remains English; additional translations can be added
-as Android `values-<language>` resources.
+```sh
+supabase db push
+supabase functions deploy group-file-delete
+supabase functions deploy group-file-cleanup
+```
 
-The JVM resource tests read the actual catalog to check formatting, percentage signs, nested
-labels and singular/plural counts. Run `./gradlew testDebugUnitTest assembleDebug`.
+For local development, use `supabase migration up --local` and `supabase functions serve`.
+These are additive migrations; do not reset a database containing app data. Upload finalization
+uses the queue's persisted UUID and immutable object path, checks current membership and the
+stored object's size/type, and returns the existing file after a lost response. Queued bytes
+are copied into private app storage and retained until confirmation or explicit removal.
+Older queued items acquire their stable identity from the existing queue ID.
+
+The uploader can delete from the attachment viewer. `group-file-delete` verifies the caller,
+creates a durable cleanup job, removes the object through the Storage API, then removes the
+file record. Failure keeps the attachment visible with **Retry deletion**. Open chats reconcile
+their file catalog every 30 seconds so other members also see deletions. Group dissolution
+and direct metadata deletion also queue cleanup, including unregistered uploads in a dissolved
+group. Storage download-consent policies remain in effect. Deleting metadata directly from
+`storage.objects` does not remove stored bytes; cleanup must use the Storage API
+([Supabase deletion guidance](https://supabase.com/docs/guides/storage/management/delete-objects)).
+
+Schedule a server-side POST to `/functions/v1/group-file-cleanup` every minute with
+`Authorization: Bearer <service-role-key>`. Store this credential in the scheduler's secret
+store (for example Supabase Vault); never put it in Android configuration or source control.
+The worker accepts only that credential, handles at most 50 jobs per invocation, and retries
+pending jobs on subsequent invocations. Deployment alone does not set up this schedule.
+For a local/manual run, POST to the same endpoint with the local server credential.
+Monitor `public.group_file_cleanup_jobs` as an administrator: `state`, `attempts` and
+`last_error` expose failures without logging filenames or signed URLs. Keep completed job
+records as tombstones so a delayed upload or deletion retry cannot recreate a removed file.
+
+Successful code/QR/NFC joins publish and cache the joined group before the summary refresh.
+Chat reconnects advance their recovery cursor only after successful history synchronization;
+after process restart they reconcile the retained cache rather than trusting a newer live row.
+
+Validation for this increment is recorded in
+[`docs/shared-delivery-verification.md`](docs/shared-delivery-verification.md).
+
+## Group files and join codes
+
+Group settings now lists **Members → Group files → View join code → Share QR code**.
+Opening Members or Files and returning keeps pending fold, mute and nickname
+edits, including through Activity recreation. Cancel discards the draft; Save applies it.
+Timetable groups keep their automatic membership and hide invitation/exit controls.
+
+Group files searches file names/uploaders and filters All, Photos, Videos, Audio and Documents,
+newest first. It reuses the protected attachment viewer and download consent. Only the uploader
+sees Delete; failed deletion retains Retry. Refresh and automatic reconciliation update the
+catalog, while offline copies are marked as saved. Access denial hides saved rows and pauses
+automatic requests until a successful explicit refresh. Account changes invalidate the
+in-memory catalog and in-flight results. Fresh file catalogs also confirm queued uploads so
+deleting a completed file before returning to chat cannot leave a stuck upload indicator.
+
+View join code shows the existing six-character code and its remaining original five-minute
+lifetime from server group creation. Reopening/recreating the screen never starts a new
+lifetime. Expired/unavailable codes offer a QR alternative, and Copy checks expiry again.
+
+This increment adds no backend migration. Upload/deletion still require the shared delivery
+migration/functions/cleanup schedule above. See
+[`docs/group-settings-features-verification.md`](docs/group-settings-features-verification.md)
+for automated and emulator evidence and remaining active-backend acceptance checks.
 
 
-## Building compass
+## Voice messages
 
-Home's next-class card and each Schedule class have a **Direction to building** action.
-The compass page resolves the class building from the bundled campus locations and combines
-fresh precise location with accelerometer/magnetometer heading. It corrects magnetic declination and display
-rotation, animates the shortest turn across north, and replaces the arrow with a nearby-building
-message within 75 m. No map API key or route request is needed for the compass.
-The arrow shows straight-line direction. Google Maps buttons in Home, Schedule and the compass
-use the current location and Profile walking threshold to choose walking nearby, or the selected
-longer-distance mode (driving/public transport) beyond it. Without a usable distance, they use the
-Profile mode. The handoff explicitly selects that mode in Google Maps, including the browser fallback.
+Tap the microphone beside the group chat composer, then **Start**. Microphone permission is
+requested on demand and can also be managed in Profile → Permissions. The timer and input
+meter use actual recorder readings. Capture uses mono AAC in M4A at 96 kbps, with a ten-minute
+limit. **Stop** opens playback/seek review; **Record again** or **Cancel → Discard** removes the
+unsent clip. **Use recording** saves a local composer draft. Choose download consent, then
+**Send** to upload through the existing durable queue.
 
-Only the visible compass page requests its location and heading updates; leaving it or locking
-the screen stops both without changing the app's independent trip/reminder service. Low
-magnetic accuracy, a tilted phone, missing sensors and stale/denied location have explicit states.
-All compass copy is resource-backed, with a text direction for TalkBack. Unit tests cover bearings,
-declination, wraparound, sensor/location freshness, display rotation and destination changes.
-Physical-device checks should include portrait/landscape rotation, outdoor pointing, calibration,
-background/resume, permission denial and Google Maps return.
+Switching apps, locking the screen or leaving the recording screen stops capture and preserves
+a valid clip for review. Returning does not restart capture. Stopped and staged drafts survive
+recreation/restart and belong to one account/group. Invalid interrupted containers are discarded
+with a visible explanation. Queued recordings retain their original bytes until confirmation or
+explicit failed-upload removal; a stable UUID avoids duplicate registration on retry. Playback
+pauses on background/audio interruption and offers Retry for unavailable audio. Members can
+preview permitted audio in chat and Group files, while original downloads keep the existing
+uploader-consent checks.
+
+Apply `20261014100000_voice_recording_metadata.sql` to the same backend as the app before using
+voice sending, after the shared delivery migration above. It adds duration/voice metadata and
+extends the idempotent finalization RPC with defaults for older clients. Use `supabase db push`
+for the linked project or `supabase migration up --local` locally. This increment adds no new
+Edge Function. Existing preview/deletion functions and cleanup scheduling remain required.
+Automatic transcription, transcript controls and worker deployment are deferred by the team;
+voice capture and playback have no transcription dependency.
+
+See [`docs/voice-messages-verification.md`](docs/voice-messages-verification.md) for validation
+results and remaining physical-phone/two-account acceptance checks.

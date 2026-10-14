@@ -1,7 +1,5 @@
 package au.edu.unimelb.campuscompanion.navigation
 
-import au.edu.unimelb.campuscompanion.ui.text.UiText
-import au.edu.unimelb.campuscompanion.R
 import au.edu.unimelb.campuscompanion.data.building.BuildingLocation
 import au.edu.unimelb.campuscompanion.data.model.GeoPoint
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
@@ -22,14 +20,11 @@ data class ClassDestination(
     val buildingNumber: String = ""
 ) {
     val mapLabel: String get() = listOfNotNull(title, activity).joinToString(" · ")
-    val buildingLabel: UiText get() {
-        val parts = buildList {
-            buildingNumber.trim().takeIf(String::isNotEmpty)?.let { add(UiText(R.string.building_number, it)) }
-            buildingName.trim().takeIf(String::isNotEmpty)?.let { add(UiText.Literal(it)) }
-        }.distinct()
-        return if (parts.isEmpty()) UiText.Literal(buildingCode.ifBlank { address }) else UiText.Joined(parts, " · ")
-    }
-    val markerDetail: UiText get() = UiText.Joined(listOf(buildingLabel, UiText.Literal(locationLabel)), "\n")
+    val buildingLabel: String get() = listOfNotNull(
+        buildingNumber.trim().takeIf(String::isNotEmpty)?.let { "Building $it" },
+        buildingName.trim().takeIf(String::isNotEmpty)
+    ).distinct().joinToString(" · ").ifBlank { buildingCode.ifBlank { address } }
+    val markerDetail: String get() = listOf(buildingLabel, locationLabel).filter(String::isNotBlank).distinct().joinToString("\n")
     val locationLabel: String get() = listOf(room, address).filter(String::isNotBlank).distinct().joinToString("\n")
 }
 

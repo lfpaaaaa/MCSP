@@ -1,7 +1,5 @@
 package au.edu.unimelb.campuscompanion.navigation
 
-import au.edu.unimelb.campuscompanion.english
-
 import au.edu.unimelb.campuscompanion.data.building.BuildingLocation
 import au.edu.unimelb.campuscompanion.data.model.GeoPoint
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
@@ -23,8 +21,8 @@ class ClassDestinationTest {
             assertEquals(building.location, destination.point)
             assertEquals("PAR;379", destination.buildingCode)
             assertTrue(destination.locationLabel.contains("B116"))
-            assertEquals("Building 379 · Teaching building", destination.buildingLabel.english())
-            assertTrue(destination.markerDetail.english().contains("123 Campus Street"))
+            assertEquals("Building 379 · Teaching building", destination.buildingLabel)
+            assertTrue(destination.markerDetail.contains("123 Campus Street"))
         }
     }
 

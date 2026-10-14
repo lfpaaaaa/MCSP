@@ -1,15 +1,5 @@
 package au.edu.unimelb.campuscompanion.ui.screens
 
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.runtime.setValue
-
-import androidx.compose.runtime.getValue
-
-import au.edu.unimelb.campuscompanion.ui.text.textResources
-import au.edu.unimelb.campuscompanion.R
 import au.edu.unimelb.campuscompanion.ui.model.trimTrailingCommas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -20,7 +10,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.NotificationsActive
@@ -38,8 +30,10 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -49,12 +43,15 @@ import au.edu.unimelb.campuscompanion.ui.model.CourseReminderPreference
 import au.edu.unimelb.campuscompanion.ui.model.CourseReminderSeries
 import au.edu.unimelb.campuscompanion.ui.model.CourseReminderTiming
 import au.edu.unimelb.campuscompanion.ui.model.MAX_COURSE_REMINDER_LEAD_MINUTES
+import au.edu.unimelb.campuscompanion.ui.model.MAX_COURSE_REMINDER_PREPARATION_MINUTES
 import au.edu.unimelb.campuscompanion.ui.model.reminderTiming
 import java.time.format.DateTimeFormatter
 import kotlin.math.roundToInt
 
 private val courseTimeFormatter = DateTimeFormatter.ofPattern("EEE, d MMM - h:mm a")
 private val departureTimeFormatter = DateTimeFormatter.ofPattern("EEE d MMM, h:mm a")
+private val departureClockFormatter = DateTimeFormatter.ofPattern("h:mm a")
+private val departureDateFormatter = DateTimeFormatter.ofPattern("EEE d MMM")
 
 @Composable
 fun CourseReminderSettingsScreen(
@@ -64,7 +61,6 @@ fun CourseReminderSettingsScreen(
     modifier: Modifier = Modifier,
     travelSnapshot: TravelSnapshot = TravelSnapshot()
 ) {
-    val textResources = textResources()
     var selectedCourseKey by rememberSaveable { mutableStateOf<String?>(null) }
     val selectedCourse = courses.firstOrNull { it.key == selectedCourseKey }
 
@@ -98,11 +94,11 @@ fun CourseReminderSettingsScreen(
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Text(
-                            text = textResources.getString(R.string.course_reminder_settings_no_courses_available),
+                            text = "No courses available",
                             style = MaterialTheme.typography.titleMedium
                         )
                         Text(
-                            text = textResources.getString(R.string.course_reminder_settings_connect_a_timetable_with_course_events_first),
+                            text = "Connect a timetable with course events first.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -111,7 +107,7 @@ fun CourseReminderSettingsScreen(
         } else {
             item {
                 Text(
-                    text = textResources.getString(R.string.label_class_reminders),
+                    text = "CLASS REMINDERS",
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary
@@ -119,7 +115,7 @@ fun CourseReminderSettingsScreen(
             }
             item {
                 Text(
-                    text = textResources.getString(R.string.course_reminder_settings_control_lecture_tutorial_and_workshop_reminders_separately_changes),
+                    text = "Control lecture, tutorial and workshop reminders separately. Changes are saved automatically.",
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -128,7 +124,7 @@ fun CourseReminderSettingsScreen(
             items(courses, key = CourseReminderSeries::key) { course ->
                 val preference = preferences[course.key] ?: CourseReminderPreference()
                 ListItem(
-                    modifier = Modifier.clickable(role = Role.Button, onClickLabel = textResources.getString(R.string.a11y_edit_reminder, course.displayName)) { selectedCourseKey = course.key },
+                    modifier = Modifier.clickable { selectedCourseKey = course.key },
                     leadingContent = {
                         Icon(
                             imageVector = if (preference.enabled) Icons.Outlined.NotificationsActive else Icons.Outlined.NotificationsOff,
@@ -150,14 +146,14 @@ fun CourseReminderSettingsScreen(
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(course.title.trimTrailingCommas())
                             Text(
-                                text = course.summaryLine(preference, textResources),
+                                text = course.summaryLine(preference),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     },
                     trailingContent = {
                         Switch(
-                            modifier = Modifier.semantics { contentDescription = textResources.getString(R.string.copy_reminders, course.displayName) },
+                            modifier = Modifier.semantics { contentDescription = "${course.displayName} reminders" },
                             checked = preference.enabled,
                             onCheckedChange = { enabled ->
                                 onPreferenceChange(
@@ -182,21 +178,21 @@ private fun CourseReminderDialog(
     onPreferenceChange: (CourseReminderPreference) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val textResources = textResources()
     val session = course.nextSession
-    val timing = session.reminderTiming(travelSnapshot, preference.leadMinutes)
-    val notificationTime = (timing as? CourseReminderTiming.Ready)?.warningAt
-    val preparationMessage = if (preference.leadMinutes == 0) {
-        textResources.getString(R.string.course_reminder_settings_leave_when_the_reminder_arrives)
-    } else {
-        textResources.getString(R.string.course_reminder_settings_prepare_to_leave_within_min, preference.leadMinutes)
-    }
+    val timing = session.reminderTiming(
+        travelSnapshot,
+        preference.leadMinutes,
+        preference.preparationMinutes
+    )
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(course.displayName) },
         text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
                         text = course.title.trimTrailingCommas(),
@@ -219,24 +215,39 @@ private fun CourseReminderDialog(
                     }
                 }
 
-                SettingSwitchRow(
-                    title = textResources.getString(R.string.course_reminder_settings_departure_reminder),
-                    description = textResources.getString(R.string.copy_reminders, course.displayName),
-                    checked = preference.enabled,
-                    onCheckedChange = { onPreferenceChange(preference.copy(enabled = it)) }
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Departure reminder",
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+                    Switch(
+                        modifier = Modifier.semantics { contentDescription = "${course.displayName} reminders" },
+                        checked = preference.enabled,
+                        onCheckedChange = { enabled ->
+                            onPreferenceChange(preference.copy(enabled = enabled))
+                        }
+                    )
+                }
 
                 if (preference.enabled) {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(
-                            text = textResources.getString(R.string.course_reminder_settings_prepare_min_before_departure, preference.leadMinutes),
+                            text = "Arrival buffer: ${preference.leadMinutes} minutes",
                             style = MaterialTheme.typography.bodyLarge,
                             fontWeight = FontWeight.Medium
                         )
+                        Text(
+                            text = "How early do you want to arrive before class? This moves your leave-by time earlier. Weather and time to reach the classroom may add more.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                         Slider(
                             modifier = Modifier.semantics {
-                                contentDescription = textResources.getString(R.string.a11y_preparation_time)
-                                stateDescription = textResources.getString(R.string.course_reminder_settings_prepare_min_before_departure, preference.leadMinutes)
+                                contentDescription = "${course.displayName} arrival buffer"
                             },
                             value = preference.leadMinutes.toFloat(),
                             onValueChange = { value ->
@@ -247,14 +258,43 @@ private fun CourseReminderDialog(
                                 )
                             },
                             valueRange = 0f..MAX_COURSE_REMINDER_LEAD_MINUTES.toFloat(),
-                            steps = 11
+                            steps = MAX_COURSE_REMINDER_LEAD_MINUTES / 5 - 1
+                        )
+                    }
+
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = "Prepare before departure: ${preference.preparationMinutes} minutes",
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Medium
                         )
                         Text(
-                            text = textResources.getString(R.string.departure_urgent_explanation),
+                            text = "How much time do you need to get ready before leaving? This moves the warning earlier without changing your leave-by time. Choose 0 to be warned at leave-by.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        Slider(
+                            modifier = Modifier.semantics {
+                                contentDescription = "${course.displayName} prepare before departure"
+                            },
+                            value = preference.preparationMinutes.toFloat(),
+                            onValueChange = { value ->
+                                onPreferenceChange(
+                                    preference.copy(
+                                        preparationMinutes = (value / 5f).roundToInt() * 5
+                                    )
+                                )
+                            },
+                            valueRange = 0f..MAX_COURSE_REMINDER_PREPARATION_MINUTES.toFloat(),
+                            steps = MAX_COURSE_REMINDER_PREPARATION_MINUTES / 5 - 1
+                        )
                     }
+
+                    Text(
+                        text = "Prepare-to-leave warnings are skipped when you’re already heading to class or have arrived.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
 
                     Surface(
                         shape = RoundedCornerShape(8.dp),
@@ -275,22 +315,42 @@ private fun CourseReminderDialog(
                                 modifier = Modifier.padding(start = 12.dp),
                                 verticalArrangement = Arrangement.spacedBy(2.dp)
                             ) {
-                                Text(
-                                    text = notificationTime?.let { textResources.getString(R.string.reminder_prepare_at, it.format(departureTimeFormatter)) }
-                                        ?: textResources.getString(R.string.course_reminder_settings_calculated_from_your_live_route),
-                                    style = MaterialTheme.typography.titleMedium
-                                )
-                                if (timing is CourseReminderTiming.Ready) {
-                                    Text(textResources.getString(R.string.home_leave_by, timing.leaveBy.format(departureTimeFormatter)))
+                                when (timing) {
+                                    is CourseReminderTiming.Ready -> {
+                                        Text(
+                                            text = "Leave by ${timing.leaveBy.format(departureClockFormatter)}",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            maxLines = 1,
+                                            softWrap = false
+                                        )
+                                        if (timing.leaveBy.toLocalDate() != session.start.toLocalDate()) {
+                                            Text(
+                                                text = timing.leaveBy.format(departureDateFormatter),
+                                                style = MaterialTheme.typography.bodyMedium
+                                            )
+                                        }
+                                        Text(
+                                            text = "Prepare to leave: ${timing.warningAt.format(departureTimeFormatter)}",
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+                                        Text(
+                                            text = "Travel time: ${timing.travelMinutes} min. Extra allowances are included in the departure time.",
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+                                    }
+                                    CourseReminderTiming.Updating -> {
+                                        Text("Updating live times…", style = MaterialTheme.typography.titleMedium)
+                                        Text("Applying your arrival buffer and preparation time.", style = MaterialTheme.typography.bodyMedium)
+                                    }
+                                    CourseReminderTiming.MissingTravelTime -> {
+                                        Text("Waiting for live travel time", style = MaterialTheme.typography.titleMedium)
+                                        Text("Departure and reminder times will appear when a travel estimate is available.", style = MaterialTheme.typography.bodyMedium)
+                                    }
+                                    CourseReminderTiming.NotTracked -> {
+                                        Text("Live timing unavailable", style = MaterialTheme.typography.titleMedium)
+                                        Text("Live times are shown for your current or next class.", style = MaterialTheme.typography.bodyMedium)
+                                    }
                                 }
-                                Text(
-                                    text = if (timing !is CourseReminderTiming.Ready) {
-                                        textResources.getString(R.string.course_reminder_settings_live_travel_time_will_be_included, preparationMessage)
-                                    } else {
-                                        textResources.getString(R.string.course_reminder_settings_travel_time_min, preparationMessage, timing.travelMinutes)
-                                    },
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
                             }
                         }
                     }
@@ -299,18 +359,18 @@ private fun CourseReminderDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text(textResources.getString(R.string.course_reminder_settings_done))
+                Text("Done")
             }
         }
     )
 }
 
-private fun CourseReminderSeries.summaryLine(preference: CourseReminderPreference, textResources: android.content.res.Resources): String {
-    val recurrence = textResources.getQuantityString(R.plurals.class_count, occurrenceCount, occurrenceCount)
+private fun CourseReminderSeries.summaryLine(preference: CourseReminderPreference): String {
+    val recurrence = if (occurrenceCount == 1) "1 class" else "$occurrenceCount classes"
     val reminder = if (preference.enabled) {
-        textResources.getString(R.string.reminder_min_early, preference.leadMinutes)
+        "${preference.leadMinutes} min arrival buffer · ${preference.preparationMinutes} min preparation"
     } else {
-        textResources.getString(R.string.reminder_off)
+        "Off"
     }
-    return textResources.getString(R.string.copy_label, nextSession.start.format(courseTimeFormatter), recurrence, reminder)
+    return "${nextSession.start.format(courseTimeFormatter)} - $recurrence - $reminder"
 }

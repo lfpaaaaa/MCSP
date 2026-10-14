@@ -44,6 +44,13 @@ class SupabaseFileDataSource(private val client: SupabaseClient) : FileRemoteDat
         decodeRows(result.data, SharedFileRow.serializer())
     }
 
+    override suspend fun fetchFileRecord(fileId: String): SharedFileRow? = remoteCall {
+        val result = client.postgrest.from("shared_files").select {
+            filter { eq("id", fileId) }
+        }
+        decodeRows(result.data, SharedFileRow.serializer()).singleOrNull()
+    }
+
     override fun uploadObject(path: String, bytes: ByteArray, mimeType: String): Flow<Long> =
         bucket
             .uploadAsFlow(path, bytes) {
@@ -53,20 +60,25 @@ class SupabaseFileDataSource(private val client: SupabaseClient) : FileRemoteDat
             .mapNotNull { status -> (status as? UploadStatus.Progress)?.totalBytesSend }
             .catch { error -> throw error.toDataError() }
 
-    override suspend fun insertFileRecord(record: NewFileRecord): SharedFileRow = remoteCall {
-        val result = client.postgrest.from("shared_files").insert(
+    override suspend fun finalizeFileRecord(record: NewFileRecord): SharedFileRow = remoteCall {
+        val result = client.postgrest.rpc("finalize_group_file",
             buildJsonObject {
-                put("group_id", record.groupId)
-                put("file_name", record.fileName)
-                put("mime_type", record.mimeType)
-                put("size_bytes", record.sizeBytes)
-                put("storage_path", record.storagePath)
-                put("allow_downloads", record.allowDownloads)
+                put("p_upload_id", record.uploadId)
+                put("p_group_id", record.groupId)
+                put("p_file_name", record.fileName)
+                put("p_mime_type", record.mimeType)
+                put("p_size_bytes", record.sizeBytes)
+                put("p_storage_path", record.storagePath)
+                put("p_allow_downloads", record.allowDownloads)
+                put("p_duration_ms", record.durationMillis)
+                put("p_is_voice_recording", record.isVoiceRecording)
             }
-        ) {
-            select()
-        }
+        )
         decodeRow(result.data, SharedFileRow.serializer())
+    }
+
+    override suspend fun deleteFile(fileId: String) {
+        remoteCall { client.functions.invoke("group-file-delete", buildJsonObject { put("fileId", fileId) }) }
     }
 
     override suspend fun deleteFileRecord(fileId: String): Int = remoteCall {

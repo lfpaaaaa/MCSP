@@ -1,14 +1,12 @@
 package au.edu.unimelb.campuscompanion.ui.model
 
-import au.edu.unimelb.campuscompanion.R
-import au.edu.unimelb.campuscompanion.ui.text.UiText
 import au.edu.unimelb.campuscompanion.data.timetableGroupSpec
 
 /** Repository summaries in Home order, with optional context for the first row. */
 data class HomeGroupUpdates(
     val featuredGroup: CourseGroup?,
     val rows: List<CourseGroup>,
-    val contextLabel: UiText?
+    val contextLabel: String?
 )
 
 /**
@@ -39,7 +37,7 @@ fun buildHomeGroupUpdates(
     return HomeGroupUpdates(
         featuredGroup = featured,
         rows = (listOfNotNull(featured) + uniqueGroups).distinctBy(CourseGroup::id).take(2),
-        contextLabel = finishedSession?.takeIf { featured != null }?.let { UiText(R.string.home_after_course, it.code) }
+        contextLabel = finishedSession?.takeIf { featured != null }?.let { "After ${it.code}" }
     )
 }
 

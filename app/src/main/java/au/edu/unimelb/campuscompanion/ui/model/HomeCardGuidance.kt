@@ -1,7 +1,5 @@
 package au.edu.unimelb.campuscompanion.ui.model
 
-import au.edu.unimelb.campuscompanion.R
-import au.edu.unimelb.campuscompanion.ui.text.UiText
 import au.edu.unimelb.campuscompanion.context.ContextState
 import au.edu.unimelb.campuscompanion.data.model.TravelEstimate
 import java.time.Duration
@@ -11,12 +9,12 @@ import java.util.Locale
 
 /** Text and visibility for the combined Home card; the engine's decision stays in [HomeCardUiState]. */
 data class HomeCardGuidance(
-    val cardLabel: UiText,
-    val headline: UiText,
-    val detail: UiText?,
-    val departureLine: UiText?,
-    val bufferExplanation: UiText?,
-    val travelUnavailableMessage: UiText?,
+    val cardLabel: String,
+    val headline: String,
+    val detail: String?,
+    val departureLine: String?,
+    val bufferExplanation: String?,
+    val travelUnavailableMessage: String?,
     val showTravelDetails: Boolean,
     val showWeatherCredit: Boolean
 )
@@ -28,9 +26,9 @@ private val guidanceDateFormat = DateTimeFormatter.ofPattern("EEE, d MMM", Local
 fun buildHomeCardGuidance(card: HomeCardUiState, now: ZonedDateTime): HomeCardGuidance {
     val session = card.session
     val label = when {
-        session == null -> UiText(R.string.home_your_day)
-        !now.isBefore(session.start) -> UiText(R.string.home_current_class)
-        else -> UiText(R.string.label_next_class)
+        session == null -> "YOUR DAY"
+        !now.isBefore(session.start) -> "CURRENT CLASS"
+        else -> "NEXT CLASS"
     }
     val state = card.state ?: return pendingGuidance(label, session != null)
 
@@ -39,27 +37,25 @@ fun buildHomeCardGuidance(card: HomeCardUiState, now: ZonedDateTime): HomeCardGu
             ContextState.POST_CLASS -> guidanceWithoutTravel(
                 label = label,
                 headline = card.finishedSession?.code?.takeIf(String::isNotBlank)
-                    ?.let { UiText(R.string.home_course_finished, it) } ?: UiText(R.string.home_class_finished)
+                    ?.let { "$it just finished" } ?: "Class just finished"
             )
             ContextState.NO_UPCOMING_CLASS -> guidanceWithoutTravel(
                 label = label,
-                headline = UiText(R.string.home_no_more_today),
-                detail = UiText(R.string.home_no_upcoming)
+                headline = "No more classes today",
+                detail = "Your timetable has no upcoming classes."
             )
             else -> pendingGuidance(label, hasSession = false)
         }
     }
 
-    val text = if (card.urgentDeparture) {
-        HomeGuidanceText(UiText(R.string.home_leave_now), UiText(R.string.departure_not_approaching))
-    } else when (state) {
+    val text = when (state) {
         ContextState.UPCOMING, ContextState.LEAVE_SOON -> {
             val deadline = card.leaveBy
             if (deadline == null) {
                 HomeGuidanceText(classStartCountdown(session, now), UNAVAILABLE_DEPARTURE)
             } else {
                 HomeGuidanceText(
-                    if (deadline.isAfter(now)) UiText(R.string.home_leave_in, guidanceDuration(now, deadline)) else UiText(R.string.home_leave_now)
+                    if (deadline.isAfter(now)) "Leave in ${guidanceDuration(now, deadline)}" else "Leave now"
                 )
             }
         }
@@ -67,24 +63,25 @@ fun buildHomeCardGuidance(card: HomeCardUiState, now: ZonedDateTime): HomeCardGu
             val deadline = card.leaveBy
             when {
                 deadline == null -> HomeGuidanceText(
-                    UiText(R.string.home_break_before_class),
-                    UiText.Joined(listOf(nextClassStart(session, now), UNAVAILABLE_DEPARTURE), " · ")
+                    "A break before your next class",
+                    "${nextClassStart(session, now)} · $UNAVAILABLE_DEPARTURE"
                 )
-                deadline.isAfter(now) -> HomeGuidanceText(UiText(R.string.home_free_for, guidanceDuration(now, deadline)))
-                else -> HomeGuidanceText(UiText(R.string.home_leave_now))
+                deadline.isAfter(now) -> HomeGuidanceText("Free for ${guidanceDuration(now, deadline)}")
+                else -> HomeGuidanceText("Leave now")
             }
         }
         ContextState.EN_ROUTE -> HomeGuidanceText(
-            UiText(R.string.home_on_your_way),
-            UiText.Joined(listOfNotNull(card.estimate?.let(::remainingTravel), classStartDetail(session, now)), " · ")
+            "On your way",
+            listOfNotNull(card.estimate?.let(::remainingTravel), classStartDetail(session, now))
+                .joinToString(" · ")
         )
         ContextState.RUNNING_LATE -> {
             if (now.isBefore(session.start)) {
                 val arrival = card.estimate?.let { now.plusMinutes(it.durationMinutes.toLong()) }
                 HomeGuidanceText(
-                    UiText(R.string.home_leave_now),
+                    "Leave now",
                     if (arrival != null && arrival.isAfter(session.start)) {
-                        UiText(R.string.home_late_arrival, guidanceDuration(session.start, arrival))
+                        "You may arrive about ${guidanceDuration(session.start, arrival)} after class starts."
                     } else {
                         classStartDetail(session, now)
                     }
@@ -92,26 +89,27 @@ fun buildHomeCardGuidance(card: HomeCardUiState, now: ZonedDateTime): HomeCardGu
             } else {
                 HomeGuidanceText(
                     classStartCountdown(session, now),
-                    card.estimate?.let(::remainingTravel) ?: UiText(R.string.home_not_at_building)
+                    card.estimate?.let(::remainingTravel) ?: "You're not at the building yet."
                 )
             }
         }
         ContextState.ARRIVED -> HomeGuidanceText(
             classStartCountdown(session, now),
-            card.building?.name?.takeIf(String::isNotBlank)?.let { UiText(R.string.home_at_building, it) }
+            card.building?.name?.takeIf(String::isNotBlank)?.let { "You're at $it" }
         )
-        ContextState.IN_CLASS -> HomeGuidanceText(UiText(R.string.home_in_class_until, guidanceTime(session.end, session)))
+        ContextState.IN_CLASS -> HomeGuidanceText("In class until ${guidanceTime(session.end, session)}")
         ContextState.POST_CLASS -> HomeGuidanceText(nextClassStart(session, now))
-        ContextState.NO_UPCOMING_CLASS -> HomeGuidanceText(UiText(R.string.home_no_more_today), nextClassStart(session, now))
+        ContextState.NO_UPCOMING_CLASS -> HomeGuidanceText("No more classes today", nextClassStart(session, now))
     }
 
     val showTravel = state in TRAVEL_GUIDANCE_STATES
-    val showDeparture = (state in DEPARTURE_GUIDANCE_STATES || card.urgentDeparture) && card.leaveBy != null
+    val showDeparture = state in DEPARTURE_GUIDANCE_STATES && card.leaveBy != null
     val showBuffers = showDeparture && card.estimate != null
     val bufferParts = if (showBuffers) {
         buildList {
-            if (card.weatherBufferMinutes > 0) add(UiText(R.string.home_weather_allowance, card.weatherBufferMinutes))
-            if (card.entryAllowanceMinutes > 0) add(UiText(R.string.home_entry_allowance, card.entryAllowanceMinutes))
+            if (card.leadMinutes > 0) add("${card.leadMinutes} min arrival buffer")
+            if (card.weatherBufferMinutes > 0) add("${card.weatherBufferMinutes} min for weather")
+            if (card.entryAllowanceMinutes > 0) add("${card.entryAllowanceMinutes} min to reach the room")
         }
     } else {
         emptyList()
@@ -121,13 +119,13 @@ fun buildHomeCardGuidance(card: HomeCardUiState, now: ZonedDateTime): HomeCardGu
         cardLabel = label,
         headline = text.headline,
         detail = text.detail,
-        departureLine = card.leaveBy?.takeIf { showDeparture }?.let { UiText(R.string.home_leave_by, guidanceTime(it, session)) },
-        bufferExplanation = bufferParts.takeIf { it.isNotEmpty() }?.let { UiText.Joined(it, " + ") },
+        departureLine = card.leaveBy?.takeIf { showDeparture }?.let { "Leave by ${guidanceTime(it, session)}" },
+        bufferExplanation = bufferParts.takeIf { it.isNotEmpty() }?.joinToString(" + "),
         travelUnavailableMessage = if (showTravel && card.estimate == null) {
             when {
-                card.building == null -> UiText(R.string.home_unknown_destination)
-                card.distanceMeters == null -> UiText(R.string.home_waiting_location)
-                else -> UiText(R.string.home_route_unavailable)
+                card.building == null -> "Travel time unavailable: destination could not be matched."
+                card.distanceMeters == null -> "Waiting for your current location."
+                else -> "Travel time unavailable right now."
             }
         } else {
             null
@@ -137,24 +135,24 @@ fun buildHomeCardGuidance(card: HomeCardUiState, now: ZonedDateTime): HomeCardGu
     )
 }
 
-private data class HomeGuidanceText(val headline: UiText, val detail: UiText? = null)
+private data class HomeGuidanceText(val headline: String, val detail: String? = null)
 
-private fun pendingGuidance(label: UiText, hasSession: Boolean) = HomeCardGuidance(
+private fun pendingGuidance(label: String, hasSession: Boolean) = HomeCardGuidance(
     cardLabel = label,
     headline = when {
-        !hasSession -> UiText(R.string.home_updating_day)
-        label == UiText(R.string.home_current_class) -> UiText(R.string.home_updating_class)
-        else -> UiText(R.string.home_checking_class)
+        !hasSession -> "Updating your day"
+        label == "CURRENT CLASS" -> "Updating class guidance"
+        else -> "Checking your next class"
     },
     detail = null,
     departureLine = null,
     bufferExplanation = null,
-    travelUnavailableMessage = UiText(R.string.home_updating_travel),
+    travelUnavailableMessage = "Updating travel information",
     showTravelDetails = false,
     showWeatherCredit = false
 )
 
-private fun guidanceWithoutTravel(label: UiText, headline: UiText, detail: UiText? = null) = HomeCardGuidance(
+private fun guidanceWithoutTravel(label: String, headline: String, detail: String? = null) = HomeCardGuidance(
     cardLabel = label,
     headline = headline,
     detail = detail,
@@ -168,31 +166,31 @@ private fun guidanceWithoutTravel(label: UiText, headline: UiText, detail: UiTex
 private fun guidanceTime(time: ZonedDateTime, session: CourseSession): String =
     time.withZoneSameInstant(session.start.zone).format(guidanceTimeFormat)
 
-private fun nextClassStart(session: CourseSession, now: ZonedDateTime): UiText {
+private fun nextClassStart(session: CourseSession, now: ZonedDateTime): String {
     val localNow = now.withZoneSameInstant(session.start.zone)
     return if (session.startDate == localNow.toLocalDate()) {
-        UiText(R.string.home_next_starts_at, guidanceTime(session.start, session))
+        "Next class starts at ${guidanceTime(session.start, session)}"
     } else {
-        UiText(R.string.home_next_starts_on, session.start.format(guidanceDateFormat), guidanceTime(session.start, session))
+        "Next class starts on ${session.start.format(guidanceDateFormat)} at ${guidanceTime(session.start, session)}"
     }
 }
 
-private fun classStartCountdown(session: CourseSession, now: ZonedDateTime): UiText = when {
-    session.start.isAfter(now) -> UiText(R.string.home_starts_in, guidanceDuration(now, session.start))
-    session.start.toInstant() == now.toInstant() -> UiText(R.string.home_starts_now)
-    else -> UiText(R.string.home_started_ago, guidanceElapsedDuration(session.start, now))
+private fun classStartCountdown(session: CourseSession, now: ZonedDateTime): String = when {
+    session.start.isAfter(now) -> "Class starts in ${guidanceDuration(now, session.start)}"
+    session.start.toInstant() == now.toInstant() -> "Class starts now"
+    else -> "Class started ${guidanceElapsedDuration(session.start, now)} ago"
 }
 
-private fun classStartDetail(session: CourseSession, now: ZonedDateTime): UiText =
-    if (session.start.isAfter(now)) UiText(R.string.home_starts_at, guidanceTime(session.start, session))
+private fun classStartDetail(session: CourseSession, now: ZonedDateTime): String =
+    if (session.start.isAfter(now)) "Class starts at ${guidanceTime(session.start, session)}"
     else classStartCountdown(session, now)
 
-private fun remainingTravel(estimate: TravelEstimate): UiText =
-    if (estimate.durationMinutes == 0) UiText(R.string.home_remaining_under_minute)
-    else UiText(R.string.home_remaining_minutes, estimate.durationMinutes)
+private fun remainingTravel(estimate: TravelEstimate): String =
+    if (estimate.durationMinutes == 0) "Less than a minute remaining"
+    else "About ${estimate.durationMinutes} min remaining"
 
 /** Positive fractional minutes round up, including a fraction smaller than one second. */
-private fun guidanceDuration(from: ZonedDateTime, to: ZonedDateTime): UiText {
+private fun guidanceDuration(from: ZonedDateTime, to: ZonedDateTime): String {
     val duration = Duration.between(from, to)
     val minutes = if (duration.isNegative || duration.isZero) {
         0L
@@ -203,20 +201,20 @@ private fun guidanceDuration(from: ZonedDateTime, to: ZonedDateTime): UiText {
 }
 
 /** Elapsed time rounds down: thirty seconds after the start is still less than a minute ago. */
-private fun guidanceElapsedDuration(from: ZonedDateTime, to: ZonedDateTime): UiText =
+private fun guidanceElapsedDuration(from: ZonedDateTime, to: ZonedDateTime): String =
     guidanceMinutes(Duration.between(from, to).toMinutes().coerceAtLeast(0))
 
-private fun guidanceMinutes(minutes: Long): UiText {
-    if (minutes == 0L) return UiText(R.string.home_under_minute)
+private fun guidanceMinutes(minutes: Long): String {
+    if (minutes == 0L) return "less than a minute"
     val hours = minutes / 60
     val remainingMinutes = minutes % 60
-    return UiText.Joined(buildList {
-        if (hours > 0) add(UiText.Plural(R.plurals.home_hours, hours.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(), listOf(hours)))
-        if (remainingMinutes > 0) add(UiText.Plural(R.plurals.home_minutes, remainingMinutes.toInt(), listOf(remainingMinutes)))
-    })
+    return buildList {
+        if (hours > 0) add("$hours ${if (hours == 1L) "hour" else "hours"}")
+        if (remainingMinutes > 0) add("$remainingMinutes ${if (remainingMinutes == 1L) "minute" else "minutes"}")
+    }.joinToString(" ")
 }
 
-private val UNAVAILABLE_DEPARTURE = UiText(R.string.home_departure_unavailable)
+private const val UNAVAILABLE_DEPARTURE = "Departure time is unavailable."
 
 private val DEPARTURE_GUIDANCE_STATES = setOf(
     ContextState.UPCOMING,

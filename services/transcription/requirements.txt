@@ -1,3 +1,0 @@
-faster-whisper==1.2.1
-# PyAV 17+ removed metadata_errors used by faster-whisper 1.2.1.
-av==15.1.0

@@ -22,8 +22,5 @@ local.properties
 .env
 app/google-services.json
 
-# Local speech model and worker environment
-.local/
-
 # OS
 .DS_Store
