@@ -116,7 +116,7 @@ import au.edu.unimelb.campuscompanion.ui.screens.GroupChatScreen
 import au.edu.unimelb.campuscompanion.ui.screens.GroupSettingsDialog
 import au.edu.unimelb.campuscompanion.ui.screens.GroupsScreen
 import au.edu.unimelb.campuscompanion.ui.screens.HomeScreen
-import au.edu.unimelb.campuscompanion.ui.screens.selectTravelSummary
+import au.edu.unimelb.campuscompanion.navigation.preferredNavigationMode
 import au.edu.unimelb.campuscompanion.ui.screens.LoginScreen
 import au.edu.unimelb.campuscompanion.ui.screens.NfcShareDialog
 import au.edu.unimelb.campuscompanion.ui.screens.ProfileScreen
@@ -569,9 +569,15 @@ private fun AuthenticatedCampusApp(
             return
         }
         val destination = session.toClassDestination(building)
+        val mode = preferredNavigationMode(
+            destination = destination.point,
+            preferences = travelPreferences,
+            location = AppRepositories.navigation.location.value,
+            routeDistanceMeters = session.routeEstimate?.distanceMeters
+        )
         // Changing the destination cancels any separately selected transit reminder journey.
-        AppRepositories.navigation.open(destination)
-        openGoogleMaps(context, destination, selectTravelSummary(session, travelPreferences).mode ?: travelPreferences.longerDistanceMode)
+        AppRepositories.navigation.open(destination, mode)
+        openGoogleMaps(context, destination, mode)
     }
     val selectedGroup = backStackEntry
         ?.arguments

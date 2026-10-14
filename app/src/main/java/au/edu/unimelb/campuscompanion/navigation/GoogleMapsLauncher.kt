@@ -7,17 +7,22 @@ import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import au.edu.unimelb.campuscompanion.data.TravelMode
+import au.edu.unimelb.campuscompanion.data.model.GeoPoint
+import java.net.URLEncoder
 
 fun openGoogleMaps(context: Context, destination: ClassDestination, mode: TravelMode) {
-    val uri = Uri.parse("https://www.google.com/maps/dir/").buildUpon()
-        .appendQueryParameter("api", "1")
-        .appendQueryParameter("destination", "${destination.point.latitude},${destination.point.longitude}")
-        .appendQueryParameter("travelmode", when (mode) {
-            TravelMode.Walking -> "walking"
-            TravelMode.Driving -> "driving"
-            TravelMode.PublicTransport -> "transit"
-        }).appendQueryParameter("dir_action", "navigate").build()
-    openMapsUri(context, uri)
+    openMapsUri(context, Uri.parse(googleMapsDirectionsUrl(destination.point, mode)))
+}
+
+/** Explicit travelmode also applies when Maps is opened in a browser. */
+internal fun googleMapsDirectionsUrl(destination: GeoPoint, mode: TravelMode): String {
+    val point = URLEncoder.encode("${destination.latitude},${destination.longitude}", "UTF-8")
+    val travelMode = when (mode) {
+        TravelMode.Walking -> "walking"
+        TravelMode.Driving -> "driving"
+        TravelMode.PublicTransport -> "transit"
+    }
+    return "https://www.google.com/maps/dir/?api=1&destination=$point&travelmode=$travelMode&dir_action=navigate"
 }
 
 private fun openMapsUri(context: Context, uri: Uri) {

@@ -764,26 +764,4 @@
     <string name="transcript_discard_body">Your unsaved edits will be discarded. The saved transcript will stay available.</string>
     <string name="transcript_keep_editing">Keep editing</string>
 
-    <string name="pins_actions">Message pinning</string>
-    <string name="pins_loading">Loading pinned messages</string>
-    <string name="pins_load_failed">Pinned messages could not be refreshed.</string>
-    <string name="pins_personal">Pinned for you</string>
-    <string name="pins_shared">Pinned for everyone</string>
-    <string name="pins_both">Pinned for you and everyone</string>
-    <plurals name="pins_personal_count">
-        <item quantity="one">Your pinned message (%1$d)</item>
-        <item quantity="other">Your pinned messages (%1$d)</item>
-    </plurals>
-    <string name="pins_personal_help">Personal pins are visible only to you and are saved to your account.</string>
-    <string name="pins_shared_help">As the group owner, you can also pin one message for everyone. This replaces the current group pin.</string>
-    <string name="pins_pin_personal">Pin for me</string>
-    <string name="pins_unpin_personal">Unpin for me</string>
-    <string name="pins_pin_shared">Pin for everyone</string>
-    <string name="pins_unpin_shared">Remove group pin</string>
-    <string name="pins_empty">No pinned messages.</string>
-    <string name="pins_attribution">Pinned by %1$s · %2$s</string>
-    <string name="pins_open_attachment">Open attachment</string>
-    <string name="pins_target_missing">This message or attachment is no longer available. Refresh the group and try again.</string>
-    <string name="pins_remove_forbidden">You can remove only your own personal pins. Only the current group owner can remove the group pin.</string>
-    <string name="pins_backend_required">Message pinning needs a connected backend.</string>
 </resources>
