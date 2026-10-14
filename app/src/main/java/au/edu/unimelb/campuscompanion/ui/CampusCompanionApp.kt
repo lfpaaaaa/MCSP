@@ -99,12 +99,11 @@ import au.edu.unimelb.campuscompanion.ui.model.MAX_PENDING_DOCUMENTS
 import au.edu.unimelb.campuscompanion.ui.model.NfcJoinUiState
 import au.edu.unimelb.campuscompanion.ui.model.NfcShareUiState
 import au.edu.unimelb.campuscompanion.ui.model.PendingDocument
-import au.edu.unimelb.campuscompanion.ui.model.StartedGroupAccess
+import au.edu.unimelb.campuscompanion.ui.model.GROUP_JOIN_CODE_LIFETIME_SECONDS
 import au.edu.unimelb.campuscompanion.ui.model.buildCourseReminderSeries
 import au.edu.unimelb.campuscompanion.ui.model.foldedOverrideAfterEdit
 import au.edu.unimelb.campuscompanion.ui.model.isFolded
 import au.edu.unimelb.campuscompanion.ui.model.homePostClassCandidates
-import au.edu.unimelb.campuscompanion.ui.model.isValidGroupJoinCode
 import au.edu.unimelb.campuscompanion.ui.model.mergePendingDocuments
 import au.edu.unimelb.campuscompanion.push.DepartureNotifier
 import au.edu.unimelb.campuscompanion.ui.model.legacyReminderSeriesKey
@@ -161,6 +160,8 @@ fun CampusCompanionApp(authViewModel: AuthViewModel) {
     var openGroupMembers by rememberSaveable { mutableStateOf(0) }
     var openGroupLatestMessage by rememberSaveable { mutableStateOf("") }
     var openGroupOrigin by rememberSaveable { mutableStateOf(GroupOrigin.Timetable.name) }
+    var openGroupJoinCode by rememberSaveable { mutableStateOf<String?>(null) }
+    var openGroupJoinCodeExpiresAt by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingDocumentUris by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
     var pendingDocumentNames by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
     var pendingDocumentSizes by rememberSaveable { mutableStateOf(arrayListOf<Long>()) }
@@ -208,6 +209,8 @@ fun CampusCompanionApp(authViewModel: AuthViewModel) {
         openGroupMembers = 0
         openGroupLatestMessage = ""
         openGroupOrigin = GroupOrigin.Timetable.name
+        openGroupJoinCode = null
+        openGroupJoinCodeExpiresAt = null
         clearPendingDocuments()
         clearCameraCapture()
     }
@@ -221,6 +224,8 @@ fun CampusCompanionApp(authViewModel: AuthViewModel) {
         openGroupMembers = group.members
         openGroupLatestMessage = group.latestMessage
         openGroupOrigin = group.origin.name
+        openGroupJoinCode = group.joinCode
+        openGroupJoinCodeExpiresAt = group.joinCodeExpiresAt?.toString()
     }
 
     val restoredGroup = openGroupId?.let { groupId ->
@@ -235,7 +240,9 @@ fun CampusCompanionApp(authViewModel: AuthViewModel) {
             latestMessage = openGroupLatestMessage,
             latestFileName = null,
             origin = GroupOrigin.entries.firstOrNull { it.name == openGroupOrigin }
-                ?: GroupOrigin.Timetable
+                ?: GroupOrigin.Timetable,
+            joinCode = openGroupJoinCode,
+            joinCodeExpiresAt = openGroupJoinCodeExpiresAt?.let(Instant::parse)
         )
     }
 
@@ -575,6 +582,9 @@ private fun AuthenticatedCampusApp(
         }
 
     fun openGroup(group: CourseGroup) {
+        // A successful create/join already returned this group. Keep that record visible while
+        // the refreshed list catches up (including a failed list refresh after a successful join).
+        if (allGroups.none { it.id == group.id }) groupSyncReady = false
         // A notification for another group replaces the old group flow, not its parent page.
         if (isGroupRoute(navController.currentDestination?.route)) {
             navController.popBackStack(GROUP_CHAT_ROUTE, inclusive = true)
@@ -778,7 +788,8 @@ private fun AuthenticatedCampusApp(
         inviteRepository.joinWithToken(token).fold(
             onSuccess = { group ->
                 groupSyncReady = true
-                nfcJoinState = NfcJoinUiState.Joined(group.name)
+                nfcJoinState = NfcJoinUiState.Idle
+                openGroup(group.toCourseGroup(currentUserId = user.id, memberCount = 1, textResources = textResources))
             },
             onFailure = { error ->
                 val message = error.toUserMessage()
@@ -934,17 +945,13 @@ private fun AuthenticatedCampusApp(
                 onStartGroup = { name, courseCode ->
                     groupRepository.createGroup(name, courseCode).map { group ->
                         groupSyncReady = true
-                        StartedGroupAccess(
-                            groupName = group.name,
-                            joinCode = group.joinCode?.takeIf(::isValidGroupJoinCode),
-                            expiresAt = group.createdAt.plusSeconds(300)
-                        )
+                        group.toCourseGroup(currentUserId = user.id, memberCount = 1, textResources = textResources)
                     }
                 },
                 onJoinGroup = { code ->
-                    inviteRepository.joinWithToken(code).map {
+                    inviteRepository.joinWithToken(code).map { group ->
                         groupSyncReady = true
-                        Unit
+                        group.toCourseGroup(currentUserId = user.id, memberCount = 1, textResources = textResources)
                     }
                 },
                 nfcJoinState = nfcJoinState,
@@ -1245,7 +1252,8 @@ private fun Group.toCourseGroup(currentUserId: String, memberCount: Int, textRes
     latestMessage = textResources.getString(R.string.chat_no_messages_yet),
     latestFileName = null,
     origin = if (createdBy == currentUserId) GroupOrigin.CreatedByUser else GroupOrigin.Joined,
-    joinCode = joinCode
+    joinCode = joinCode,
+    joinCodeExpiresAt = createdAt.plusSeconds(GROUP_JOIN_CODE_LIFETIME_SECONDS)
 )
 
 private fun GroupSummary.toCourseGroup(currentUserId: String, textResources: android.content.res.Resources): CourseGroup = CourseGroup(
@@ -1264,6 +1272,7 @@ private fun GroupSummary.toCourseGroup(currentUserId: String, textResources: and
         GroupOrigin.Joined
     },
     joinCode = group.joinCode,
+    joinCodeExpiresAt = group.createdAt.plusSeconds(GROUP_JOIN_CODE_LIFETIME_SECONDS),
     timetableKey = group.timetableKey,
     timetableSlot = group.timetableSlot
 )

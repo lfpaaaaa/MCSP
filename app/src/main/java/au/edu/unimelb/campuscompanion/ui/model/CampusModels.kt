@@ -96,7 +96,9 @@ data class CourseGroup(
     val joinCode: String? = null,
     val timetableKey: String? = null,
     val timetableSlot: String? = null,
-    val timetableSpec: TimetableGroupSpec? = null
+    val timetableSpec: TimetableGroupSpec? = null,
+    /** Original server creation time + five minutes; opening the code never renews it. */
+    val joinCodeExpiresAt: Instant? = null
 )
 
 /** The timetable as the screens show it, with the state of the download and of the group sync. */

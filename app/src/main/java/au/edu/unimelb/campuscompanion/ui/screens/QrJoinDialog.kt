@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import au.edu.unimelb.campuscompanion.data.toUserMessage
 import au.edu.unimelb.campuscompanion.ui.model.groupInviteFromQr
+import au.edu.unimelb.campuscompanion.ui.model.CourseGroup
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import kotlinx.coroutines.CancellationException
@@ -43,7 +44,8 @@ import kotlinx.coroutines.launch
 internal fun QrJoinDialog(
     onDismiss: () -> Unit,
     onEnterCode: () -> Unit,
-    onJoinGroup: suspend (String) -> Result<Unit>
+    onJoinGroup: suspend (String) -> Result<CourseGroup>,
+    onJoined: (CourseGroup) -> Unit
 ) {
     val textResources = textResources()
     val context = LocalContext.current
@@ -51,7 +53,6 @@ internal fun QrJoinDialog(
     var invite by rememberSaveable { mutableStateOf<String?>(null) }
     var message by rememberSaveable { mutableStateOf<String?>(null) }
     var permissionDenied by rememberSaveable { mutableStateOf(false) }
-    var joined by rememberSaveable { mutableStateOf(false) }
     // In-flight work belongs to this composition, so never restore a stale loading state.
     var joining by remember { mutableStateOf(false) }
     var scanning by rememberSaveable { mutableStateOf(false) }
@@ -94,11 +95,10 @@ internal fun QrJoinDialog(
 
     AlertDialog(
         onDismissRequest = { if (!joining && !scanning) onDismiss() },
-        title = { Text(if (joined) textResources.getString(R.string.groups_group_joined) else textResources.getString(R.string.qr_join_scan_to_join)) },
+        title = { Text(textResources.getString(R.string.qr_join_scan_to_join)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(when {
-                    joined -> textResources.getString(R.string.qr_join_the_group_now_appears_in_your_active_groups)
                     joining -> textResources.getString(R.string.qr_join_checking_the_invitation_and_joining_the_group)
                     invite != null -> textResources.getString(R.string.qr_join_group_invitation_found_tap_join_to_accept_it)
                     else -> textResources.getString(R.string.qr_join_scan_the_qr_code_shown_by_a_group)
@@ -111,7 +111,7 @@ internal fun QrJoinDialog(
                             Uri.parse("package:${context.packageName}")))
                     }) { Text(textResources.getString(R.string.class_navigation_open_settings)) }
                 }
-                if (!joined && !joining && !scanning) {
+                if (!joining && !scanning) {
                     TextButton(onClick = onEnterCode) { Text(textResources.getString(R.string.qr_join_enter_code_instead)) }
                     if (invite != null) {
                         TextButton(onClick = { invite = null; message = null }) { Text(textResources.getString(R.string.qr_join_use_another_qr_code)) }
@@ -125,14 +125,13 @@ internal fun QrJoinDialog(
                 onClick = {
                     val scannedInvite = invite
                     when {
-                        joined -> onDismiss()
                         scannedInvite != null -> {
                             joining = true
                             message = null
                             scope.launch {
                                 try {
                                     onJoinGroup(scannedInvite).fold(
-                                        onSuccess = { joined = true },
+                                        onSuccess = onJoined,
                                         onFailure = { message = it.toUserMessage().body.resolve(textResources) }
                                     )
                                 } catch (cancelled: CancellationException) {
@@ -149,12 +148,10 @@ internal fun QrJoinDialog(
                         else -> permission.launch(Manifest.permission.CAMERA)
                     }
                 }
-            ) { Text(if (joined) textResources.getString(R.string.course_reminder_settings_done) else if (invite != null) textResources.getString(R.string.groups_join) else textResources.getString(R.string.qr_join_open_scanner)) }
+            ) { Text(if (invite != null) textResources.getString(R.string.groups_join) else textResources.getString(R.string.qr_join_open_scanner)) }
         },
         dismissButton = {
-            if (!joined) {
-                TextButton(onClick = onDismiss, enabled = !joining && !scanning) { Text(textResources.getString(R.string.action_cancel)) }
-            }
+            TextButton(onClick = onDismiss, enabled = !joining && !scanning) { Text(textResources.getString(R.string.action_cancel)) }
         }
     )
 }

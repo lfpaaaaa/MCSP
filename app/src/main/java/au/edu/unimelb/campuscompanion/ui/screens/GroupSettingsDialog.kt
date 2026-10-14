@@ -47,6 +47,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import au.edu.unimelb.campuscompanion.ui.model.CourseGroup
 import au.edu.unimelb.campuscompanion.ui.model.GroupOrigin
+import au.edu.unimelb.campuscompanion.ui.model.StartedGroupAccess
 
 @Composable
 fun GroupSettingsDialog(
@@ -93,6 +94,13 @@ fun GroupSettingsDialog(
     }
 
     val canInvite = group.origin != GroupOrigin.Timetable && group.timetableKey == null
+    var showJoinCode by rememberSaveable(group.id) { mutableStateOf(false) }
+    if (canInvite && showJoinCode) {
+        GroupJoinCodeDialog(
+            access = StartedGroupAccess(group.name, group.joinCode, group.joinCodeExpiresAt),
+            onDismiss = { showJoinCode = false }
+        )
+    }
     var showQr by rememberSaveable(group.id) { mutableStateOf(false) }
     if (canInvite && showQr) {
         GroupInviteQrDialog(group.name, createQrInvite, onDismiss = { showQr = false })
@@ -118,6 +126,13 @@ fun GroupSettingsDialog(
                     Text(stringResource(R.string.group_files))
                 }
                 if (canInvite) {
+                    OutlinedButton(
+                        onClick = { showJoinCode = true },
+                        enabled = !saving,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(stringResource(R.string.groups_view_join_code))
+                    }
                     OutlinedButton(onClick = { showQr = true }, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Outlined.QrCode, contentDescription = null)
                         Text(textResources.getString(R.string.group_invite_qr_share_qr_code), modifier = Modifier.padding(start = 8.dp))
