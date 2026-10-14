@@ -5,6 +5,7 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -24,6 +25,7 @@ import au.edu.unimelb.campuscompanion.sensing.location.EnRouteFusionDetector
 import au.edu.unimelb.campuscompanion.sensing.location.GeofenceManager
 import au.edu.unimelb.campuscompanion.sensing.location.LocationTracker
 import au.edu.unimelb.campuscompanion.sensing.location.LocationTrackingMode
+import au.edu.unimelb.campuscompanion.sensing.location.hasLocationPermission
 import au.edu.unimelb.campuscompanion.sensing.location.bearingDegrees
 import au.edu.unimelb.campuscompanion.sensing.motion.GyroscopeDetector
 import au.edu.unimelb.campuscompanion.sensing.motion.MotionDetector
@@ -41,6 +43,19 @@ import kotlin.math.abs
 class SensingForegroundService : Service() {
 
     companion object {
+
+        /** Call while the app is visible, including after returning from permission settings. */
+        fun startIfLocationAllowed(context: Context) {
+            if (!hasLocationPermission(context)) return
+            try {
+                ContextCompat.startForegroundService(context,
+                    Intent(context, SensingForegroundService::class.java).setAction(ACTION_PRE_CLASS_MODE))
+            } catch (error: SecurityException) {
+                Log.w("SensingService", "Location permission changed before sensing could start", error)
+            } catch (error: IllegalStateException) {
+                Log.w("SensingService", "Sensing must start while the app is visible", error)
+            }
+        }
 
         private const val CHANNEL_ID =
             "campus_companion_sensing"
@@ -149,6 +164,26 @@ class SensingForegroundService : Service() {
 
     private var currentMode =
         LocationTrackingMode.NORMAL
+
+    private var trackingStarted = false
+    private var trackingGeneration = 0
+
+    private fun startLocationTracking(mode: LocationTrackingMode) {
+        val generation = ++trackingGeneration
+        locationTracker.stopTracking()
+        trackingStarted = true
+        try {
+            locationTracker.startTracking(mode).addOnFailureListener { error ->
+                if (generation == trackingGeneration) {
+                    trackingStarted = false
+                    Log.w("SensingService", "Location updates could not start", error)
+                }
+            }
+        } catch (error: SecurityException) {
+            trackingStarted = false
+            Log.w("SensingService", "Location permission is no longer available", error)
+        }
+    }
 
     // ---------------------------------------------------------
     // onCreate
@@ -275,6 +310,10 @@ class SensingForegroundService : Service() {
     // ---------------------------------------------------------
 
     private fun startNormalMode() {
+        if (trackingStarted && currentMode == LocationTrackingMode.NORMAL) {
+            updateNotification(getString(R.string.sensing_background_sensing_battery_saving_mode))
+            return
+        }
 
         currentMode =
             LocationTrackingMode.NORMAL
@@ -294,11 +333,7 @@ class SensingForegroundService : Service() {
          * - compass OFF
          */
 
-        locationTracker.stopTracking()
-
-        locationTracker.startTracking(
-            LocationTrackingMode.NORMAL
-        )
+        startLocationTracking(LocationTrackingMode.NORMAL)
 
         motionDetector.stop()
 
@@ -343,6 +378,10 @@ class SensingForegroundService : Service() {
     // ---------------------------------------------------------
 
     private fun startPreClassMode() {
+        if (trackingStarted && currentMode == LocationTrackingMode.PRE_CLASS) {
+            updateNotification(getString(R.string.sensing_monitoring_your_trip_to_class))
+            return
+        }
 
         currentMode =
             LocationTrackingMode.PRE_CLASS
@@ -362,11 +401,7 @@ class SensingForegroundService : Service() {
          * These signals are needed for EN_ROUTE fusion.
          */
 
-        locationTracker.stopTracking()
-
-        locationTracker.startTracking(
-            LocationTrackingMode.PRE_CLASS
-        )
+        startLocationTracking(LocationTrackingMode.PRE_CLASS)
 
         motionDetector.start()
 
@@ -893,6 +928,8 @@ class SensingForegroundService : Service() {
     // ---------------------------------------------------------
 
     private fun stopSensing() {
+        trackingStarted = false
+        trackingGeneration++
 
         Log.d(
             "SensingService",

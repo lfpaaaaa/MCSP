@@ -23,6 +23,12 @@ class MainActivity : ComponentActivity() {
 
     private val authViewModel: AuthViewModel by viewModels()
 
+    override fun onResume() {
+        super.onResume()
+        // Permissions can be granted in Profile or Android settings after onCreate has run.
+        SensingForegroundService.startIfLocationAllowed(this)
+    }
+
     // ---------------------------------------------------------
     // Notification permission
     // Android 13 / API 33+
@@ -337,69 +343,7 @@ class MainActivity : ComponentActivity() {
     // ---------------------------------------------------------
 
     private fun startSensingForegroundService() {
-
-        val fineGranted =
-            ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            ) ==
-                    PackageManager.PERMISSION_GRANTED
-
-        val coarseGranted =
-            ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_COARSE_LOCATION
-            ) ==
-                    PackageManager.PERMISSION_GRANTED
-
-        /*
-         * Do not attempt to start a location foreground
-         * service until a location permission exists.
-         */
-        if (
-            !fineGranted &&
-            !coarseGranted
-        ) {
-
-            Log.w(
-                "SensingService",
-                "Cannot start sensing service without location permission"
-            )
-
-            return
-        }
-
-        val serviceIntent =
-            Intent(
-                this,
-                SensingForegroundService::class.java
-            ).apply {
-
-                /*
-                 * Temporary testing mode.
-                 *
-                 * PRE_CLASS:
-                 * - high-frequency GPS
-                 * - accelerometer ON
-                 * - gyroscope ON
-                 * - compass ON
-                 *
-                 * Later the app can send NORMAL_MODE
-                 * when high-frequency sensing is not needed.
-                 */
-                action =
-                    SensingForegroundService.ACTION_PRE_CLASS_MODE
-            }
-
-        ContextCompat.startForegroundService(
-            this,
-            serviceIntent
-        )
-
-        Log.d(
-            "SensingService",
-            "Requested PRE_CLASS foreground sensing mode"
-        )
+        SensingForegroundService.startIfLocationAllowed(this)
     }
 
     // ---------------------------------------------------------

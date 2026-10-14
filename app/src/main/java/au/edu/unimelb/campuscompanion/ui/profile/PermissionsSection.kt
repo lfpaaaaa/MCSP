@@ -9,6 +9,7 @@ import androidx.compose.runtime.getValue
 
 import au.edu.unimelb.campuscompanion.ui.text.textResources
 import au.edu.unimelb.campuscompanion.R
+import au.edu.unimelb.campuscompanion.sensing.service.SensingForegroundService
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -64,6 +65,9 @@ fun PermissionsSection(modifier: Modifier = Modifier) {
         statuses = AppPermissions.read(context)
         val permission = requested ?: return@rememberLauncherForActivityResult
         requested = null
+        if (permission == AppPermission.Location || permission == AppPermission.PhysicalActivity) {
+            SensingForegroundService.startIfLocationAllowed(context)
+        }
         val nothingGranted = results.isNotEmpty() && results.values.none { it }
         if (nothingGranted && results.keys.all { AppPermissions.isDeniedForGood(context, it) }) {
             AppPermissions.openSettings(context, permission)
