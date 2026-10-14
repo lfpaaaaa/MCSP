@@ -287,8 +287,9 @@ class ActivityEvidenceReminderTest {
         val lecture = CourseSession(
             id = "activity-lecture", code = "COMP90018", title = "Mobile Computing lecture",
             location = "Parkville Campus", room = "PAR-160",
-            start = now.plusSeconds(25 * 60).atZone(ZoneId.of("Australia/Melbourne")),
-            end = now.plusSeconds(85 * 60).atZone(ZoneId.of("Australia/Melbourne"))
+            // Exercise movement during preparation, before the independent five-minute GPS check.
+            start = now.plusSeconds(35 * 60).atZone(ZoneId.of("Australia/Melbourne")),
+            end = now.plusSeconds(95 * 60).atZone(ZoneId.of("Australia/Melbourne"))
         )
         val engine = TravelEngine(
             eta = object : EtaRepository {

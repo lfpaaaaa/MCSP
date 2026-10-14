@@ -21,8 +21,9 @@
     <string name="context_background_open_settings">Open Settings</string>
     <string name="context_background_not_now">Not now</string>
     <string name="context_reminder_arrival_explanation">How early do you want to arrive before class? This moves your leave-by time earlier. Weather and time to reach the classroom may add more.</string>
-    <string name="context_reminder_preparation_explanation">How much time do you need to get ready before leaving? This moves the warning earlier without changing your leave-by time. Choose 0 to be warned at leave-by.</string>
-    <string name="context_reminder_suppression">Prepare-to-leave warnings are skipped when you’re already heading to class or have arrived.</string>
+    <string name="context_reminder_preparation_explanation">How much time do you need to get ready before leaving? This moves the warning earlier without changing your leave-by time. Choose 0 for a preparation warning at leave-by.</string>
+    <string name="context_reminder_suppression">Reminders are skipped when you’re already heading to class or have arrived. A separate leave-now reminder is due 5 minutes before departure only if recent GPS positions show no progress toward the building. Missing or old location data does not trigger this check.</string>
+    <string name="context_reminder_urgent_at">Leave-now check: %1$s (only if GPS shows no progress)</string>
     <string name="context_reminder_updating">Updating live times…</string>
     <string name="context_reminder_applying">Applying your arrival buffer and preparation time.</string>
     <string name="context_reminder_waiting">Waiting for live travel time</string>

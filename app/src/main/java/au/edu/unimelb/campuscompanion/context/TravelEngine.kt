@@ -14,6 +14,7 @@ import au.edu.unimelb.campuscompanion.sensing.location.GeofenceEntryEvent
 import au.edu.unimelb.campuscompanion.sensing.location.GeofenceEntryResult
 import au.edu.unimelb.campuscompanion.sensing.location.GeofenceRejectionReason
 import au.edu.unimelb.campuscompanion.sensing.location.SensingEvidence
+import au.edu.unimelb.campuscompanion.sensing.location.DistanceTrend
 import au.edu.unimelb.campuscompanion.sensing.location.SensingTarget
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
 import au.edu.unimelb.campuscompanion.ui.model.CourseReminderPreference
@@ -82,6 +83,7 @@ class TravelEngine(
     /** Timetable timing for the sensing policy, available even while Home/ETA is pending. */
     val sensingSession: StateFlow<CourseSession?> = _sensingSession.asStateFlow()
     private var decision: ContextDecision? = null
+    private val destinationProgress = DestinationProgressTracker()
 
     /** The timetable sessions; [reset] also starts a new account scope, even with identical classes. */
     fun updateSessions(value: List<CourseSession>, reset: Boolean = false) = synchronized(inputLock) {
@@ -93,6 +95,7 @@ class TravelEngine(
         val now = clock()
         val oldTracked = ContextEngine.trackedSession(before.sessions, now)
         val tracked = ContextEngine.trackedSession(sessions, now)
+        if (reset || oldTracked?.start?.toInstant() != tracked?.start?.toInstant()) destinationProgress.reset()
         // Reconcile the resolved destination now, before any new sensor evidence can arrive.
         // Room, title and time corrections in the same building keep physical arrival memory.
         val trackingChanged = reset || oldTracked?.id != tracked?.id
@@ -148,6 +151,7 @@ class TravelEngine(
     fun clearSensingEvidence() = synchronized(inputLock) {
         val before = inputs.value
         if (!before.sensingManaged) return@synchronized
+        destinationProgress.reset()
         inputs.value = before.copy(
             evidence = before.evidence?.copy(movement = null, activity = null, enRoute = null, progressConfirmed = false),
             signals = MotionSignals(), resetProgress = true
@@ -204,6 +208,7 @@ class TravelEngine(
         building: BuildingLocation? = _sensingTarget.value.building
     ) {
         val target = _sensingTarget.value
+        destinationProgress.reset()
         // Publish identity and generation together: observers never see a new venue in an old run.
         _sensingTarget.value = SensingTarget(target.generation + 1, elapsedNanos(), active, sessionId, building)
         val before = inputs.value
@@ -450,6 +455,10 @@ class TravelEngine(
         }
         val position = if (current.sensingManaged) measured?.let { GeoPoint(it.latitude, it.longitude) } else current.origin
         val distance = if (position != null && destination != null) GeoMath.distanceMeters(position, destination.location) else null
+        if (current.resetProgress || measured == null || distance == null || geofenceEntry) destinationProgress.reset()
+        val progress = if (measured != null && distance != null && !geofenceEntry) {
+            destinationProgress.observe(distance, measured.accuracyMeters, measured.elapsedRealtimeNanos, observedNow)
+        } else DistanceTrend.UNKNOWN
         // Expiry removes physical evidence, not the same-target last-known late guidance.
         // The routing origin is cleared on target/account replacement and explicit stop.
         val lastKnownAway = current.sensingManaged && current.origin != null && destination != null &&
@@ -465,7 +474,8 @@ class TravelEngine(
                 progressConfirmed = !current.sensingManaged || evidence?.progressConfirmed == true,
                 resetProgress = current.sensingManaged && (current.resetProgress || measured == null),
                 lastKnownAway = lastKnownAway,
-                preparationMinutes = preparation
+                preparationMinutes = preparation,
+                destinationProgress = progress
             ), previous = decision, config = config
         )
         decision = next

@@ -274,13 +274,23 @@ are cached for one day, transit estimates for ten minutes, and a recent routed e
 for ten minutes while the user moves. Otherwise the offline straight-line estimate is used.
 
 The course settings separate **arrival buffer** (default 0 minutes) from **preparation time**
-(default 5 minutes), each adjustable from 0–30 minutes in five-minute increments. Leave-by time =
+(default 10 minutes), each adjustable from 0–30 minutes in five-minute increments. Leave-by time =
 class start − travel − arrival buffer − weather allowance − classroom entry allowance.
 The preparation notification is due that many minutes before leave-by; preparation does not move
-the physical departure deadline. A zero preparation time warns at leave-by. The feature context
-engine drives “Prepare to leave” and “Running late”, using fresh motion/activity and fusion evidence
-to suppress unnecessary reminders while travelling or after arrival. Lecture/tutorial/workshop
-switches still apply.
+the physical departure deadline. A zero preparation time schedules preparation at leave-by.
+Existing explicitly saved preparation choices are retained; a missing choice defaults to 10 minutes.
+
+A separate **Leave now** check starts 5 minutes before leave-by, regardless of the preparation
+slider. It only escalates when fresh GPS positions show a stationary cluster or sustained movement
+away from the class building. At least four distinct fixes spanning 30 seconds are required;
+missing, expired, inaccurate, replayed or ambiguous fixes do not establish no progress. A slow
+consistent approach does not count as stationary. Target, account and sensing resets clear this
+history. Production admits GPS fixes up to 30 seconds old with accuracy within 50 metres.
+
+Home, the settings preview and notifications use the same leave-by time. The engine suppresses
+preparation and urgent prompts while travelling or after arrival. If the current travel estimate
+would arrive after class starts, it shows **Running late**. Lecture/tutorial/workshop switches
+still apply to all stages.
 
 Notifications are generated on the phone, so FCM/server push credentials are not required. The
 departure channel defaults to high importance, sound and vibration, allowing system pop-up alerts.
@@ -293,8 +303,11 @@ required for sensing; force-stop prevents delivery until the app is opened again
 The application restores the signed-in user's cached timetable, including a post-class group card
 for 15 minutes after the class ends even across a restart. Successful reminder deliveries are saved
 on the device by account, class ID, class start time and context state, so restarting the app does
-not repeat them. A delivered Running late alert prevents a later preparation warning from replacing
-it. Failed deliveries remain eligible while the context still calls for a reminder. Saved records
+not repeat them. Preparation and urgency each sound at most once per occurrence. Once Leave now
+has sounded, actual lateness updates that visible notification silently; it does not produce a
+third alert. Either escalation prevents a later preparation warning from replacing it. An urgent
+GPS claim is withdrawn when the evidence expires or no longer supports it. Failed deliveries
+remain eligible while the context still calls for a reminder. Saved records
 expire when the class ends and are pruned on the next successful delivery. Notifications link to
 Schedule.
 

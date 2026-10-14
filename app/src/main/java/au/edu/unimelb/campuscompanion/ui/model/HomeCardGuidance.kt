@@ -72,6 +72,9 @@ fun buildHomeCardGuidance(card: HomeCardUiState, now: ZonedDateTime): HomeCardGu
                 else -> HomeGuidanceText(UiText(R.string.home_leave_now))
             }
         }
+        ContextState.LEAVE_NOW -> HomeGuidanceText(
+            UiText(R.string.home_leave_now), UiText(R.string.departure_not_approaching)
+        )
         ContextState.EN_ROUTE -> HomeGuidanceText(
             UiText(R.string.home_on_your_way),
             UiText.Joined(listOfNotNull(card.estimate?.let(::remainingTravel), classStartDetail(session, now)), " · ")
@@ -221,6 +224,7 @@ private val DEPARTURE_GUIDANCE_STATES = setOf(
     ContextState.UPCOMING,
     ContextState.LONG_BREAK,
     ContextState.LEAVE_SOON,
+    ContextState.LEAVE_NOW,
     ContextState.RUNNING_LATE
 )
 

@@ -1,6 +1,8 @@
 package au.edu.unimelb.campuscompanion.context
 
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
+import au.edu.unimelb.campuscompanion.ui.model.DEFAULT_COURSE_REMINDER_PREPARATION_MINUTES
+import au.edu.unimelb.campuscompanion.sensing.location.DistanceTrend
 import au.edu.unimelb.campuscompanion.ui.model.MAX_COURSE_REMINDER_PREPARATION_MINUTES
 import au.edu.unimelb.campuscompanion.ui.model.matchesTimetableSession
 import java.time.Duration
@@ -9,12 +11,14 @@ import java.time.LocalDate
 import kotlin.math.max
 import kotlin.math.min
 
+const val URGENT_DEPARTURE_WINDOW_MINUTES = 5
+
 /** Tuning for [ContextEngine]. The defaults are first guesses, to adjust after testing on campus. */
 data class ContextConfig(
     /** Minutes from the building entrance to the room, added to the departure buffer. */
     val entryAllowanceMinutes: Int = 0,
     /** Fallback warning window when [ContextInputs.preparationMinutes] is not supplied. */
-    val leaveSoonWindowMinutes: Int = 5,
+    val leaveSoonWindowMinutes: Int = DEFAULT_COURSE_REMINDER_PREPARATION_MINUTES,
     /** How long before the leave-by time walking towards the class counts as setting off for it. */
     val earlyDepartureWindowMinutes: Int = 45,
     /** Time left before the leave-by time that counts as a long break (after an earlier class today). */
@@ -66,7 +70,9 @@ data class ContextInputs(
     /** Same-target advisory only; never used for physical arrival, travel or retreat decisions. */
     val lastKnownAway: Boolean = false,
     /** Warning lead time, separate from the arrival buffer; null uses the config fallback. */
-    val preparationMinutes: Int? = null
+    val preparationMinutes: Int? = null,
+    /** Current target's distinct, fresh GPS observations; UNKNOWN must never mean stationary. */
+    val destinationProgress: DistanceTrend = DistanceTrend.UNKNOWN
 )
 
 /**
@@ -197,6 +203,10 @@ object ContextEngine {
             memory.arrived && inDepartureWindow -> ContextState.ARRIVED
             memory.enRoute -> ContextState.EN_ROUTE
             travelMinutes != null && now.plus(minutes(travelMinutes)).isAfter(start) -> ContextState.RUNNING_LATE
+            leaveBy != null && inputs.distanceMeters != null &&
+                !now.isBefore(leaveBy.minus(minutes(URGENT_DEPARTURE_WINDOW_MINUTES))) &&
+                inputs.destinationProgress in setOf(DistanceTrend.STABLE, DistanceTrend.MOVING_AWAY) ->
+                ContextState.LEAVE_NOW
             leaveBy != null && !now.isBefore(leaveBy.minus(minutes(preparationMinutes))) ->
                 ContextState.LEAVE_SOON
             finished != null -> ContextState.POST_CLASS

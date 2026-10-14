@@ -85,6 +85,12 @@ class DestinationProgressTrackerTest {
         assertEquals(DistanceTrend.UNKNOWN, track(1200.0, 1200.0, 1200.0, 1500.0))
     }
 
+    @Test fun slowConsistentProgressIsNotMistakenForStandingStill() {
+        assertEquals(DistanceTrend.UNKNOWN, track(1200.0, 1192.0, 1184.0, 1176.0))
+        tracker.reset()
+        assertEquals(DistanceTrend.UNKNOWN, track(1200.0, 1197.0, 1194.0, 1191.0))
+    }
+
     private fun track(vararg distances: Double): DistanceTrend {
         var result = DistanceTrend.UNKNOWN
         distances.forEachIndexed { index, distance ->

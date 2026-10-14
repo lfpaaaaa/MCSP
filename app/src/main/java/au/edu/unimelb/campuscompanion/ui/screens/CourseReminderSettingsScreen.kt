@@ -364,6 +364,10 @@ private fun CourseReminderDialog(
                                             style = MaterialTheme.typography.bodyMedium
                                         )
                                         Text(
+                                            text = textResources.getString(R.string.context_reminder_urgent_at, timing.urgentAt.format(departureTimeFormatter)),
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+                                        Text(
                                             text = textResources.getString(R.string.context_reminder_travel_time, timing.travelMinutes),
                                             style = MaterialTheme.typography.bodyMedium
                                         )

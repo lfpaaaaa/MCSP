@@ -33,16 +33,16 @@ import java.time.ZonedDateTime
 /** Saved settings, asynchronous estimates, physical callbacks and notifications share the same timing. */
 class TravelPreparationIntegrationTest {
     @Test
-    fun newPreferencesAndTheEngineFallbackBothUseZeroArrivalAndFivePreparation() = runBlocking<Unit> {
+    fun newPreferencesAndTheEngineFallbackBothUseZeroArrivalAndTenPreparation() = runBlocking<Unit> {
         listOf(true, false).forEach { useSavedPreference ->
             val trip = Trip(useSavedPreference)
-            trip.now = at(14, 30).minusSeconds(1)
+            trip.now = at(14, 25).minusSeconds(1)
             trip.engine.refresh()
             assertEquals(0, trip.engine.snapshot.value.leadMinutes)
-            assertEquals(5, trip.engine.snapshot.value.preparationMinutes)
+            assertEquals(10, trip.engine.snapshot.value.preparationMinutes)
             assertEquals(at(14, 35), trip.engine.snapshot.value.leaveBy?.toInstant())
             assertEquals(ContextState.UPCOMING, trip.engine.snapshot.value.state)
-            trip.now = at(14, 30)
+            trip.now = at(14, 25)
             trip.engine.refresh()
             assertEquals(ContextState.LEAVE_SOON, trip.engine.snapshot.value.state)
         }

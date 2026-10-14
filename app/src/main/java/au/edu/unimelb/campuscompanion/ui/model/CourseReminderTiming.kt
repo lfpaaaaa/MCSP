@@ -1,13 +1,15 @@
 package au.edu.unimelb.campuscompanion.ui.model
 
 import au.edu.unimelb.campuscompanion.context.TravelSnapshot
+import au.edu.unimelb.campuscompanion.context.URGENT_DEPARTURE_WINDOW_MINUTES
 import java.time.ZonedDateTime
 
 sealed interface CourseReminderTiming {
     data class Ready(
         val leaveBy: ZonedDateTime,
         val warningAt: ZonedDateTime,
-        val travelMinutes: Int
+        val travelMinutes: Int,
+        val urgentAt: ZonedDateTime = leaveBy.minusMinutes(URGENT_DEPARTURE_WINDOW_MINUTES.toLong())
     ) : CourseReminderTiming
 
     data object NotTracked : CourseReminderTiming

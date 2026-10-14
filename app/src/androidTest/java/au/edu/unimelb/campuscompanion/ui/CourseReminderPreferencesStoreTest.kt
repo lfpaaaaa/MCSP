@@ -43,17 +43,22 @@ class CourseReminderPreferencesStoreTest {
         val legacy = "course:comp90018:mobile computing"
         // Write the pre-preparation format, without the new field, to exercise real migration.
         writeStoredChoice(legacy, enabled = false, leadMinutes = 20)
-        assertEquals(CourseReminderPreference(false, 20, 5), store.load(lecture, legacy))
+        assertEquals(CourseReminderPreference(false, 20, 10), store.load(lecture, legacy))
         assertFalse(store.load(tutorial, legacy).enabled)
         store.save(lecture, CourseReminderPreference(enabled = true, leadMinutes = 15, preparationMinutes = 10))
         assertEquals(CourseReminderPreference(true, 15, 10), store.load(lecture, legacy))
-        assertEquals(CourseReminderPreference(false, 20, 5), store.load(tutorial, legacy))
+        assertEquals(CourseReminderPreference(false, 20, 10), store.load(tutorial, legacy))
     }
 
-    @Test fun anExistingActivityRetainsItsBufferAndGetsFiveMinutesPreparation() {
+    @Test fun anExplicitFiveMinutePreparationChoiceIsPreserved() {
+        writeStoredChoice(tutorial, enabled = true, leadMinutes = 25, preparationMinutes = 5)
+        assertEquals(CourseReminderPreference(true, 25, 5), store.load(tutorial))
+    }
+
+    @Test fun anExistingActivityRetainsItsBufferAndGetsTenMinutesPreparation() {
         writeStoredChoice(tutorial, enabled = true, leadMinutes = 25)
 
-        assertEquals(CourseReminderPreference(true, 25, 5), store.load(tutorial))
+        assertEquals(CourseReminderPreference(true, 25, 10), store.load(tutorial))
     }
 
     @Test fun legacyPreparationIsInheritedOnlyUntilTheActivityHasItsOwnChoice() {
@@ -63,7 +68,7 @@ class CourseReminderPreferencesStoreTest {
 
         // An older explicit activity setting must not inherit preparation from the legacy row.
         writeStoredChoice(tutorial, enabled = true, leadMinutes = 10)
-        assertEquals(CourseReminderPreference(true, 10, 5), store.load(tutorial, legacy))
+        assertEquals(CourseReminderPreference(true, 10, 10), store.load(tutorial, legacy))
     }
 
     @Test fun storedValuesFromTheOldRangeAreClampedToThirtyMinutes() {

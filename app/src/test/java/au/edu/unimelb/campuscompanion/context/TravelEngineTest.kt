@@ -104,12 +104,12 @@ class TravelEngineTest {
         engine.updateOrigin(HOME)
         engine.updateLeadMinutes(0)
 
-        now = now.plus(Duration.ofMinutes(36))
+        now = now.plus(Duration.ofMinutes(34))
         engine.refresh()
         assertEquals(ContextState.UPCOMING, engine.snapshot.value.state)
         assertEquals(0, engine.snapshot.value.leadMinutes)
 
-        now = now.plus(Duration.ofMinutes(9))
+        now = now.plus(Duration.ofMinutes(11))
         engine.refresh()
         assertEquals(ContextState.LEAVE_SOON, engine.snapshot.value.state)
         assertEquals(lecture.start.minusMinutes(15), engine.snapshot.value.leaveBy)
@@ -268,7 +268,7 @@ class TravelEngineTest {
         )
         perCourse.updateSessions(listOf(lecture, tutorial))
         perCourse.updateOrigin(HOME)
-        now = now.plus(Duration.ofMinutes(36))
+        now = now.plus(Duration.ofMinutes(34))
         perCourse.refresh()
         assertEquals(ContextState.UPCOMING, perCourse.snapshot.value.state)
 

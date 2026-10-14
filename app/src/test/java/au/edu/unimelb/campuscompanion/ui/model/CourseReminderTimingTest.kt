@@ -48,7 +48,7 @@ class CourseReminderTimingTest {
         assertEquals(
             CourseReminderTiming.Ready(
                 leaveBy = deadline,
-                warningAt = start.withHour(10).withMinute(17),
+                warningAt = start.withHour(10).withMinute(12),
                 travelMinutes = 20
             ),
             lecture.reminderTiming(snapshot, arrivalBufferMinutes = 10)
@@ -56,13 +56,13 @@ class CourseReminderTimingTest {
     }
 
     @Test
-    fun zeroArrivalBufferStillWarnsFiveMinutesBeforeDeparture() {
+    fun zeroArrivalBufferStillWarnsTenMinutesBeforeDeparture() {
         val snapshot = liveSnapshot(arrivalBufferMinutes = 0)
 
         assertEquals(
             CourseReminderTiming.Ready(
                 leaveBy = start.minusMinutes(20),
-                warningAt = start.minusMinutes(25),
+                warningAt = start.minusMinutes(30),
                 travelMinutes = 20
             ),
             lecture.reminderTiming(snapshot, arrivalBufferMinutes = 0)
@@ -169,7 +169,7 @@ class CourseReminderTimingTest {
         assertEquals(
             CourseReminderTiming.Ready(
                 leaveBy = start.minusMinutes(40),
-                warningAt = start.minusMinutes(45),
+                warningAt = start.minusMinutes(50),
                 travelMinutes = 20
             ),
             lecture.reminderTiming(updatedSnapshot, arrivalBufferMinutes = 20)

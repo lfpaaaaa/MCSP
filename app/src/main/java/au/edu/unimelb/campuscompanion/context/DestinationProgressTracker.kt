@@ -12,6 +12,10 @@ internal class DestinationProgressTracker {
 
     fun reset() { samples.clear() }
 
+    /** Production uses elapsed realtime so a wall-clock adjustment cannot rewrite GPS history. */
+    fun observe(distanceMeters: Double, accuracyMeters: Float, observedAtNanos: Long, nowNanos: Long): DistanceTrend =
+        observe(distanceMeters, accuracyMeters, Instant.EPOCH.plusNanos(observedAtNanos), Instant.EPOCH.plusNanos(nowNanos))
+
     fun observe(distanceMeters: Double, accuracyMeters: Float, recordedAt: Instant, now: Instant): DistanceTrend {
         val age = Duration.between(recordedAt, now)
         if (!distanceMeters.isFinite() || distanceMeters < 0 ||
@@ -40,10 +44,16 @@ internal class DestinationProgressTracker {
         val change = last.map { it.distance }.average() - baseline
         // Require progress beyond both GPS error radii, with a floor for stationary GPS jitter.
         val threshold = maxOf(20.0, (first.maxOf { it.accuracy } + last.maxOf { it.accuracy }).toDouble())
+        // A small but consistent approach is still possible travel, even below GPS certainty.
+        // Only a compact, non-directional cluster can establish a stop.
+        val changes = samples.zipWithNext { a, b -> b.distance - a.distance }
+        val directional = abs(samples.last().distance - samples.first().distance) > 5.0 &&
+            (changes.all { it < 0 } || changes.all { it > 0 })
+        val spread = samples.maxOf { it.distance } - samples.minOf { it.distance }
         return when {
             last.all { it.distance - baseline <= -threshold } -> DistanceTrend.APPROACHING
             last.all { it.distance - baseline >= threshold } -> DistanceTrend.MOVING_AWAY
-            abs(change) <= 20.0 -> DistanceTrend.STABLE
+            abs(change) <= 20.0 && spread <= 20.0 && !directional -> DistanceTrend.STABLE
             else -> DistanceTrend.UNKNOWN // Possible progress is hidden inside the GPS error radius.
         }
     }

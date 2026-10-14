@@ -65,8 +65,9 @@ interface DepartureShade {
  * At most one prompt is wanted at a time: the tracked class's, from the moment it is time to leave
  * until the student sets off or arrives, or the class stops being the next one.
  *
- * - The warning ("leave soon") and the late reminder are each delivered once per class occurrence
- *   and account, with sound. Only successful deliveries are remembered, so a denied notification
+ * - Preparation and urgency are each sounded once per class occurrence and account. Actual
+ *   lateness silently updates an already delivered urgent alert instead of sounding a third time.
+ *   Only successful deliveries are remembered, so a denied notification
  *   is retried while it is still due.
  * - A delivered prompt that is still shown is updated silently when its details change (another
  *   building, travel time or title). One the student dismissed is not brought back.
@@ -145,20 +146,31 @@ class DepartureReminders(
             withdrawAllExcept(null)
             return null
         }
+        if (sent(userId, session, ContextState.LEAVE_NOW) && !lateDelivered(userId, session) &&
+            state != ContextState.LEAVE_NOW && state != ContextState.RUNNING_LATE) {
+            // The fresh no-progress evidence disappeared or the deadline moved later.
+            // Do not keep an unsupported urgent claim, or sound the weaker preparation alert.
+            withdrawAllExcept(null)
+            return null
+        }
         // The class is still ahead and was already prompted: keep that prompt, with current details.
         withdrawAllExcept(key)
         refreshShown(snapshot, session, key, userId)
         return null
     }
 
-    /** True when this reminder, or the stronger late one, was delivered for this class occurrence. */
+    /** Urgency and lateness share one audible escalation; neither allows a weaker reminder later. */
     private fun delivered(userId: String, session: CourseSession, state: ContextState): Boolean =
-        state in remindedStates || wasSent(userId, session, state) ||
-            // An improved ETA must not replace a delivered late reminder with a weaker departure warning.
-            (state == ContextState.LEAVE_SOON && lateDelivered(userId, session))
+        sent(userId, session, state) || urgentDelivered(userId, session)
+
+    private fun sent(userId: String, session: CourseSession, state: ContextState): Boolean =
+        state in remindedStates || wasSent(userId, session, state)
+
+    private fun urgentDelivered(userId: String, session: CourseSession): Boolean =
+        sent(userId, session, ContextState.LEAVE_NOW) || lateDelivered(userId, session)
 
     private fun lateDelivered(userId: String, session: CourseSession): Boolean =
-        ContextState.RUNNING_LATE in remindedStates || wasSent(userId, session, ContextState.RUNNING_LATE)
+        sent(userId, session, ContextState.RUNNING_LATE)
 
     /** Removes every shown prompt except [keep]'s; the others belong to other or earlier classes. */
     private fun withdrawAllExcept(keep: String?) {
@@ -169,7 +181,12 @@ class DepartureReminders(
     /** Updates the shown prompt silently when what it says has changed. A dismissed one stays away. */
     private fun refreshShown(snapshot: TravelSnapshot, session: CourseSession, key: String, userId: String) {
         if (key !in shade.shownKeys()) return
-        val state = if (lateDelivered(userId, session)) ContextState.RUNNING_LATE else ContextState.LEAVE_SOON
+        val state = when {
+            lateDelivered(userId, session) ||
+                (snapshot.state == ContextState.RUNNING_LATE && urgentDelivered(userId, session)) -> ContextState.RUNNING_LATE
+            urgentDelivered(userId, session) -> ContextState.LEAVE_NOW
+            else -> ContextState.LEAVE_SOON
+        }
         val reminder = reminder(snapshot, session, state, key)
         if (shownContent[key] == reminder.content) return
         shade.update(reminder)
@@ -183,6 +200,7 @@ class DepartureReminders(
             state = state,
             title = when (state) {
                 ContextState.RUNNING_LATE -> UiText(R.string.departure_running_late, session.code)
+                ContextState.LEAVE_NOW -> UiText(R.string.departure_leave_now, session.code)
                 else -> UiText(R.string.departure_prepare_to_leave, session.code)
             },
             text = describe(snapshot, session, state),
@@ -197,7 +215,8 @@ class DepartureReminders(
             add(snapshot.building?.let {
                 UiText(R.string.departure_class_starts_at_building, session.title.trimTrailingCommas(), startsAt, it.name)
             } ?: UiText(R.string.departure_class_starts, session.title.trimTrailingCommas(), startsAt))
-            if (state == ContextState.LEAVE_SOON) {
+            if (state == ContextState.LEAVE_NOW) add(UiText(R.string.departure_not_approaching))
+            if (state == ContextState.LEAVE_SOON || state == ContextState.LEAVE_NOW) {
                 snapshot.leaveBy?.let {
                     add(UiText(R.string.departure_leave_by_time, it.withZoneSameInstant(session.start.zone).format(timeFormatter)))
                 }
@@ -220,7 +239,7 @@ class DepartureReminders(
     private data class ReminderScope(val userId: String, val sessionId: String, val startsAt: Instant)
 
     private companion object {
-        val REMINDED_STATES = setOf(ContextState.LEAVE_SOON, ContextState.RUNNING_LATE)
+        val REMINDED_STATES = setOf(ContextState.LEAVE_SOON, ContextState.LEAVE_NOW, ContextState.RUNNING_LATE)
 
         /** The class is still ahead and the student has not set off: a prompt already shown stays. */
         val STILL_AHEAD = setOf(ContextState.UPCOMING, ContextState.LONG_BREAK, ContextState.POST_CLASS)

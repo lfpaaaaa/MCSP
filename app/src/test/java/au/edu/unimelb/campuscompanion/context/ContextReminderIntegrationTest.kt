@@ -37,13 +37,13 @@ class ContextReminderIntegrationTest {
         // The saved course preference must override this unrelated global fallback.
         trip.engine.updateLeadMinutes(60)
 
-        val beforeWarning = trip.refresh(at(10, 25).minusSeconds(1))
+        val beforeWarning = trip.refresh(at(10, 20).minusSeconds(1))
         assertEquals(at(10, 30), beforeWarning.leaveBy)
         assertEquals(10, beforeWarning.leadMinutes)
         assertEquals(ContextState.UPCOMING, beforeWarning.state)
         assertNull(trip.reminders.consider(beforeWarning))
 
-        val warning = trip.refresh(at(10, 25))
+        val warning = trip.refresh(at(10, 20))
         assertEquals(ContextState.LEAVE_SOON, warning.state)
         assertEquals(ContextState.LEAVE_SOON, trip.reminders.consider(warning)?.state)
 
@@ -67,14 +67,14 @@ class ContextReminderIntegrationTest {
         trip.rainfall = 0.4
 
         // 11:00 - 20-minute trip - 10-minute arrival buffer - 5-minute rain - 3-minute entry.
-        val beforeWarning = trip.refresh(at(10, 17).minusSeconds(1))
+        val beforeWarning = trip.refresh(at(10, 12).minusSeconds(1))
         assertEquals(at(10, 22), beforeWarning.leaveBy)
         assertEquals(5, beforeWarning.weatherBufferMinutes)
         assertEquals(3, beforeWarning.entryAllowanceMinutes)
         assertEquals(ContextState.UPCOMING, beforeWarning.state)
         assertNull(trip.reminders.consider(beforeWarning))
 
-        val warning = trip.refresh(at(10, 17))
+        val warning = trip.refresh(at(10, 12))
         assertEquals(ContextState.LEAVE_SOON, warning.state)
         val reminder = trip.reminders.consider(warning)
         assertNotNull(reminder)

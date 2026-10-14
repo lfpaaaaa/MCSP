@@ -453,7 +453,7 @@ class DepartureRemindersTest {
         val history = ReminderHistory()
         val reliable = reliableReminders(history)
         ContextState.entries.filter {
-            it != ContextState.LEAVE_SOON && it != ContextState.RUNNING_LATE
+            it != ContextState.LEAVE_SOON && it != ContextState.LEAVE_NOW && it != ContextState.RUNNING_LATE
         }.forEach { state -> assertNull(reliable.consider(snapshot(lecture, state))) }
         preferences = CourseReminderPreference(enabled = false)
         assertNull(reliable.consider(snapshot(lecture, ContextState.LEAVE_SOON)))

@@ -33,7 +33,7 @@ class DepartureNotificationTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
     private val manager = context.getSystemService(NotificationManager::class.java)
 
-    @Test fun leaveSoonReminderAppearsInSystemNotificationsAndDoesNotRepeat() {
+    @Test fun preparationAndGpsUrgencyReplaceOneSystemNotificationWithoutRepeating() {
         val now = ZonedDateTime.now()
         val session = CourseSession(UUID.randomUUID().toString(), "QA-DEPARTURE", "Departure notification check",
             "Test", "Test", now.plusMinutes(30), now.plusMinutes(90), activity = "test-${UUID.randomUUID()}")
@@ -53,6 +53,17 @@ class DepartureNotificationTest {
             assertTrue(notification.extras.getCharSequence(Notification.EXTRA_TEXT).toString().contains("20 min on foot"))
             assertTrue(notification.extras.getCharSequence(Notification.EXTRA_TEXT).toString().contains("Leave by "))
             assertNull(reminders.consider(snapshot))
+            assertEquals(1, manager.activeNotifications.count { it.tag == tag })
+            val urgent = snapshot.copy(state = ContextState.LEAVE_NOW)
+            assertNotNull(reminders.consider(urgent))
+            waitFor {
+                manager.activeNotifications.firstOrNull { it.tag == tag }?.notification?.extras
+                    ?.getString(Notification.EXTRA_TITLE) == "Leave now for QA-DEPARTURE"
+            }
+            val urgentNotification = manager.activeNotifications.first { it.tag == tag }.notification
+            assertTrue(urgentNotification.extras.getCharSequence(Notification.EXTRA_TEXT).toString().contains("not getting closer"))
+            assertEquals(0, urgentNotification.flags and Notification.FLAG_ONLY_ALERT_ONCE)
+            assertNull(reminders.consider(urgent))
             assertEquals(1, manager.activeNotifications.count { it.tag == tag })
         } finally { DepartureNotifier.cancelCourse(context, session.reminderSeriesKey()) }
     }

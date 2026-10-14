@@ -44,6 +44,16 @@ class DepartureReminderHistoryTest {
         assertFalse(restartedHistory.wasSent(userId, session, ContextState.RUNNING_LATE))
     }
 
+    @Test fun gpsUrgencySurvivesRestartWithoutMarkingOtherStagesOrAccountsSent() = withStorage { name, _ ->
+        val history = DepartureReminderHistory(context, { initialNow }, name)
+        assertTrue(history.record(userId, session, ContextState.LEAVE_NOW))
+        val restarted = DepartureReminderHistory(context, { initialNow }, name)
+        assertTrue(restarted.wasSent(userId, session, ContextState.LEAVE_NOW))
+        assertFalse(restarted.wasSent(userId, session, ContextState.LEAVE_SOON))
+        assertFalse(restarted.wasSent(userId, session, ContextState.RUNNING_LATE))
+        assertFalse(restarted.wasSent("other:$userId", session, ContextState.LEAVE_NOW))
+    }
+
     @Test fun deliveryRecordsAreIsolatedByAccountOccurrenceAndState() = withStorage { name, _ ->
         val history = DepartureReminderHistory(context, { initialNow }, name)
         assertTrue(history.record(userId, session, ContextState.LEAVE_SOON))

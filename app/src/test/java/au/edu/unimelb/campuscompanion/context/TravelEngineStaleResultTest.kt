@@ -289,7 +289,7 @@ class TravelEngineStaleResultTest {
         refreshAndComplete(engine)
         assertEquals(second, engine.snapshot.value.session)
         assertEquals(FakeBuildingLookup.ALAN_GILBERT, engine.snapshot.value.building)
-        assertEquals(ContextState.UPCOMING, engine.snapshot.value.state)
+        assertEquals(ContextState.LEAVE_SOON, engine.snapshot.value.state)
     }
 
     private fun engine(weather: WeatherRepository) = TravelEngine(

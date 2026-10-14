@@ -46,6 +46,7 @@ data class HomeCardUiState(
             ContextState.LONG_BREAK -> UiText(R.string.home_status_long_break)
             ContextState.UPCOMING -> UiText(R.string.home_status_upcoming)
             ContextState.LEAVE_SOON -> UiText(R.string.home_status_leave_soon)
+            ContextState.LEAVE_NOW -> UiText(R.string.home_leave_now)
             ContextState.EN_ROUTE -> UiText(R.string.home_status_en_route)
             ContextState.RUNNING_LATE -> UiText(R.string.home_status_running_late)
             ContextState.ARRIVED -> UiText(R.string.home_status_arrived)
@@ -59,7 +60,7 @@ data class HomeCardUiState(
         get() = when (state) {
             null, ContextState.LONG_BREAK, ContextState.UPCOMING -> SessionStatus.Upcoming
             ContextState.NO_UPCOMING_CLASS -> SessionStatus.Finished
-            ContextState.LEAVE_SOON, ContextState.RUNNING_LATE -> SessionStatus.LeaveSoon
+            ContextState.LEAVE_SOON, ContextState.LEAVE_NOW, ContextState.RUNNING_LATE -> SessionStatus.LeaveSoon
             ContextState.EN_ROUTE -> SessionStatus.EnRoute
             ContextState.ARRIVED -> SessionStatus.Arrived
             ContextState.IN_CLASS -> SessionStatus.InProgress

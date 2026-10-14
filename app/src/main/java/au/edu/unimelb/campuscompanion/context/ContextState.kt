@@ -17,6 +17,9 @@ enum class ContextState {
     /** The preparation warning is due, or leave-by has passed but the student can still be on time. */
     LEAVE_SOON,
 
+    /** Within five minutes of leave-by, with fresh GPS confirming no progress toward the building. */
+    LEAVE_NOW,
+
     /** Heading towards the class's building. Departure reminders are suppressed. */
     EN_ROUTE,
 

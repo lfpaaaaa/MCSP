@@ -46,12 +46,12 @@ class CourseReminderModelsTest {
     }
 
     @Test
-    fun remindersDefaultToZeroArrivalBufferAndFiveMinutesPreparation() {
+    fun remindersDefaultToZeroArrivalBufferAndTenMinutesPreparation() {
         val preference = CourseReminderPreference()
 
         assertTrue(preference.enabled)
         assertEquals(0, preference.leadMinutes)
-        assertEquals(5, preference.preparationMinutes)
+        assertEquals(10, preference.preparationMinutes)
     }
 
     @Test

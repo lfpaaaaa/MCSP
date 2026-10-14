@@ -74,10 +74,10 @@ class ContextEngineTest {
     }
 
     @Test
-    fun leaveSoonStartsExactlyFiveMinutesBeforeTheBufferedDeparture() {
+    fun leaveSoonStartsExactlyTenMinutesBeforeTheBufferedDeparture() {
         val trip = Trip()
         val leaveBy = at(14, 30)
-        val windowOpens = at(14, 25)
+        val windowOpens = at(14, 20)
 
         val beforeWindow = trip.update(inputs(windowOpens.minusSeconds(1)))
         assertEquals(leaveBy, beforeWindow.leaveBy)
@@ -377,7 +377,7 @@ class ContextEngineTest {
                 buildingCode = OTHER_BUILDING
             )
         )
-        assertEquals(ContextState.UPCOMING, first.state)
+        assertEquals(ContextState.LEAVE_SOON, first.state)
         assertFalse(first.memory.enRoute)
         assertEquals(1_000.0, first.memory.farthestMeters)
 

@@ -146,7 +146,7 @@ class TravelEngineUpdateTest {
         assertEquals(edited, engine.snapshot.value.session)
         assertEquals(40L, engine.snapshot.value.minutesUntilClass)
         assertEquals(edited.start.minusMinutes(30), engine.snapshot.value.leaveBy)
-        assertEquals(ContextState.UPCOMING, engine.snapshot.value.state)
+        assertEquals(ContextState.LEAVE_SOON, engine.snapshot.value.state)
     }
 
     @Test

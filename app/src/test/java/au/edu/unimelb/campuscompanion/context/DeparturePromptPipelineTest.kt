@@ -136,7 +136,7 @@ class DeparturePromptPipelineTest {
 
     @Test
     fun aBufferChangedWhileTheEtaIsLoadingNeitherWarnsEarlyNorSkipsTheWarning() = runBlocking<Unit> {
-        now = at(-26) // 11:34
+        now = at(-31) // 11:29, before the default ten-minute preparation window
         preference = CourseReminderPreference(leadMinutes = 10)
         engine.updateSessions(listOf(lecture))
         engine.updateOrigin(HOME)
@@ -144,7 +144,7 @@ class DeparturePromptPipelineTest {
             refresh(minutes = 10)
             assertEquals(ContextState.UPCOMING, engine.snapshot.value.state)
 
-            // 11:38: with 10 minutes in hand it is time to leave (by 11:40); with none, not until 11:45.
+            // 11:38: the buffered 11:40 deadline warns at 11:30; without a buffer it warns at 11:40.
             now = at(-22)
             val inFlight = async(start = CoroutineStart.UNDISPATCHED) { engine.refresh() }
             val request = eta.next()
