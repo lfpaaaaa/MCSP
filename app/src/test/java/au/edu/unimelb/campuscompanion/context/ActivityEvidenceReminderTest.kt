@@ -309,6 +309,7 @@ class ActivityEvidenceReminderTest {
         )
 
         init {
+            engine.updateLeadMinutes(10)
             engine.updateSessions(listOf(lecture))
             engine.startSensing()
             elapsed += 1 // Raw activity must be observed strictly after this registration started.

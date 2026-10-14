@@ -1,6 +1,5 @@
 package au.edu.unimelb.campuscompanion.ui.model
 
-import au.edu.unimelb.campuscompanion.context.ContextConfig
 import au.edu.unimelb.campuscompanion.context.TravelSnapshot
 import java.time.ZonedDateTime
 
@@ -16,21 +15,24 @@ sealed interface CourseReminderTiming {
     data object MissingTravelTime : CourseReminderTiming
 }
 
-/** Preview the engine's live deadline only for this occurrence and the currently selected buffer. */
+/** Show live times only after the engine has applied both choices to this occurrence. */
 fun CourseSession.reminderTiming(
     snapshot: TravelSnapshot,
-    arrivalBufferMinutes: Int
+    arrivalBufferMinutes: Int,
+    preparationMinutes: Int = DEFAULT_COURSE_REMINDER_PREPARATION_MINUTES
 ): CourseReminderTiming {
     val tracked = snapshot.session
     if (tracked == null || !tracked.matchesTimetableSession(this)) {
         return CourseReminderTiming.NotTracked
     }
-    if (snapshot.leadMinutes != arrivalBufferMinutes) return CourseReminderTiming.Updating
+    if (snapshot.leadMinutes != arrivalBufferMinutes || snapshot.preparationMinutes != preparationMinutes) {
+        return CourseReminderTiming.Updating
+    }
     val leaveBy = snapshot.leaveBy ?: return CourseReminderTiming.MissingTravelTime
     val estimate = snapshot.estimate ?: return CourseReminderTiming.MissingTravelTime
     return CourseReminderTiming.Ready(
         leaveBy = leaveBy,
-        warningAt = leaveBy.minusMinutes(ContextConfig().leaveSoonWindowMinutes.toLong()),
+        warningAt = leaveBy.minusMinutes(preparationMinutes.toLong()),
         travelMinutes = estimate.durationMinutes
     )
 }

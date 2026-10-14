@@ -6,6 +6,7 @@ import au.edu.unimelb.campuscompanion.data.model.GeoPoint
 import au.edu.unimelb.campuscompanion.data.model.TravelEstimate
 import au.edu.unimelb.campuscompanion.data.model.WeatherSnapshot
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
+import au.edu.unimelb.campuscompanion.ui.model.DEFAULT_COURSE_REMINDER_PREPARATION_MINUTES
 import au.edu.unimelb.campuscompanion.ui.model.RouteEstimate
 import au.edu.unimelb.campuscompanion.ui.model.matchesTimetableSession
 import java.time.ZonedDateTime
@@ -43,7 +44,9 @@ data class TravelSnapshot(
      */
     val pending: Boolean = false,
     /** Sampled routing origin; distanceMeters may describe a newer physical observation. */
-    val estimateOrigin: GeoPoint? = null
+    val estimateOrigin: GeoPoint? = null,
+    /** Warning lead time used for this decision; does not change [leaveBy]. */
+    val preparationMinutes: Int = DEFAULT_COURSE_REMINDER_PREPARATION_MINUTES
 ) {
     /** The sessions with the tracked one carrying its travel time and route, for the screens. */
     fun applyTo(sessions: List<CourseSession>): List<CourseSession> {

@@ -33,7 +33,8 @@ import java.time.ZoneId
 /** The travel engine and the departure reminders together, as the application runs them. */
 class DeparturePromptPipelineTest {
     private var now = at(-22) // 11:38 for a 12:00 class
-    private var preference = CourseReminderPreference()
+    // These lifecycle fixtures deliberately use a ten-minute arrival buffer.
+    private var preference = CourseReminderPreference(leadMinutes = 10)
     private val preferenceChanges = MutableStateFlow(0)
     private val eta = GatedEta()
     private val shade = FakeDepartureShade()

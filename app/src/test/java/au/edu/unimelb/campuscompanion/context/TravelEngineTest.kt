@@ -32,7 +32,7 @@ class TravelEngineTest {
         preferences = { preferences },
         weather = weather,
         clock = { now }
-    )
+    ).also { it.updateLeadMinutes(10) }
 
     private val lecture = session("lecture", startsIn = Duration.ofMinutes(60), room = "PAR-160")
     private val tutorial = session("tutorial", startsIn = Duration.ofHours(3), room = "PAR-104")
@@ -50,7 +50,7 @@ class TravelEngineTest {
         assertEquals(15, snapshot.estimate?.durationMinutes)
         assertEquals(60L, snapshot.minutesUntilClass)
         assertEquals(ContextState.UPCOMING, snapshot.state)
-        // 15 min travel + the default 10 min buffer before the start.
+        // 15 min travel + this fixture's explicit 10 min arrival buffer before the start.
         assertEquals(lecture.start.minusMinutes(25), snapshot.leaveBy)
         val applied = snapshot.applyTo(listOf(lecture, tutorial))
         assertEquals(listOf(15, null), applied.map { it.etaMinutes })

@@ -17,7 +17,9 @@ import au.edu.unimelb.campuscompanion.sensing.location.SensingEvidence
 import au.edu.unimelb.campuscompanion.sensing.location.SensingTarget
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
 import au.edu.unimelb.campuscompanion.ui.model.CourseReminderPreference
+import au.edu.unimelb.campuscompanion.ui.model.DEFAULT_COURSE_REMINDER_LEAD_MINUTES
 import au.edu.unimelb.campuscompanion.ui.model.MAX_COURSE_REMINDER_LEAD_MINUTES
+import au.edu.unimelb.campuscompanion.ui.model.MAX_COURSE_REMINDER_PREPARATION_MINUTES
 import au.edu.unimelb.campuscompanion.ui.model.matchesTimetableSession
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
@@ -113,7 +115,7 @@ class TravelEngine(
         )
         reconcileTargetLocked(now, force = reset)
         // A retime outside the departure window must also invalidate raw departure evidence.
-        if (!trackingChanged && oldTracked?.start != tracked?.start && tracked != null) {
+        if (!trackingChanged && tracked != null && oldTracked?.start?.toInstant() != tracked.start.toInstant()) {
             val leave = ContextEngine.leaveBy(tracked.start.toInstant(), snapshot.estimate?.durationMinutes,
                 snapshot.leadMinutes + snapshot.weatherBufferMinutes, config.entryAllowanceMinutes)
             if (now.isBefore((leave ?: tracked.start.toInstant()).minusSeconds(config.earlyDepartureWindowMinutes * 60L))) {
@@ -158,7 +160,7 @@ class TravelEngine(
         val current = _snapshot.value
         if (!current.pending && sameSession(current.session, tracked)) {
             publishLocked(tracked, _sensingTarget.value.building, current.estimate, current.weather,
-                current.leadMinutes, current.weatherBufferMinutes, current.estimateOrigin, now)
+                current.leadMinutes, current.preparationMinutes, current.weatherBufferMinutes, current.estimateOrigin, now)
         }
     }
 
@@ -186,8 +188,10 @@ class TravelEngine(
         val tracked = ContextEngine.trackedSession(inputs.value.sessions, now)
         if (tracked != null && target.building != null) {
             val previous = _snapshot.value.takeIf { sameSession(it.session, tracked) && it.building == target.building }
+            val timing = previous?.let { ReminderTiming(it.leadMinutes, it.preparationMinutes) }
+                ?: reminderTiming(tracked, inputs.value)
             publishLocked(tracked, target.building, previous?.estimate, previous?.weather,
-                previous?.leadMinutes ?: leadMinutes(tracked, inputs.value), previous?.weatherBufferMinutes ?: 0,
+                timing.leadMinutes, timing.preparationMinutes, previous?.weatherBufferMinutes ?: 0,
                 previous?.estimateOrigin, now)
         }
         true
@@ -203,9 +207,13 @@ class TravelEngine(
         // Publish identity and generation together: observers never see a new venue in an old run.
         _sensingTarget.value = SensingTarget(target.generation + 1, elapsedNanos(), active, sessionId, building)
         val before = inputs.value
-        inputs.value = before.copy(evidence = null, lastObservedNanos = 0, resetProgress = true,
+        val origin = if (clearGuidance && before.sensingManaged) null else before.origin
+        // Retained guidance still orders position evidence: an older initial geofence trigger
+        // must not override a newer away fix just because a retime reset the sensing period.
+        inputs.value = before.copy(evidence = null,
+            lastObservedNanos = if (origin != null) before.lastObservedNanos else 0, resetProgress = true,
             consumedGeofenceEntries = emptyMap(),
-            origin = if (clearGuidance && before.sensingManaged) null else before.origin,
+            origin = origin,
             signals = if (before.sensingManaged) MotionSignals() else MotionSignals(moving = before.signals.moving))
     }
 
@@ -319,17 +327,19 @@ class TravelEngine(
             consumedGeofenceEntries = before.consumedGeofenceEntries + (event.requestId to eventObserved)
         )
         val previous = _snapshot.value.takeIf { sameSession(it.session, tracked) && it.building == building }
+        val timing = previous?.let { ReminderTiming(it.leadMinutes, it.preparationMinutes) }
+            ?: reminderTiming(tracked, before)
         // Consume the entry in this decision only. Older GPS cannot immediately undo it on a tick;
         // subsequent fresh fixes still apply the normal 200 m exit hysteresis.
         publishLocked(tracked, building, previous?.estimate, previous?.weather,
-            previous?.leadMinutes ?: leadMinutes(tracked, before), previous?.weatherBufferMinutes ?: 0,
+            timing.leadMinutes, timing.preparationMinutes, previous?.weatherBufferMinutes ?: 0,
             previous?.estimateOrigin, now, geofenceEntry = true)
         result()
     }
 
     /** Minutes the user wants in hand on top of the travel time; set on the schedule screen. */
     fun updateLeadMinutes(value: Int) = synchronized(inputLock) {
-        inputs.value = inputs.value.copy(leadMinutes = value.coerceAtLeast(0))
+        inputs.value = inputs.value.copy(leadMinutes = value.coerceIn(0, MAX_COURSE_REMINDER_LEAD_MINUTES))
     }
 
     /** Recomputes the snapshot whenever an input changes and at every tick, until cancelled. */
@@ -364,7 +374,7 @@ class TravelEngine(
         }
         val tracked = ContextEngine.trackedSession(captured.sessions, startedAt)
         val destination = scope.building
-        val lead = leadMinutes(tracked, captured)
+        val timing = reminderTiming(tracked, captured)
         val from = captured.origin
         var estimate: TravelEstimate? = null
         var weatherNow: WeatherSnapshot? = null
@@ -373,7 +383,8 @@ class TravelEngine(
         synchronized(inputLock) {
             val current = _snapshot.value
             if (captured.sensingManaged && tracked != null && sameSession(current.session, tracked) && !current.pending) {
-                publishLocked(tracked, destination, current.estimate, current.weather, lead,
+                publishLocked(tracked, destination, current.estimate, current.weather, timing.leadMinutes,
+                    timing.preparationMinutes,
                     current.weatherBufferMinutes, current.estimateOrigin, startedAt)
             }
         }
@@ -395,22 +406,25 @@ class TravelEngine(
                 _snapshot.value = TravelSnapshot.PENDING
                 return@synchronized
             }
-            publishLocked(tracked, destination, estimate, weatherNow, lead, weatherBuffer,
+            publishLocked(tracked, destination, estimate, weatherNow, timing.leadMinutes, timing.preparationMinutes, weatherBuffer,
                 from.takeIf { estimate != null }, publishedAt)
         }
     }
 
-    private fun leadMinutes(tracked: CourseSession?, current: Inputs): Int {
+    private fun reminderTiming(tracked: CourseSession?, current: Inputs): ReminderTiming {
         val preference = tracked?.let { reminderPreference?.invoke(it) }
-        return preference?.let {
+        val lead = preference?.let {
             if (it.enabled) it.leadMinutes.coerceIn(0, MAX_COURSE_REMINDER_LEAD_MINUTES) else 0
         } ?: current.leadMinutes
+        val preparation = (preference?.preparationMinutes ?: config.leaveSoonWindowMinutes)
+            .coerceIn(0, MAX_COURSE_REMINDER_PREPARATION_MINUTES)
+        return ReminderTiming(lead, preparation)
     }
 
     /** Must run under inputLock: decision position and verdict always come from one current bundle. */
     private fun publishLocked(
         tracked: CourseSession?, destination: BuildingLocation?, estimate: TravelEstimate?,
-        weatherNow: WeatherSnapshot?, lead: Int, weatherBuffer: Int, estimateOrigin: GeoPoint?, now: Instant,
+        weatherNow: WeatherSnapshot?, lead: Int, preparation: Int, weatherBuffer: Int, estimateOrigin: GeoPoint?, now: Instant,
         geofenceEntry: Boolean = false
     ) {
         val current = inputs.value
@@ -450,7 +464,8 @@ class TravelEngine(
                 buildingCode = destination?.locCode,
                 progressConfirmed = !current.sensingManaged || evidence?.progressConfirmed == true,
                 resetProgress = current.sensingManaged && (current.resetProgress || measured == null),
-                lastKnownAway = lastKnownAway
+                lastKnownAway = lastKnownAway,
+                preparationMinutes = preparation
             ), previous = decision, config = config
         )
         decision = next
@@ -462,7 +477,7 @@ class TravelEngine(
             distanceMeters = distance, minutesUntilClass = Duration.between(now, tracked.start.toInstant()).toMinutes(),
             weather = weatherNow, weatherBufferMinutes = weatherBuffer, leadMinutes = lead,
             entryAllowanceMinutes = config.entryAllowanceMinutes, leaveBy = next.leaveBy?.atZone(tracked.start.zone),
-            finishedSession = next.finishedSession, estimateOrigin = estimateOrigin
+            finishedSession = next.finishedSession, estimateOrigin = estimateOrigin, preparationMinutes = preparation
         )
     }
 
@@ -478,6 +493,9 @@ class TravelEngine(
         val enRoute: Boolean? = null,
         val geofenceCode: String? = null
     )
+
+    /** Capture both settings together so asynchronous snapshots identify the exact timing used. */
+    private data class ReminderTiming(val leadMinutes: Int, val preparationMinutes: Int)
 
     private data class Inputs(
         val sessions: List<CourseSession> = emptyList(),
@@ -495,7 +513,7 @@ class TravelEngine(
 
     companion object {
         /** Matches the default of the reminder slider on the schedule screen. */
-        const val DEFAULT_LEAD_MINUTES = 10
+        const val DEFAULT_LEAD_MINUTES = DEFAULT_COURSE_REMINDER_LEAD_MINUTES
 
         /** Beyond this straight-line distance no travel time is requested or shown. */
         const val MAX_ROUTED_DISTANCE_METERS = 150_000.0

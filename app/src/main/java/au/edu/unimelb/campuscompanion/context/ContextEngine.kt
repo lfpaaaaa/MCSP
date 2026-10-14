@@ -1,6 +1,7 @@
 package au.edu.unimelb.campuscompanion.context
 
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
+import au.edu.unimelb.campuscompanion.ui.model.MAX_COURSE_REMINDER_PREPARATION_MINUTES
 import au.edu.unimelb.campuscompanion.ui.model.matchesTimetableSession
 import java.time.Duration
 import java.time.Instant
@@ -12,7 +13,7 @@ import kotlin.math.min
 data class ContextConfig(
     /** Minutes from the building entrance to the room, added to the departure buffer. */
     val entryAllowanceMinutes: Int = 0,
-    /** How long before the leave-by time the state becomes [ContextState.LEAVE_SOON]. */
+    /** Fallback warning window when [ContextInputs.preparationMinutes] is not supplied. */
     val leaveSoonWindowMinutes: Int = 5,
     /** How long before the leave-by time walking towards the class counts as setting off for it. */
     val earlyDepartureWindowMinutes: Int = 45,
@@ -63,7 +64,9 @@ data class ContextInputs(
     /** A stale sampling gap clears unconfirmed history without ending an established trip. */
     val resetProgress: Boolean = false,
     /** Same-target advisory only; never used for physical arrival, travel or retreat decisions. */
-    val lastKnownAway: Boolean = false
+    val lastKnownAway: Boolean = false,
+    /** Warning lead time, separate from the arrival buffer; null uses the config fallback. */
+    val preparationMinutes: Int? = null
 )
 
 /**
@@ -155,6 +158,8 @@ object ContextEngine {
 
         val start = session.start.toInstant()
         val leaveBy = leaveBy(start, inputs.travelMinutes, inputs.bufferMinutes, config.entryAllowanceMinutes)
+        val preparationMinutes = (inputs.preparationMinutes ?: config.leaveSoonWindowMinutes)
+            .coerceIn(0, MAX_COURSE_REMINDER_PREPARATION_MINUTES)
         val departureWindowOpens = (leaveBy ?: start).minus(minutes(config.earlyDepartureWindowMinutes))
         val inDepartureWindow = !now.isBefore(departureWindowOpens)
 
@@ -192,7 +197,7 @@ object ContextEngine {
             memory.arrived && inDepartureWindow -> ContextState.ARRIVED
             memory.enRoute -> ContextState.EN_ROUTE
             travelMinutes != null && now.plus(minutes(travelMinutes)).isAfter(start) -> ContextState.RUNNING_LATE
-            leaveBy != null && !now.isBefore(leaveBy.minus(minutes(config.leaveSoonWindowMinutes))) ->
+            leaveBy != null && !now.isBefore(leaveBy.minus(minutes(preparationMinutes))) ->
                 ContextState.LEAVE_SOON
             finished != null -> ContextState.POST_CLASS
             !startsToday(session, now) -> ContextState.NO_UPCOMING_CLASS

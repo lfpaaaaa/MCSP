@@ -70,6 +70,94 @@ class CourseReminderTimingTest {
     }
 
     @Test
+    fun zeroPreparationWarnsAtLeaveByWithoutChangingTheDeadline() {
+        val snapshot = liveSnapshot(arrivalBufferMinutes = 0, preparationMinutes = 0)
+
+        assertEquals(
+            CourseReminderTiming.Ready(
+                leaveBy = start.minusMinutes(20),
+                warningAt = start.minusMinutes(20),
+                travelMinutes = 20
+            ),
+            lecture.reminderTiming(snapshot, arrivalBufferMinutes = 0, preparationMinutes = 0)
+        )
+    }
+
+    @Test
+    fun maximumPreparationMovesOnlyTheWarningThirtyMinutesEarlier() {
+        val snapshot = liveSnapshot(arrivalBufferMinutes = 30, preparationMinutes = 30)
+
+        assertEquals(
+            CourseReminderTiming.Ready(
+                leaveBy = start.minusMinutes(50),
+                warningAt = start.minusMinutes(80),
+                travelMinutes = 20
+            ),
+            lecture.reminderTiming(snapshot, arrivalBufferMinutes = 30, preparationMinutes = 30)
+        )
+    }
+
+    @Test
+    fun changingPreparationHidesTheOldWarningUntilTheEngineAppliesIt() {
+        val snapshot = liveSnapshot(arrivalBufferMinutes = 5, preparationMinutes = 5)
+        assertEquals(
+            CourseReminderTiming.Updating,
+            lecture.reminderTiming(snapshot, arrivalBufferMinutes = 5, preparationMinutes = 20)
+        )
+
+        val updated = snapshot.copy(preparationMinutes = 20)
+        assertEquals(
+            CourseReminderTiming.Ready(
+                leaveBy = start.minusMinutes(25),
+                warningAt = start.minusMinutes(45),
+                travelMinutes = 20
+            ),
+            lecture.reminderTiming(updated, arrivalBufferMinutes = 5, preparationMinutes = 20)
+        )
+        assertEquals(
+            CourseReminderTiming.Updating,
+            lecture.reminderTiming(updated, arrivalBufferMinutes = 5, preparationMinutes = 0)
+        )
+    }
+
+    @Test
+    fun threePmClassWithTwentyFiveMinuteTripMatchesTheTwoSliderExamples() {
+        val session = lecture.copy(start = start.withHour(15), end = start.withHour(16))
+        val estimate = travel.copy(durationSeconds = 25 * 60L)
+        // Arrival buffer, preparation, leave-by minute, warning minute (all in the 14:00 hour).
+        val examples = listOf(
+            listOf(5, 5, 30, 25),
+            listOf(5, 10, 30, 20),
+            listOf(5, 20, 30, 10),
+            listOf(10, 10, 25, 15)
+        )
+
+        for ((arrivalBuffer, preparation, leaveMinute, warningMinute) in examples) {
+            val snapshot = TravelSnapshot(
+                session = session,
+                estimate = estimate,
+                leadMinutes = arrivalBuffer,
+                preparationMinutes = preparation,
+                leaveBy = ContextEngine.leaveBy(
+                    session.start.toInstant(),
+                    estimate.durationMinutes,
+                    arrivalBuffer,
+                    entryAllowanceMinutes = 0
+                )!!.atZone(start.zone)
+            )
+            assertEquals(
+                "Arrival buffer $arrivalBuffer, preparation $preparation",
+                CourseReminderTiming.Ready(
+                    leaveBy = start.withHour(14).withMinute(leaveMinute),
+                    warningAt = start.withHour(14).withMinute(warningMinute),
+                    travelMinutes = 25
+                ),
+                session.reminderTiming(snapshot, arrivalBuffer, preparation)
+            )
+        }
+    }
+
+    @Test
     fun changingTheBufferHidesTheOldTimeUntilTheEngineHasAppliedTheNewChoice() {
         val oldSnapshot = liveSnapshot(arrivalBufferMinutes = 10)
         assertEquals(
@@ -173,10 +261,14 @@ class CourseReminderTimingTest {
         )
     }
 
-    private fun liveSnapshot(arrivalBufferMinutes: Int = 10) = TravelSnapshot(
+    private fun liveSnapshot(
+        arrivalBufferMinutes: Int = 10,
+        preparationMinutes: Int = DEFAULT_COURSE_REMINDER_PREPARATION_MINUTES
+    ) = TravelSnapshot(
         session = lecture,
         estimate = travel,
         leadMinutes = arrivalBufferMinutes,
+        preparationMinutes = preparationMinutes,
         leaveBy = ContextEngine.leaveBy(
             start = start.toInstant(),
             travelMinutes = travel.durationMinutes,

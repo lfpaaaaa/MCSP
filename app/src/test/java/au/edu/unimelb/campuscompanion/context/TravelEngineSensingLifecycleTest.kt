@@ -33,7 +33,7 @@ class TravelEngineSensingLifecycleTest {
     }
     private fun engine(eta: EtaRepository = routes) = TravelEngine(eta, FakeBuildingLookup(),
         { TravelPreferences() }, clock = { now }, elapsedNanos = { elapsed }).also {
-        it.updateSessions(listOf(lecture)); it.startSensing()
+        it.updateLeadMinutes(10); it.updateSessions(listOf(lecture)); it.startSensing()
     }
     private fun observe(engine: TravelEngine, point: GeoPoint, enRoute: Boolean? = null): Boolean =
         engine.updateEvidence(SensingEvidence(engine.sensingTarget.value.generation,

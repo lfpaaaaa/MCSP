@@ -271,6 +271,10 @@ class SensingForegroundService : Service() {
         target = next
         policySnapshot = TravelSnapshot.PENDING
         lastLocationNanos = 0L
+        // A pending initial fix belongs to the old sensing period. Restart acquisition so a
+        // pre-activation result cannot consume the new target's one-shot without locating it.
+        sensingRunning = false
+        locationTracker.stopTracking()
         resetSensorHistories()
         activityRecognitionManager.stop()
         removeArrivalGeofence()

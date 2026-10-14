@@ -390,7 +390,7 @@ class TravelEngineGeofenceTest {
             end = now.plusSeconds(85 * 60).atZone(ZoneId.of("Australia/Melbourne"))
         )
         val shade = FakeDepartureShade()
-        val reminders = DepartureReminders(emptyFlow(), { CourseReminderPreference() }, shade::post, shade = shade)
+        val reminders = DepartureReminders(emptyFlow(), { CourseReminderPreference(leadMinutes = 10) }, shade::post, shade = shade)
         private val routes = object : EtaRepository {
             override suspend fun estimate(origin: GeoPoint, destination: GeoPoint, mode: TravelMode): Result<TravelEstimate> {
                 beforeRouteResult()
@@ -398,7 +398,7 @@ class TravelEngineGeofenceTest {
             }
         }
         val engine = TravelEngine(routes, FakeBuildingLookup(), { TravelPreferences() }, clock = { now }, elapsedNanos = { elapsed })
-            .also { it.updateSessions(listOf(lecture)); it.startSensing() }
+            .also { it.updateLeadMinutes(10); it.updateSessions(listOf(lecture)); it.startSensing() }
 
         fun advance(seconds: Long) {
             now = now.plusSeconds(seconds)

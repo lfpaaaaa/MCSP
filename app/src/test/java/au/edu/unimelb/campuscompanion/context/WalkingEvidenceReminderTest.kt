@@ -117,6 +117,7 @@ class WalkingEvidenceReminderTest {
         )
 
         init {
+            engine.updateLeadMinutes(10)
             engine.updateSessions(listOf(lecture))
             engine.startSensing()
         }

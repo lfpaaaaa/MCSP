@@ -181,7 +181,7 @@ class TravelEngineStaleResultTest {
         val delivered = Channel<DepartureReminder>(Channel.UNLIMITED)
         val reminders = DepartureReminders(
             snapshots = engine.snapshot.onSubscription { reminderSubscribed.complete(Unit) },
-            preferences = { CourseReminderPreference() },
+            preferences = { CourseReminderPreference(leadMinutes = 10) },
             notify = { reminder ->
                 sent += reminder
                 delivered.trySend(reminder)
@@ -297,7 +297,7 @@ class TravelEngineStaleResultTest {
         weather = weather,
         clock = { now },
         tickInterval = Duration.ofHours(1)
-    )
+    ).also { it.updateLeadMinutes(10) }
 
     private suspend fun CoroutineScope.refreshAndComplete(engine: TravelEngine) {
         val refresh = async(start = CoroutineStart.UNDISPATCHED) { engine.refresh() }

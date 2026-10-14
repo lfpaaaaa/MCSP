@@ -38,19 +38,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import au.edu.unimelb.campuscompanion.context.ContextConfig
 import au.edu.unimelb.campuscompanion.context.TravelSnapshot
 import au.edu.unimelb.campuscompanion.ui.model.CourseReminderPreference
 import au.edu.unimelb.campuscompanion.ui.model.CourseReminderSeries
 import au.edu.unimelb.campuscompanion.ui.model.CourseReminderTiming
 import au.edu.unimelb.campuscompanion.ui.model.MAX_COURSE_REMINDER_LEAD_MINUTES
+import au.edu.unimelb.campuscompanion.ui.model.MAX_COURSE_REMINDER_PREPARATION_MINUTES
 import au.edu.unimelb.campuscompanion.ui.model.reminderTiming
 import java.time.format.DateTimeFormatter
 import kotlin.math.roundToInt
 
 private val courseTimeFormatter = DateTimeFormatter.ofPattern("EEE, d MMM - h:mm a")
 private val departureTimeFormatter = DateTimeFormatter.ofPattern("EEE d MMM, h:mm a")
-private val warningMinutes = ContextConfig().leaveSoonWindowMinutes
+private val departureClockFormatter = DateTimeFormatter.ofPattern("h:mm a")
+private val departureDateFormatter = DateTimeFormatter.ofPattern("EEE d MMM")
 
 @Composable
 fun CourseReminderSettingsScreen(
@@ -178,7 +179,11 @@ private fun CourseReminderDialog(
     onDismiss: () -> Unit
 ) {
     val session = course.nextSession
-    val timing = session.reminderTiming(travelSnapshot, preference.leadMinutes)
+    val timing = session.reminderTiming(
+        travelSnapshot,
+        preference.leadMinutes,
+        preference.preparationMinutes
+    )
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -236,7 +241,7 @@ private fun CourseReminderDialog(
                             fontWeight = FontWeight.Medium
                         )
                         Text(
-                            text = "Extra time to aim to arrive before class. Weather and time to reach the classroom may add more.",
+                            text = "How early do you want to arrive before class? This moves your leave-by time earlier. Weather and time to reach the classroom may add more.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -253,12 +258,40 @@ private fun CourseReminderDialog(
                                 )
                             },
                             valueRange = 0f..MAX_COURSE_REMINDER_LEAD_MINUTES.toFloat(),
-                            steps = 11
+                            steps = MAX_COURSE_REMINDER_LEAD_MINUTES / 5 - 1
+                        )
+                    }
+
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = "Prepare before departure: ${preference.preparationMinutes} minutes",
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "How much time do you need to get ready before leaving? This moves the warning earlier without changing your leave-by time. Choose 0 to be warned at leave-by.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Slider(
+                            modifier = Modifier.semantics {
+                                contentDescription = "${course.displayName} prepare before departure"
+                            },
+                            value = preference.preparationMinutes.toFloat(),
+                            onValueChange = { value ->
+                                onPreferenceChange(
+                                    preference.copy(
+                                        preparationMinutes = (value / 5f).roundToInt() * 5
+                                    )
+                                )
+                            },
+                            valueRange = 0f..MAX_COURSE_REMINDER_PREPARATION_MINUTES.toFloat(),
+                            steps = MAX_COURSE_REMINDER_PREPARATION_MINUTES / 5 - 1
                         )
                     }
 
                     Text(
-                        text = "Leave-soon reminders warn you $warningMinutes minutes before the calculated departure time, unless you’re already heading to class or have arrived.",
+                        text = "Prepare-to-leave warnings are skipped when you’re already heading to class or have arrived.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -285,11 +318,19 @@ private fun CourseReminderDialog(
                                 when (timing) {
                                     is CourseReminderTiming.Ready -> {
                                         Text(
-                                            text = "Leave by ${timing.leaveBy.format(departureTimeFormatter)}",
-                                            style = MaterialTheme.typography.titleMedium
+                                            text = "Leave by ${timing.leaveBy.format(departureClockFormatter)}",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            maxLines = 1,
+                                            softWrap = false
                                         )
+                                        if (timing.leaveBy.toLocalDate() != session.start.toLocalDate()) {
+                                            Text(
+                                                text = timing.leaveBy.format(departureDateFormatter),
+                                                style = MaterialTheme.typography.bodyMedium
+                                            )
+                                        }
                                         Text(
-                                            text = "Leave-soon reminder: around ${timing.warningAt.format(departureTimeFormatter)}",
+                                            text = "Prepare to leave: ${timing.warningAt.format(departureTimeFormatter)}",
                                             style = MaterialTheme.typography.bodyMedium
                                         )
                                         Text(
@@ -298,8 +339,8 @@ private fun CourseReminderDialog(
                                         )
                                     }
                                     CourseReminderTiming.Updating -> {
-                                        Text("Updating departure time…", style = MaterialTheme.typography.titleMedium)
-                                        Text("Applying your arrival buffer to the live route.", style = MaterialTheme.typography.bodyMedium)
+                                        Text("Updating live times…", style = MaterialTheme.typography.titleMedium)
+                                        Text("Applying your arrival buffer and preparation time.", style = MaterialTheme.typography.bodyMedium)
                                     }
                                     CourseReminderTiming.MissingTravelTime -> {
                                         Text("Waiting for live travel time", style = MaterialTheme.typography.titleMedium)
@@ -327,7 +368,7 @@ private fun CourseReminderDialog(
 private fun CourseReminderSeries.summaryLine(preference: CourseReminderPreference): String {
     val recurrence = if (occurrenceCount == 1) "1 class" else "$occurrenceCount classes"
     val reminder = if (preference.enabled) {
-        "${preference.leadMinutes} min arrival buffer"
+        "${preference.leadMinutes} min arrival buffer · ${preference.preparationMinutes} min preparation"
     } else {
         "Off"
     }

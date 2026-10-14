@@ -43,7 +43,7 @@ class DepartureRemindersTest {
 
         val reminder = reminders.consider(snapshot(lecture, ContextState.LEAVE_SOON))
 
-        assertEquals("Time to leave for COMP90018", reminder?.title)
+        assertEquals("Prepare to leave for COMP90018", reminder?.title)
         assertEquals(
             "Mobile Computing Systems Programming starts at 11:00 AM in Peter Hall Building 160. " +
                 "About 15 min on foot. Allow 5 min more for the weather.",
@@ -68,13 +68,64 @@ class DepartureRemindersTest {
     }
 
     @Test
+    fun preparationPromptIncludesTheLiveDeadlineInTheClassTimeZone() {
+        preferences = CourseReminderPreference(preparationMinutes = 20)
+        val warning = snapshot(lecture, ContextState.LEAVE_SOON).copy(
+            preparationMinutes = 20,
+            leaveBy = lecture.start.minusMinutes(25).withZoneSameInstant(ZoneId.of("UTC"))
+        )
+
+        val reminder = reminders.consider(warning)
+
+        assertEquals("Prepare to leave for COMP90018", reminder?.title)
+        assertTrue(reminder!!.text.contains("Leave by 10:35 AM."))
+        assertEquals(ContextState.LEAVE_SOON, reminder.state)
+    }
+
+    @Test
+    fun zeroPreparationUsesTheSameWarningStageAndStillAllowsTheLateReminder() {
+        preferences = CourseReminderPreference(preparationMinutes = 0)
+        val warning = snapshot(lecture, ContextState.LEAVE_SOON).copy(
+            preparationMinutes = 0,
+            leaveBy = lecture.start.minusMinutes(20)
+        )
+
+        assertEquals("Prepare to leave for COMP90018", reminders.consider(warning)?.title)
+        assertNull(reminders.consider(warning))
+        assertEquals("Running late for COMP90018",
+            reminders.consider(warning.copy(state = ContextState.RUNNING_LATE))?.title)
+        assertEquals(listOf(ContextState.LEAVE_SOON, ContextState.RUNNING_LATE), sent.map { it.state })
+    }
+
+    @Test
+    fun aPreparationChangeSkipsTheOldSnapshotUntilTheEngineAppliesIt() {
+        val stale = snapshot(lecture, ContextState.LEAVE_SOON)
+        preferences = CourseReminderPreference(preparationMinutes = 0)
+
+        assertNull(reminders.consider(stale))
+        assertNull(reminders.consider(stale.copy(preparationMinutes = 0, state = ContextState.UPCOMING)))
+        assertTrue(sent.isEmpty())
+        assertNotNull(reminders.consider(stale.copy(preparationMinutes = 0)))
+        // Changing preparation does not create a new occurrence or another audible warning.
+        preferences = preferences.copy(preparationMinutes = 30)
+        assertNull(reminders.consider(stale.copy(preparationMinutes = 30)))
+        assertEquals(1, sent.size)
+    }
+
+    @Test
+    fun preparationGuardUsesTheSameRangeAsTheEngineAndStore() {
+        preferences = CourseReminderPreference(preparationMinutes = 90)
+        assertNotNull(reminders.consider(snapshot(lecture, ContextState.LEAVE_SOON).copy(preparationMinutes = 30)))
+    }
+
+    @Test
     fun theNextClassGetsItsOwnReminder() {
         reminders.consider(snapshot(lecture, ContextState.LEAVE_SOON))
         reminders.consider(snapshot(lecture, ContextState.ARRIVED))
 
         val next = reminders.consider(snapshot(tutorial, ContextState.LEAVE_SOON))
 
-        assertEquals("Time to leave for SWEN90006", next?.title)
+        assertEquals("Prepare to leave for SWEN90006", next?.title)
         assertEquals(2, sent.size)
     }
 
@@ -88,7 +139,7 @@ class DepartureRemindersTest {
         // Switching reminders back on for the same class still gives the reminder.
         preferences = CourseReminderPreference(enabled = true)
         val reminder = reminders.consider(snapshot(lecture, ContextState.LEAVE_SOON))
-        assertEquals("Time to leave for COMP90018", reminder?.title)
+        assertEquals("Prepare to leave for COMP90018", reminder?.title)
     }
 
     @Test
@@ -117,7 +168,7 @@ class DepartureRemindersTest {
 
         collected.run()
 
-        assertEquals(listOf("Time to leave for COMP90018"), sent.map { it.title })
+        assertEquals(listOf("Prepare to leave for COMP90018"), sent.map { it.title })
     }
 
     @Test

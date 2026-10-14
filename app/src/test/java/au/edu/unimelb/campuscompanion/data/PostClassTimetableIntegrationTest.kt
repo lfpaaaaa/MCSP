@@ -190,7 +190,7 @@ class PostClassTimetableIntegrationTest {
                 Result.success(TravelEstimate(mode, 15 * 60L, 1_500, EstimateSource.Routing, now))
         },
         buildings = FakeBuildingLookup(), preferences = { TravelPreferences() }, clock = { now }
-    )
+    ).also { it.updateLeadMinutes(10) }
 
     private suspend fun home(session: TimetableSession, engine: TravelEngine = engine()): HomeCardUiState {
         engine.updateSessions(session.state.value.sessions)

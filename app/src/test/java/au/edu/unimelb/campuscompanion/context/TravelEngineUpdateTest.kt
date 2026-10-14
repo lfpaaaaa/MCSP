@@ -310,7 +310,7 @@ class TravelEngineUpdateTest {
             preferences = { TravelPreferences() },
             weather = weather,
             clock = { now }
-        )
+        ).also { it.updateLeadMinutes(10) }
     }
 
     private class DestinationEtaRepository(private val clock: () -> Instant) : EtaRepository {

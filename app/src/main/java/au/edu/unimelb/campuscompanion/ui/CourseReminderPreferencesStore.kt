@@ -7,7 +7,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import au.edu.unimelb.campuscompanion.ui.model.CourseReminderPreference
 import au.edu.unimelb.campuscompanion.ui.model.DEFAULT_COURSE_REMINDER_LEAD_MINUTES
+import au.edu.unimelb.campuscompanion.ui.model.DEFAULT_COURSE_REMINDER_PREPARATION_MINUTES
 import au.edu.unimelb.campuscompanion.ui.model.MAX_COURSE_REMINDER_LEAD_MINUTES
+import au.edu.unimelb.campuscompanion.ui.model.MAX_COURSE_REMINDER_PREPARATION_MINUTES
 
 class CourseReminderPreferencesStore(
     context: Context,
@@ -27,7 +29,11 @@ class CourseReminderPreferencesStore(
             leadMinutes = preferences.getInt(
                 key(savedKey, "lead_minutes"),
                 DEFAULT_COURSE_REMINDER_LEAD_MINUTES
-            ).coerceIn(0, MAX_COURSE_REMINDER_LEAD_MINUTES)
+            ).coerceIn(0, MAX_COURSE_REMINDER_LEAD_MINUTES),
+            preparationMinutes = preferences.getInt(
+                key(savedKey, "preparation_minutes"),
+                DEFAULT_COURSE_REMINDER_PREPARATION_MINUTES
+            ).coerceIn(0, MAX_COURSE_REMINDER_PREPARATION_MINUTES)
         )
     }
 
@@ -37,6 +43,10 @@ class CourseReminderPreferencesStore(
             .putInt(
                 key(seriesKey, "lead_minutes"),
                 value.leadMinutes.coerceIn(0, MAX_COURSE_REMINDER_LEAD_MINUTES)
+            )
+            .putInt(
+                key(seriesKey, "preparation_minutes"),
+                value.preparationMinutes.coerceIn(0, MAX_COURSE_REMINDER_PREPARATION_MINUTES)
             )
             .apply()
         revision.update { it + 1 }

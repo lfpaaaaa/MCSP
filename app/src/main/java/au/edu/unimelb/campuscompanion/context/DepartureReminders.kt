@@ -4,6 +4,7 @@ import au.edu.unimelb.campuscompanion.data.TravelMode
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
 import au.edu.unimelb.campuscompanion.ui.model.CourseReminderPreference
 import au.edu.unimelb.campuscompanion.ui.model.MAX_COURSE_REMINDER_LEAD_MINUTES
+import au.edu.unimelb.campuscompanion.ui.model.MAX_COURSE_REMINDER_PREPARATION_MINUTES
 import au.edu.unimelb.campuscompanion.ui.model.reminderSeriesKey
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
@@ -70,7 +71,7 @@ interface DepartureShade {
  *   was removed, moved to another start or day, lost its venue or is no longer the next one; and
  *   when reminders are turned off for its course.
  * - Nothing changes while the engine works out a new result ([TravelSnapshot.pending]), and a result
- *   worked out with an earlier arrival buffer than the course's current one is skipped: the engine
+ *   worked out with earlier arrival or preparation settings is skipped: the engine
  *   is already recomputing it.
  *
  * Each notification reads the saved preference of its own course, including in the background.
@@ -120,7 +121,8 @@ class DepartureReminders(
             withdrawAllExcept(null)
             return null
         }
-        if (snapshot.leadMinutes != preference.leadMinutes.coerceIn(0, MAX_COURSE_REMINDER_LEAD_MINUTES)) {
+        if (snapshot.leadMinutes != preference.leadMinutes.coerceIn(0, MAX_COURSE_REMINDER_LEAD_MINUTES) ||
+            snapshot.preparationMinutes != preference.preparationMinutes.coerceIn(0, MAX_COURSE_REMINDER_PREPARATION_MINUTES)) {
             return null
         }
 
@@ -178,18 +180,23 @@ class DepartureReminders(
             state = state,
             title = when (state) {
                 ContextState.RUNNING_LATE -> "Running late for ${session.code}"
-                else -> "Time to leave for ${session.code}"
+                else -> "Prepare to leave for ${session.code}"
             },
-            text = describe(snapshot, session),
+            text = describe(snapshot, session, state),
             key = key
         )
 
     private val DepartureReminder.content: Pair<String, String> get() = title to text
 
-    private fun describe(snapshot: TravelSnapshot, session: CourseSession): String {
+    private fun describe(snapshot: TravelSnapshot, session: CourseSession, state: ContextState): String {
         val startsAt = session.startTime.format(timeFormatter)
         val place = snapshot.building?.name?.let { " in $it" }.orEmpty()
         val sentences = mutableListOf("${session.title} starts at $startsAt$place.")
+        if (state == ContextState.LEAVE_SOON) {
+            snapshot.leaveBy?.let {
+                sentences += "Leave by ${it.withZoneSameInstant(session.start.zone).format(timeFormatter)}."
+            }
+        }
         snapshot.estimate?.let { estimate ->
             sentences += "About ${estimate.durationMinutes} min ${estimate.mode.asTravelPhrase()}."
         }

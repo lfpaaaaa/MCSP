@@ -97,6 +97,34 @@ class DeparturePromptsTest {
     }
 
     @Test
+    fun aChangedLiveDeadlineUpdatesThePreparationPromptSilently() {
+        val f = Fixture()
+        val first = f.snapshot(state = ContextState.LEAVE_SOON).copy(leaveBy = START.minusMinutes(25))
+        f.reminders.consider(first)
+        assertTrue(f.shade.textOf(f.key)!!.contains("Leave by 10:35 AM."))
+
+        f.reminders.consider(first.copy(leaveBy = START.minusMinutes(30)))
+
+        assertEquals(1, f.shade.alerts.size)
+        assertEquals(1, f.shade.updates.size)
+        assertTrue(f.shade.textOf(f.key)!!.contains("Leave by 10:30 AM."))
+    }
+
+    @Test
+    fun aSnapshotUsingPreviousPreparationDoesNotChangeTheShade() {
+        val f = Fixture()
+        f.reminders.consider(f.snapshot(state = ContextState.LEAVE_SOON))
+        f.preference = f.preference.copy(preparationMinutes = 0)
+
+        f.reminders.consider(f.snapshot(state = ContextState.ARRIVED))
+
+        assertEquals(setOf(f.key), f.shade.shownKeys())
+        assertTrue(f.shade.withdrawn.isEmpty())
+        f.reminders.consider(f.snapshot(state = ContextState.ARRIVED).copy(preparationMinutes = 0))
+        assertTrue(f.shade.shown.isEmpty())
+    }
+
+    @Test
     fun aPromptStaysWhileTheClassIsStillAheadButNoLongerDue() {
         // A faster route or a smaller buffer moved the deadline back after the warning.
         val f = Fixture()
@@ -104,7 +132,7 @@ class DeparturePromptsTest {
 
         assertNull(f.reminders.consider(f.snapshot(minutes = 9, state = ContextState.UPCOMING)))
         assertEquals(setOf(f.key), f.shade.shownKeys())
-        assertEquals("Time to leave for COMP90018", f.shade.shown[f.key]?.first)
+        assertEquals("Prepare to leave for COMP90018", f.shade.shown[f.key]?.first)
         assertTrue(f.shade.textOf(f.key)!!.contains("About 9 min on foot"))
 
         // Due again later: still only the one alert.

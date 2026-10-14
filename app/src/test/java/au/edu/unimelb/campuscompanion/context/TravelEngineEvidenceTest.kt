@@ -45,7 +45,7 @@ class TravelEngineEvidenceTest {
 
     private fun engine(routes: EtaRepository = eta, weather: WeatherRepository? = null) = TravelEngine(
         routes, FakeBuildingLookup(), { TravelPreferences() }, weather, clock = { now }, elapsedNanos = { elapsed }
-    ).also { it.updateSessions(listOf(lecture)); it.startSensing() }
+    ).also { it.updateLeadMinutes(10); it.updateSessions(listOf(lecture)); it.startSensing() }
 
     private fun evidence(engine: TravelEngine, point: GeoPoint = home, moving: Boolean = true,
         verdict: Boolean? = null, progress: Boolean = false, observed: Long = elapsed,

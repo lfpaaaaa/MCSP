@@ -14,7 +14,7 @@ enum class ContextState {
     /** A class later today; not time to leave yet. */
     UPCOMING,
 
-    /** The leave-by time is a few minutes away, or has passed but the student can still be on time. */
+    /** The preparation warning is due, or leave-by has passed but the student can still be on time. */
     LEAVE_SOON,
 
     /** Heading towards the class's building. Departure reminders are suppressed. */
