@@ -269,6 +269,8 @@
     <string name="groups_group_name">Group name</string>
     <string name="groups_course_code_optional">Course code (optional)</string>
     <string name="groups_join_code">Join code</string>
+    <string name="groups_view_join_code">View join code</string>
+    <string name="groups_find_code_in_settings">After creating the group, find its code in Group settings → View join code. It is valid for 5 minutes after creation.</string>
     <string name="groups_copy_join_code">Copy join code</string>
     <string name="groups_code_expires_in_valid_only_during_the_first">Code expires in %1$d:%2$s. Valid only during the first 5 minutes after group creation.</string>
     <string name="groups_the_6_character_code_is_unavailable_or_expired">The 6-character code is unavailable or expired. Use Share QR code or NFC in group settings.</string>

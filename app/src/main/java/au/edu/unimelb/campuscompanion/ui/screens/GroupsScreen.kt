@@ -25,7 +25,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.CheckCircle
-import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
@@ -37,24 +36,20 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.runtime.LaunchedEffect
-import kotlinx.coroutines.delay
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
@@ -66,13 +61,11 @@ import au.edu.unimelb.campuscompanion.ui.components.SectionHeader
 import au.edu.unimelb.campuscompanion.ui.model.CourseGroup
 import au.edu.unimelb.campuscompanion.ui.model.GROUP_JOIN_CODE_LENGTH
 import au.edu.unimelb.campuscompanion.ui.model.NfcJoinUiState
-import au.edu.unimelb.campuscompanion.ui.model.StartedGroupAccess
 import au.edu.unimelb.campuscompanion.ui.model.TimetableState
 import au.edu.unimelb.campuscompanion.ui.model.isValidGroupJoinCode
 import au.edu.unimelb.campuscompanion.ui.model.normalizeGroupJoinCode
-import java.time.Duration
-import java.time.Instant
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
 
 @Composable
 fun GroupsScreen(
@@ -82,8 +75,8 @@ fun GroupsScreen(
     mutedGroupIds: Set<String>,
     onOpenTimetableSetup: () -> Unit,
     onOpenGroup: (CourseGroup) -> Unit,
-    onStartGroup: suspend (name: String, courseCode: String?) -> Result<StartedGroupAccess>,
-    onJoinGroup: suspend (code: String) -> Result<Unit>,
+    onStartGroup: suspend (name: String, courseCode: String?) -> Result<CourseGroup>,
+    onJoinGroup: suspend (code: String) -> Result<CourseGroup>,
     nfcJoinState: NfcJoinUiState,
     onStartNfcJoin: () -> Unit,
     onDismissNfcJoin: () -> Unit,
@@ -100,6 +93,10 @@ fun GroupsScreen(
         QrJoinDialog(
             onDismiss = { showQrJoin = false },
             onJoinGroup = onJoinGroup,
+            onJoined = { group ->
+                showQrJoin = false
+                onOpenGroup(group)
+            },
             onEnterCode = {
                 showQrJoin = false
                 showJoinGroup = true
@@ -110,14 +107,22 @@ fun GroupsScreen(
     if (showStartGroup) {
         StartGroupDialog(
             onDismiss = { showStartGroup = false },
-            onStartGroup = onStartGroup
+            onStartGroup = onStartGroup,
+            onStarted = { group ->
+                showStartGroup = false
+                onOpenGroup(group)
+            }
         )
     }
 
     if (showJoinGroup) {
         JoinGroupDialog(
             onDismiss = { showJoinGroup = false },
-            onJoinGroup = onJoinGroup
+            onJoinGroup = onJoinGroup,
+            onJoined = { group ->
+                showJoinGroup = false
+                onOpenGroup(group)
+            }
         )
     }
 
@@ -422,155 +427,87 @@ private fun EmptyActiveGroups(
 @Composable
 private fun StartGroupDialog(
     onDismiss: () -> Unit,
-    onStartGroup: suspend (name: String, courseCode: String?) -> Result<StartedGroupAccess>
+    onStartGroup: suspend (name: String, courseCode: String?) -> Result<CourseGroup>,
+    onStarted: (CourseGroup) -> Unit
 ) {
     val textResources = textResources()
     var name by rememberSaveable { mutableStateOf("") }
     var courseCode by rememberSaveable { mutableStateOf("") }
     var errorMessage by rememberSaveable { mutableStateOf<String?>(null) }
-    var isSubmitting by rememberSaveable { mutableStateOf(false) }
-    var startedGroup by remember { mutableStateOf<StartedGroupAccess?>(null) }
-    var now by remember { mutableStateOf(Instant.now()) }
-    LaunchedEffect(startedGroup) {
-        if (startedGroup != null) while (true) { now = Instant.now(); delay(1_000) }
-    }
+    var isSubmitting by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    val clipboard = LocalClipboardManager.current
 
     AlertDialog(
-        onDismissRequest = {
-            if (!isSubmitting) onDismiss()
-        },
-        icon = {
-            if (startedGroup != null) {
-                Icon(Icons.Outlined.CheckCircle, contentDescription = null)
-            }
-        },
-        title = { Text(if (startedGroup == null) textResources.getString(R.string.groups_start_group) else textResources.getString(R.string.groups_group_started)) },
+        onDismissRequest = { if (!isSubmitting) onDismiss() },
+        title = { Text(textResources.getString(R.string.groups_start_group)) },
         text = {
-            val result = startedGroup
-            if (result == null) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedTextField(
-                        value = name,
-                        onValueChange = {
-                            name = it.take(60)
-                            errorMessage = null
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text(textResources.getString(R.string.groups_group_name)) },
-                        singleLine = true
-                    )
-                    OutlinedTextField(
-                        value = courseCode,
-                        onValueChange = {
-                            courseCode = it.uppercase().filterNot(Char::isWhitespace).take(9)
-                            errorMessage = null
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text(textResources.getString(R.string.groups_course_code_optional)) },
-                        placeholder = { Text(textResources.getString(R.string.label_comp90018)) },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
-                    )
-                    errorMessage?.let { error ->
-                        Text(
-                            text = error,
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it.take(60); errorMessage = null },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isSubmitting,
+                    label = { Text(textResources.getString(R.string.groups_group_name)) },
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = courseCode,
+                    onValueChange = {
+                        courseCode = it.uppercase().filterNot(Char::isWhitespace).take(9)
+                        errorMessage = null
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isSubmitting,
+                    label = { Text(textResources.getString(R.string.groups_course_code_optional)) },
+                    placeholder = { Text(textResources.getString(R.string.label_comp90018)) },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
+                )
+                Text(
+                    stringResource(R.string.groups_find_code_in_settings),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                errorMessage?.let { error ->
+                    Text(
+                        text = error,
                         modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error
-                        )
-                    }
-                }
-            } else {
-                Column(
-                    modifier = Modifier.verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Text(textResources.getString(R.string.copy_is_ready, result.groupName))
-                    if (result.joinCode != null && result.expiresAt != null && now.isBefore(result.expiresAt)) {
-                        Surface(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.secondaryContainer
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = textResources.getString(R.string.groups_join_code),
-                                        style = MaterialTheme.typography.labelMedium
-                                    )
-                                    Text(
-                                        text = result.joinCode,
-                                        style = MaterialTheme.typography.headlineMedium
-                                    )
-                                }
-                                IconButton(
-                                    onClick = {
-                                        clipboard.setText(AnnotatedString(result.joinCode))
-                                    }
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Outlined.ContentCopy,
-                                        contentDescription = textResources.getString(R.string.groups_copy_join_code)
-                                    )
-                                }
-                            }
-                        }
-                        val remaining = Duration.between(now, result.expiresAt).seconds.coerceAtLeast(0)
-                        Text(textResources.getString(R.string.groups_code_expires_in_valid_only_during_the_first, remaining / 60, (remaining % 60).toString().padStart(2, '0')))
-                    } else {
-                        Text(
-                            text = textResources.getString(R.string.groups_the_6_character_code_is_unavailable_or_expired),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
                 }
             }
         },
         confirmButton = {
-            if (startedGroup == null) {
-                Button(
-                    onClick = {
+            Button(
+                onClick = {
+                    if (!isSubmitting) {
+                        isSubmitting = true
+                        errorMessage = null
                         scope.launch {
-                            isSubmitting = true
-                            onStartGroup(name, courseCode.ifBlank { null }).fold(
-                                onSuccess = { startedGroup = it },
-                                onFailure = {
-                                    errorMessage = startGroupErrorMessage(it, textResources)
-                                }
-                            )
-                            isSubmitting = false
+                            try {
+                                onStartGroup(name, courseCode.ifBlank { null }).fold(
+                                    onSuccess = onStarted,
+                                    onFailure = { errorMessage = startGroupErrorMessage(it, textResources) }
+                                )
+                            } catch (cancelled: CancellationException) { throw cancelled }
+                            catch (error: Exception) { errorMessage = startGroupErrorMessage(error, textResources) }
+                            finally { isSubmitting = false }
                         }
-                    },
-                    enabled = name.isNotBlank() && !isSubmitting
-                ) {
-                    if (isSubmitting) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            strokeWidth = 2.dp
-                        )
-                    } else {
-                        Text(textResources.getString(R.string.groups_start))
                     }
-                }
-            } else {
-                TextButton(onClick = onDismiss) {
-                    Text(textResources.getString(R.string.course_reminder_settings_done))
-                }
+                },
+                enabled = name.isNotBlank() && !isSubmitting
+            ) {
+                if (isSubmitting) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                else Text(textResources.getString(R.string.groups_start))
             }
         },
         dismissButton = {
-            if (startedGroup == null) {
-                TextButton(
-                    onClick = onDismiss,
-                    enabled = !isSubmitting
-                ) {
-                    Text(textResources.getString(R.string.action_cancel))
-                }
+            TextButton(onClick = onDismiss, enabled = !isSubmitting) {
+                Text(textResources.getString(R.string.action_cancel))
             }
         }
     )
@@ -586,12 +523,13 @@ private fun startGroupErrorMessage(error: Throwable, textResources: android.cont
 @Composable
 private fun JoinGroupDialog(
     onDismiss: () -> Unit,
-    onJoinGroup: suspend (code: String) -> Result<Unit>
+    onJoinGroup: suspend (code: String) -> Result<CourseGroup>,
+    onJoined: (CourseGroup) -> Unit
 ) {
     val textResources = textResources()
     var code by rememberSaveable { mutableStateOf("") }
     var errorMessage by rememberSaveable { mutableStateOf<String?>(null) }
-    var isSubmitting by rememberSaveable { mutableStateOf(false) }
+    var isSubmitting by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     AlertDialog(
@@ -613,6 +551,7 @@ private fun JoinGroupDialog(
                         errorMessage = null
                     },
                     modifier = Modifier.fillMaxWidth().semantics { errorMessage?.let { error(it) } },
+                    enabled = !isSubmitting,
                     label = { Text(textResources.getString(R.string.groups_join_code)) },
                     placeholder = { Text(textResources.getString(R.string.label_a1b2c3)) },
                     supportingText = { Text(textResources.getString(R.string.input_code_character_count, code.length, GROUP_JOIN_CODE_LENGTH)) },
@@ -633,15 +572,19 @@ private fun JoinGroupDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    scope.launch {
+                    if (!isSubmitting) {
                         isSubmitting = true
-                        onJoinGroup(code).fold(
-                            onSuccess = { onDismiss() },
-                            onFailure = {
-                                errorMessage = joinCodeErrorMessage(it, textResources)
-                            }
-                        )
-                        isSubmitting = false
+                        errorMessage = null
+                        scope.launch {
+                            try {
+                                onJoinGroup(code).fold(
+                                    onSuccess = onJoined,
+                                    onFailure = { errorMessage = joinCodeErrorMessage(it, textResources) }
+                                )
+                            } catch (cancelled: CancellationException) { throw cancelled }
+                            catch (error: Exception) { errorMessage = joinCodeErrorMessage(error, textResources) }
+                            finally { isSubmitting = false }
+                        }
                     }
                 },
                 enabled = isValidGroupJoinCode(code) && !isSubmitting
