@@ -207,8 +207,8 @@ Debug builds turn on `StrictMode` in `CampusCompanionApplication`: disk and netw
 
 ## Main screens
 
-- Home: context-aware next-class card, travel status, upcoming classes, and group updates.
-- Schedule: switch between a date-grouped list (10 classes per page, with all imported upcoming classes accessible through paging) and a Monday–Sunday calendar selector with all classes for the selected day. Date headings appear once per day, times use a 24-hour clock, and each class retains Google Maps navigation. Sync and departure reminder settings remain available.
+- Home: context-aware next-class card (with Google Maps navigation and a **Direction to building** compass), travel status, upcoming classes, and group updates.
+- Schedule: switch between a date-grouped list (10 classes per page, with all imported upcoming classes accessible through paging) and a Monday–Sunday calendar selector with all classes for the selected day. Date headings appear once per day, times use a 24-hour clock, and each class retains Google Maps navigation and the **Direction to building** compass. Sync and departure reminder settings remain available.
 - Attachments: each staged photo, video, camera capture or document has an **Allow others to download** switch (on by default). Camera confirmation stages the photo so the sender can choose before tapping Send. Consent is saved with the upload queue and in `shared_files.allow_downloads`; older attachments default to enabled. Members can preview images, videos, PDFs and text in the app; only permitted recipients and the uploader can download or open the original in another app. Unsupported formats show a preview-unavailable message. There is no private-attachment/device-unlock feature.
 - Editing classes by hand: Schedule has **Add class**, and the pencil on each class opens the same editor (course code, name, activity, building, room, date and times). A class added by hand is stored in Room under the account with a `manual:` identity, so it survives timetable refreshes and removing the URL, and reminders, travel times and directions treat it like an imported one. Editing an imported class stores a correction that keeps the class's identity (the original start is remembered so a refresh can still match it); **Restore imported details** drops it. **Hide class** removes an imported class from every screen until **Show hidden classes** brings it back; **Delete class** removes a class added by hand. A failed save is reported in the editor and leaves the timetable as it was. A timetable that consists only of classes added by hand works without a URL.
 - Timetable connection: imports a MyTimetable subscription and saves the URL, parsed sessions, class-group information and last successful update time per account. Home and Schedule show saved classes immediately on restart while refreshing in the background. Failed refreshes keep the cache; Refresh retries without re-entering the URL. Removing the subscription deletes its cache.
@@ -303,6 +303,26 @@ Step 6 adds journey and emulator acceptance tests, plus a disposable ICS fixture
 notification post/update/withdraw API submissions without logging account IDs or reminder text.
 Physical recognition, actual geofence delivery, battery measurement and live-backend rehearsal
 remain separate acceptance work. The fixture Home recreation host exists only in debug builds.
+
+## Building compass
+
+Home's next-class card and each Schedule class have a **Direction to building** action. The compass
+page resolves the class building from the bundled campus locations and combines a fresh, precise
+location with the accelerometer/magnetometer heading. It corrects magnetic declination and display
+rotation, animates the shortest turn across north, and replaces the arrow with a nearby-building
+message within 75 m. No map API key or route request is needed for the compass. The arrow shows the
+straight-line direction; the **Navigate with Google Maps** button on the compass page uses the current
+location and the Profile walking threshold to choose walking nearby, or the selected longer-distance
+mode (driving/public transport) beyond it, and falls back to the Profile mode without a usable
+distance. The handoff explicitly selects that mode in Google Maps, including the browser fallback.
+
+Only the visible compass page requests its location and heading updates; leaving it or locking the
+screen stops both without changing the app's independent trip/reminder service. Low magnetic
+accuracy, a tilted phone, missing sensors and stale, switched-off or denied location each have an
+explicit message, and every arrow state also has a text direction for TalkBack. Unit tests cover
+bearings, declination, wraparound, sensor/location freshness, display rotation, destination changes
+and the travel-mode choice. Physical-device checks should include portrait/landscape rotation,
+outdoor pointing, calibration, background/resume, permission denial and returning from Google Maps.
 
 ## Editing a profile
 
