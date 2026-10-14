@@ -26,16 +26,23 @@ jobs:
 
       # Without local.properties and google-services.json the app builds with the in-memory
       # fakes and push notifications switched off, which is all the unit tests need.
-      - name: Run unit tests and assemble the debug APK
+      - name: Run unit tests, assemble the debug APK, compile the instrumented tests and run Lint
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon testDebugUnitTest assembleDebug
+          ./gradlew --no-daemon testDebugUnitTest assembleDebug compileDebugAndroidTestKotlin lintDebug
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: unit-test-reports
           path: app/build/reports/tests/testDebugUnitTest
+          if-no-files-found: ignore
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lint-report
+          path: app/build/reports/lint-results-debug.html
           if-no-files-found: ignore
 
       - uses: actions/upload-artifact@v4
