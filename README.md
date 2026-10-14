@@ -5,7 +5,7 @@ Campus Companion is a context-aware Android app built for COMP90018 (University 
 Two commands check a fresh clone:
 
 ```bash
-./gradlew testDebugUnitTest assembleDebug   # JVM unit tests and the debug APK
+./gradlew testDebugUnitTest assembleDebug compileDebugAndroidTestKotlin lintDebug   # JVM unit tests, the debug APK, instrumented-test compilation and Android Lint
 npm install && npm run backend:test         # database migrations and pgTAP tests (needs Docker)
 ```
 
@@ -175,7 +175,7 @@ Never commit `.env`, `local.properties`, OAuth secrets, or a Supabase service-ro
 
 Two GitHub Actions workflows in `.github/workflows/` run on every pull request and on pushes to `main`:
 
-- `android.yml` runs the JVM unit tests and assembles the debug APK on a clean runner, without `local.properties` or `google-services.json` (the app then builds with the in-memory fakes and push notifications off). The test report and the APK are attached to the run.
+- `android.yml` runs the JVM unit tests, assembles the debug APK, compiles the instrumented tests and runs Android Lint (a Lint error fails the build) on a clean runner, without `local.properties` or `google-services.json` (the app then builds with the in-memory fakes and push notifications off). The test report, the Lint report and the APK are attached to the run.
 - `backend.yml` starts the local Supabase database, applies every migration from scratch and runs the pgTAP tests in `supabase/tests/database/`; a second job type-checks the Edge Functions with `deno check`. It runs when anything under `supabase/` changes.
 
 Both are the same commands as in the quick check above, so a green run means a fresh clone builds and the backend schema is consistent.
