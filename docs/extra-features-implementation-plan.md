@@ -1,5 +1,7 @@
 # Group settings voice messages and classroom compass implementation plan
 
+> Status on 15 October 2026: Phases 1 and 2 (Group files, View join code, voice messages) shipped with `feat/extra-features`, which became `main` (#54). Phase 4, the building compass, was delivered afterwards in #56 (adapted to this branch's detector and tracker as described below). Phase 3, automatic transcription, remains deferred. This document is kept as the plan the work followed.
+
 14 October 2026, Australia/Melbourne. Target: the existing `feat/extra-features` branch at `95443cb80ade75c632baac89a245c5539bc2dd8c`. Reference implementation: local `main` at `f1a251e`. This is an implementation plan; no application code, migrations or deployments are changed by it.
 
 Implement Group files and View join code first, then foreground voice recording and playback. On 14 October 2026 the team deferred automatic transcription until a later request; it is not part of the current voice increment. The team has also deferred the classroom compass (Step 5) until a later request. Adapt the relevant components from `main` while retaining the current branch's context engine, initial-location acquisition, reminder preferences, account isolation and sensing lifecycle protections.
