@@ -8,14 +8,17 @@ import org.w3c.dom.Element
 
 /** Reads the real default resources so JVM tests exercise translated templates, not copies. */
 object ResourceText {
-    private val root = DocumentBuilderFactory.newInstance().newDocumentBuilder()
-        .parse(File("src/main/res/values/strings.xml")).documentElement
-    val strings: Map<String, String> = root.getElementsByTagName("string").let { nodes ->
-        (0 until nodes.length).associate { index ->
+    private val roots = File("src/main/res/values").listFiles().orEmpty()
+        .filter { it.extension == "xml" }.sortedBy { it.name }.map { file ->
+            DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(file).documentElement
+        }
+    val strings: Map<String, String> = roots.flatMap { root ->
+        val nodes = root.getElementsByTagName("string")
+        (0 until nodes.length).map { index ->
             val node = nodes.item(index) as Element
             node.getAttribute("name") to decode(node.textContent)
         }
-    }
+    }.toMap()
     private val names = R.string::class.java.fields.associate { it.getInt(null) to it.name }
 
     private val pluralNames = R.plurals::class.java.fields.associate { it.getInt(null) to it.name }
@@ -24,9 +27,10 @@ object ResourceText {
     fun resolve(id: Int, args: Array<out Any>): String = format(strings.getValue(names.getValue(id)), *args)
 
     fun quantity(name: String, count: Int, vararg args: Any): String {
-        val nodes = root.getElementsByTagName("plurals")
-        val plural = (0 until nodes.length).map { nodes.item(it) as Element }
-            .single { it.getAttribute("name") == name }
+        val plural = roots.flatMap { root ->
+            val nodes = root.getElementsByTagName("plurals")
+            (0 until nodes.length).map { nodes.item(it) as Element }
+        }.single { it.getAttribute("name") == name }
         val items = plural.getElementsByTagName("item")
         val key = if (count == 1) "one" else "other"
         val value = (0 until items.length).map { items.item(it) as Element }

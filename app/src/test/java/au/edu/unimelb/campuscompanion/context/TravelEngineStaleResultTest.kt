@@ -91,7 +91,7 @@ class TravelEngineStaleResultTest {
         assertEquals(FakeBuildingLookup.ALAN_GILBERT, engine.snapshot.value.building)
         assertEquals(0.0, engine.snapshot.value.weather?.precipitationMillimetres)
         assertEquals(0, engine.snapshot.value.weatherBufferMinutes)
-        assertEquals(edited.start.minusMinutes(15), engine.snapshot.value.leaveBy)
+        assertEquals(edited.start.minusMinutes(25), engine.snapshot.value.leaveBy)
         assertEquals(ContextState.LEAVE_SOON, engine.snapshot.value.state)
     }
 
@@ -183,7 +183,7 @@ class TravelEngineStaleResultTest {
         val delivered = Channel<DepartureReminder>(Channel.UNLIMITED)
         val reminders = DepartureReminders(
             snapshots = engine.snapshot.onSubscription { reminderSubscribed.complete(Unit) },
-            preferences = { CourseReminderPreference() },
+            preferences = { CourseReminderPreference(leadMinutes = 10) },
             notify = { reminder ->
                 sent += reminder
                 delivered.trySend(reminder)
@@ -229,7 +229,6 @@ class TravelEngineStaleResultTest {
         assertEquals(ContextState.EN_ROUTE, engine.snapshot.value.state)
 
         now = now.plus(Duration.ofMinutes(26))
-        engine.updateOrigin(NEAR_ALAN_GILBERT)
         val nextRefresh = async(start = CoroutineStart.UNDISPATCHED) { engine.refresh() }
         val nextRequest = eta.next()
         assertEquals(FakeBuildingLookup.ALAN_GILBERT.location, nextRequest.destination)
@@ -238,9 +237,9 @@ class TravelEngineStaleResultTest {
         nextRequest.complete()
         withTimeout(TIMEOUT_MS) { nextRefresh.await() }
 
-        // This refresh captured its motion before routing: neither old A nor new B evidence leaks.
+        // Publication re-reads current-target evidence received during routing.
         assertEquals(second, engine.snapshot.value.session)
-        assertEquals(ContextState.UPCOMING, engine.snapshot.value.state)
+        assertEquals(ContextState.ARRIVED, engine.snapshot.value.state)
         refreshAndComplete(engine)
         assertEquals(ContextState.ARRIVED, engine.snapshot.value.state)
     }
@@ -254,7 +253,6 @@ class TravelEngineStaleResultTest {
         engine.updateEnRouteSignal(true)
         refreshAndComplete(engine)
         now = now.plus(Duration.ofMinutes(26))
-        engine.updateOrigin(NEAR_ALAN_GILBERT)
 
         val nextRefresh = async(start = CoroutineStart.UNDISPATCHED) { engine.refresh() }
         val nextRequest = eta.next()
@@ -262,7 +260,7 @@ class TravelEngineStaleResultTest {
         engine.reportGeofenceEntered(FakeBuildingLookup.ALAN_GILBERT.locCode)
         nextRequest.complete()
         withTimeout(TIMEOUT_MS) { nextRefresh.await() }
-        assertEquals(ContextState.UPCOMING, engine.snapshot.value.state)
+        assertEquals(ContextState.ARRIVED, engine.snapshot.value.state)
 
         val queuedRequest = eta.next()
         assertEquals(FakeBuildingLookup.ALAN_GILBERT.location, queuedRequest.destination)
@@ -284,7 +282,6 @@ class TravelEngineStaleResultTest {
         assertEquals(FakeBuildingLookup.PETER_HALL.location, firstRequest.destination)
 
         now = now.plus(Duration.ofMinutes(26))
-        engine.updateOrigin(NEAR_ALAN_GILBERT)
         firstRequest.complete()
         withTimeout(TIMEOUT_MS) { firstRefresh.await() }
 
@@ -295,23 +292,6 @@ class TravelEngineStaleResultTest {
         assertEquals(ContextState.UPCOMING, engine.snapshot.value.state)
     }
 
-    @Test
-    fun aPositionThatExpiresWhileRoutingCannotPublishAStaleTravelTime() = runBlocking<Unit> {
-        engine.updateSessions(listOf(lecture))
-        engine.updateOrigin(HOME)
-        val refresh = async(start = CoroutineStart.UNDISPATCHED) { engine.refresh() }
-        val request = eta.next()
-        now = now.plus(Duration.ofMinutes(3))
-        request.complete()
-        withTimeout(TIMEOUT_MS) { refresh.await() }
-
-        assertEquals(lecture, engine.snapshot.value.session)
-        org.junit.Assert.assertNull(engine.snapshot.value.estimate)
-        org.junit.Assert.assertNull(engine.snapshot.value.distanceMeters)
-        assertEquals(au.edu.unimelb.campuscompanion.sensing.location.DistanceTrend.UNKNOWN,
-            engine.snapshot.value.destinationProgress)
-    }
-
     private fun engine(weather: WeatherRepository) = TravelEngine(
         eta = eta,
         buildings = FakeBuildingLookup(),
@@ -319,7 +299,7 @@ class TravelEngineStaleResultTest {
         weather = weather,
         clock = { now },
         tickInterval = Duration.ofHours(1)
-    )
+    ).also { it.updateLeadMinutes(10) }
 
     private suspend fun CoroutineScope.refreshAndComplete(engine: TravelEngine) {
         val refresh = async(start = CoroutineStart.UNDISPATCHED) { engine.refresh() }

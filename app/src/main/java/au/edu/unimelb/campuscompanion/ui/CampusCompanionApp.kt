@@ -108,7 +108,6 @@ import au.edu.unimelb.campuscompanion.ui.model.mergePendingDocuments
 import au.edu.unimelb.campuscompanion.push.DepartureNotifier
 import au.edu.unimelb.campuscompanion.ui.model.legacyReminderSeriesKey
 import au.edu.unimelb.campuscompanion.ui.navigation.CampusDestination
-import au.edu.unimelb.campuscompanion.ui.components.RequestLocationPermissionOnFirstUse
 import au.edu.unimelb.campuscompanion.ui.screens.AuthLoadingScreen
 import au.edu.unimelb.campuscompanion.ui.screens.CompleteProfileScreen
 import au.edu.unimelb.campuscompanion.ui.screens.CourseReminderSettingsScreen
@@ -377,8 +376,6 @@ private fun AuthenticatedCampusApp(
     onSignOut: () -> Unit
 ) {
     val textResources = textResources()
-    RequestLocationPermissionOnFirstUse()
-
     val context = LocalContext.current
     val timetableStore = remember(context) { TimetableSubscriptionStore(context) }
     val timetableImporter = remember { TimetableImporter() }
@@ -402,8 +399,9 @@ private fun AuthenticatedCampusApp(
 
     val travel = AppRepositories.travel
     val travelSnapshot by travel.snapshot.collectAsState()
-    LaunchedEffect(timetableState.sessions) {
-        travel.updateSessions(timetableState.sessions)
+    val sensingAccountReady by AppRepositories.sensingAccountReady.collectAsState()
+    LaunchedEffect(user.id, timetableState.sessions, sensingAccountReady) {
+        AppRepositories.updateTimetable(user.id, timetableState.sessions)
     }
     // The application owns reminders; leaving/destroying this screen must not clear the timetable.
     // The screens see the next class with its travel time filled in.

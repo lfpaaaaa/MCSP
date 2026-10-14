@@ -4,54 +4,72 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import androidx.annotation.MainThread
 import com.google.android.gms.location.ActivityRecognitionResult
 import com.google.android.gms.location.ActivityTransition
 import com.google.android.gms.location.ActivityTransitionResult
 import com.google.android.gms.location.DetectedActivity
 
+/** Forwards only to the active in-process sensing owner; a broadcast never starts a service. */
 class ActivityTransitionReceiver : BroadcastReceiver() {
-
-    override fun onReceive(
-        context: Context,
-        intent: Intent
-    ) {
-
-        if (!ActivityTransitionResult.hasResult(intent)) {
+    override fun onReceive(context: Context, intent: Intent) {
+        val manager = activeManager
+        if (manager == null) {
+            ActivityRegistrationCleanup.removeOrphans(context.applicationContext)
+            ActivityRegistrationCleanup.removeObsoleteBroadcast(context.applicationContext, intent.action)
             return
         }
-
-        val result =
-            ActivityTransitionResult.extractResult(intent)
-                ?: return
-
-        result.transitionEvents.forEach { event ->
-            if (event.activityType == DetectedActivity.IN_VEHICLE &&
-                android.os.SystemClock.elapsedRealtimeNanos() - event.elapsedRealTimeNanos in 0..60_000_000_000L) {
-                au.edu.unimelb.campuscompanion.data.AppRepositories.navigation.updateActivity(
-                    event.transitionType == ActivityTransition.ACTIVITY_TRANSITION_ENTER
+        if (!manager.ownsAction(intent.action)) {
+            ActivityRegistrationCleanup.removeObsoleteBroadcast(context.applicationContext, intent.action)
+            return
+        }
+        try {
+            if (ActivityTransitionResult.hasResult(intent)) {
+                val result = ActivityTransitionResult.extractResult(intent) ?: return
+                val events = result.transitionEvents.mapNotNull { event ->
+                    val transition = when (event.transitionType) {
+                        ActivityTransition.ACTIVITY_TRANSITION_ENTER -> ActivityTransitionKind.ENTER
+                        ActivityTransition.ACTIVITY_TRANSITION_EXIT -> ActivityTransitionKind.EXIT
+                        else -> return@mapNotNull null
+                    }
+                    MeasuredActivityTransition(event.activityType.toUserActivity(), transition, event.elapsedRealTimeNanos)
+                }
+                manager.acceptTransitions(intent.action, events)
+            }
+            if (ActivityRecognitionResult.hasResult(intent)) {
+                val result = ActivityRecognitionResult.extractResult(intent) ?: return
+                val activity = result.mostProbableActivity
+                manager.acceptSnapshot(
+                    intent.action, activity.type.toUserActivity(), activity.confidence,
+                    result.elapsedRealtimeMillis
                 )
             }
-
-            val activityName =
-                when (event.activityType) {
-                    DetectedActivity.IN_VEHICLE -> "IN_VEHICLE"
-                    DetectedActivity.WALKING -> "WALKING"
-                    DetectedActivity.RUNNING -> "RUNNING"
-                    DetectedActivity.STILL -> "STILL"
-                    else -> "OTHER"
-                }
-
-            val transitionName =
-                when (event.transitionType) {
-                    ActivityTransition.ACTIVITY_TRANSITION_ENTER -> "ENTER"
-                    ActivityTransition.ACTIVITY_TRANSITION_EXIT -> "EXIT"
-                    else -> "UNKNOWN"
-                }
-
-            Log.d(
-                "ActivityRecognition",
-                "$transitionName $activityName"
-            )
+        } catch (error: RuntimeException) {
+            Log.w("ActivityRecognition", "Unable to read activity broadcast", error)
         }
     }
+
+    companion object {
+        private var activeManager: ActivityRecognitionManager? = null
+
+        @MainThread
+        internal fun attach(manager: ActivityRecognitionManager) {
+            if (activeManager !== manager) activeManager?.stop()
+            activeManager = manager
+        }
+
+        @MainThread
+        internal fun detach(manager: ActivityRecognitionManager) {
+            if (activeManager === manager) activeManager = null
+        }
+    }
+}
+
+private fun Int.toUserActivity(): UserActivityState = when (this) {
+    DetectedActivity.WALKING -> UserActivityState.WALKING
+    DetectedActivity.RUNNING -> UserActivityState.RUNNING
+    DetectedActivity.ON_FOOT -> UserActivityState.ON_FOOT
+    DetectedActivity.IN_VEHICLE -> UserActivityState.IN_VEHICLE
+    DetectedActivity.STILL -> UserActivityState.STILL
+    else -> UserActivityState.UNKNOWN
 }

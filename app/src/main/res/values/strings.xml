@@ -508,7 +508,7 @@
     <string name="notification_get_off_reminder_is_on">Get-off reminder is on</string>
     <string name="notification_your_stop_is_approaching">Your stop is approaching</string>
     <string name="notification_approaching_get_ready_to_get_off">%1$s: approaching %2$s. Get ready to get off.</string>
-    <string name="notification_when_it_is_time_to_leave_for_your">When it is time to leave for your next class</string>
+    <string name="notification_when_it_is_time_to_leave_for_your">Pop-up notifications and sound when it is time to leave for your next class</string>
     <string name="notification_new_messages_in_your_groups">New messages in your groups</string>
     <string name="notification_group_messages">Group messages</string>
     <string name="notification_install_google_maps_or_a_web_browser_to">Install Google Maps or a web browser to continue.</string>
@@ -764,4 +764,11 @@
     <string name="transcript_discard_body">Your unsaved edits will be discarded. The saved transcript will stay available.</string>
     <string name="transcript_keep_editing">Keep editing</string>
 
+    <string name="departure_prepare_to_leave">Prepare to leave for %1$s</string>
+    <string name="departure_running_late">Running late for %1$s</string>
+    <string name="departure_leave_by_time">Leave by %1$s.</string>
+    <string name="departure_notification_style">Departure reminders use pop-up notifications and sound by default. You can change or turn them off in your phone notification settings.</string>
+    <string name="departure_notification_settings">Sound &amp; pop-up settings</string>
+    <string name="departure_about_travel">About %1$d min %2$s.</string>
+    <string name="departure_allow_weather">Allow %1$d min more for the weather.</string>
 </resources>

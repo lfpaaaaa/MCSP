@@ -7,10 +7,6 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import au.edu.unimelb.campuscompanion.context.ContextState
 import au.edu.unimelb.campuscompanion.context.DepartureReminder
-import au.edu.unimelb.campuscompanion.context.DepartureReminderStage
-import au.edu.unimelb.campuscompanion.ui.text.UiText
-import au.edu.unimelb.campuscompanion.data.building.BuildingLocation
-import au.edu.unimelb.campuscompanion.data.model.GeoPoint
 import au.edu.unimelb.campuscompanion.context.DepartureReminders
 import au.edu.unimelb.campuscompanion.context.TravelSnapshot
 import au.edu.unimelb.campuscompanion.data.TravelMode
@@ -18,6 +14,7 @@ import au.edu.unimelb.campuscompanion.data.model.EstimateSource
 import au.edu.unimelb.campuscompanion.data.model.TravelEstimate
 import au.edu.unimelb.campuscompanion.ui.model.CourseReminderPreference
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
+import au.edu.unimelb.campuscompanion.ui.text.UiText
 import au.edu.unimelb.campuscompanion.ui.model.DEFAULT_COURSE_REMINDER_LEAD_MINUTES
 import au.edu.unimelb.campuscompanion.ui.model.reminderSeriesKey
 import kotlinx.coroutines.flow.flowOf
@@ -42,8 +39,8 @@ class DepartureNotificationTest {
             "Test", "Test", now.plusMinutes(30), now.plusMinutes(90), activity = "test-${UUID.randomUUID()}")
         val snapshot = TravelSnapshot(session = session, state = ContextState.LEAVE_SOON,
             estimate = TravelEstimate(TravelMode.Walking, 1200, 1500, EstimateSource.StraightLine, now.toInstant()),
-            leadMinutes = DEFAULT_COURSE_REMINDER_LEAD_MINUTES, evaluatedAt = now.toInstant(),
-            building = BuildingLocation("QA-1", "1", "QA", "Test", "Test", GeoPoint(-37.8, 144.9)))
+            leaveBy = now.plusMinutes(10),
+            leadMinutes = DEFAULT_COURSE_REMINDER_LEAD_MINUTES)
         // Without the shade adapter, so the student's own reminders are never withdrawn by this test.
         val reminders = DepartureReminders(flowOf(), { CourseReminderPreference() }, { DepartureNotifier.show(context, it) })
         try {
@@ -52,8 +49,9 @@ class DepartureNotificationTest {
             val tag = DepartureNotifier.tag(reminder!!.key)
             waitFor { manager.activeNotifications.any { it.tag == tag } }
             val notification = manager.activeNotifications.first { it.tag == tag }.notification
-            assertEquals("Leave within 10 min · QA-DEPARTURE", notification.extras.getString(Notification.EXTRA_TITLE))
+            assertEquals("Prepare to leave for QA-DEPARTURE", notification.extras.getString(Notification.EXTRA_TITLE))
             assertTrue(notification.extras.getCharSequence(Notification.EXTRA_TEXT).toString().contains("20 min on foot"))
+            assertTrue(notification.extras.getCharSequence(Notification.EXTRA_TEXT).toString().contains("Leave by "))
             assertNull(reminders.consider(snapshot))
             assertEquals(1, manager.activeNotifications.count { it.tag == tag })
         } finally { DepartureNotifier.cancelCourse(context, session.reminderSeriesKey()) }
@@ -64,7 +62,7 @@ class DepartureNotificationTest {
         val key = "qa-${UUID.randomUUID()}@2026-10-13T01:00:00Z"
         val tag = DepartureNotifier.tag(key)
         fun reminder(text: String) =
-            DepartureReminder("qa", courseKey, DepartureReminderStage.Prepare, UiText.Literal("Time to leave for QA"), UiText.Literal(text), key)
+            DepartureReminder("qa", courseKey, ContextState.LEAVE_SOON, UiText.Literal("Prepare to leave for QA"), UiText.Literal(text), key)
         fun shownText(): String? = manager.activeNotifications.firstOrNull { it.tag == tag }
             ?.notification?.extras?.getCharSequence(Notification.EXTRA_TEXT)?.toString()
         try {
@@ -90,6 +88,30 @@ class DepartureNotificationTest {
         } finally { DepartureNotifier.cancelCourse(context, courseKey) }
     }
 
+    @Test fun lateReminderCanAlertAgainAfterASilentContentUpdate() {
+        val courseKey = "activity:qa-urgent-${UUID.randomUUID()}:lecture"
+        val key = "qa-urgent-${UUID.randomUUID()}@2026-10-14T01:00:00Z"
+        val tag = DepartureNotifier.tag(key)
+        fun reminder(state: ContextState, text: String) =
+            DepartureReminder("qa", courseKey, state, UiText.Literal("QA departure reminder"), UiText.Literal(text), key)
+        fun shown(): Notification? = manager.activeNotifications.firstOrNull { it.tag == tag }?.notification
+        try {
+            assertTrue(DepartureNotifier.show(context, reminder(ContextState.LEAVE_SOON, "Prepare")))
+            waitFor { shown() != null }
+            assertTrue(DepartureNotifier.update(context, reminder(ContextState.LEAVE_SOON, "Updated")))
+            waitFor { shown()?.let { it.flags and Notification.FLAG_ONLY_ALERT_ONCE != 0 } == true }
+            assertTrue(DepartureNotifier.show(context, reminder(ContextState.RUNNING_LATE, "Running late")))
+            waitFor { shown()?.extras?.getCharSequence(Notification.EXTRA_TEXT)?.toString() == "Running late" }
+            val notification = shown()!!
+            assertEquals(DepartureNotifier.CHANNEL_ID, notification.channelId)
+            assertEquals(0, notification.flags and Notification.FLAG_ONLY_ALERT_ONCE)
+            // Android 8+ gets sound from the channel, not the deprecated per-notification defaults.
+            assertEquals(Notification.GROUP_ALERT_ALL, notification.groupAlertBehavior)
+            assertNull(notification.group)
+            assertEquals(1, manager.activeNotifications.count { it.tag == tag })
+        } finally { DepartureNotifier.cancelCourse(context, courseKey) }
+    }
+
     @Test fun turningACourseOffClearsOnlyThatCoursesReminders() {
         val muted = "activity:qa-muted-${UUID.randomUUID()}:tutorial"
         val other = "activity:qa-other-${UUID.randomUUID()}:lecture"
@@ -97,9 +119,9 @@ class DepartureNotificationTest {
         val otherKey = "qa-other-${UUID.randomUUID()}@2026-10-13T02:00:00Z"
         try {
             assertTrue("Enable app notifications on the test device", DepartureNotifier.show(context,
-                DepartureReminder("qa", muted, DepartureReminderStage.Prepare, UiText.Literal("Time to leave for QA"), UiText.Literal("Muted"), mutedKey)))
+                DepartureReminder("qa", muted, ContextState.LEAVE_SOON, UiText.Literal("Prepare to leave for QA"), UiText.Literal("Muted"), mutedKey)))
             assertTrue(DepartureNotifier.show(context,
-                DepartureReminder("qa", other, DepartureReminderStage.Prepare, UiText.Literal("Time to leave for QA"), UiText.Literal("Other"), otherKey)))
+                DepartureReminder("qa", other, ContextState.LEAVE_SOON, UiText.Literal("Prepare to leave for QA"), UiText.Literal("Other"), otherKey)))
             waitFor { DepartureNotifier.shade(context).shownKeys().containsAll(listOf(mutedKey, otherKey)) }
 
             DepartureNotifier.cancelCourse(context, muted)

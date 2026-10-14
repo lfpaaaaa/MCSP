@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="context_permission_location_purpose">Precise location provides travel times, departure guidance and GPS arrival around class times.</string>
+    <string name="context_permission_background_arrival">Background arrival</string>
+    <string name="context_permission_background_purpose">Optional location access lets Android detect arrival near your class building while the app is closed.</string>
+    <string name="context_permission_activity_purpose">Helps confirm walking, running or riding toward class so departure prompts can be withdrawn.</string>
+    <string name="context_permission_approximate">Approximate location only; timetable-only guidance, without fresh travel times or arrival detection</string>
+    <string name="context_permission_location_denied">Not allowed; timetable-only guidance, without travel times or arrival detection</string>
+    <string name="context_permission_background_needs_precise">Background access allowed; precise location is needed for arrival monitoring</string>
+    <string name="context_permission_foreground_first">Precise foreground location is needed first</string>
+    <string name="context_permission_legacy_background">Allowed with precise location on this Android version</string>
+    <string name="context_permission_background_allowed">Allowed all the time with precise location</string>
+    <string name="context_permission_background_denied">Not allowed; GPS arrival stays available while foreground sensing is running</string>
+    <string name="context_permission_activity_denied">Not allowed; motion sensors provide the walking fallback</string>
+    <string name="context_background_explanation_precise">Background arrival monitoring needs precise location. Allow precise location first. With approximate location, Campus Companion provides timetable-only guidance.</string>
+    <string name="context_background_explanation_settings">Campus Companion uses background location to detect arrival near your class building while the app is closed. In Settings, open Permissions, then Location, and choose “%1$s”. This is optional. You can keep using timetable guidance and GPS arrival while foreground sensing is running.</string>
+    <string name="context_background_explanation_runtime">Campus Companion uses background location to detect arrival near your class building while the app is closed. Choose “Allow all the time” in the next Android permission dialog. This is optional. You can keep using timetable guidance and GPS arrival while foreground sensing is running.</string>
+    <string name="context_background_dialog_title">Optional background arrival</string>
+    <string name="context_background_allow_precise">Allow precise location</string>
+    <string name="context_background_continue">Continue</string>
+    <string name="context_background_open_settings">Open Settings</string>
+    <string name="context_background_not_now">Not now</string>
+    <string name="context_reminder_arrival_explanation">How early do you want to arrive before class? This moves your leave-by time earlier. Weather and time to reach the classroom may add more.</string>
+    <string name="context_reminder_preparation_explanation">How much time do you need to get ready before leaving? This moves the warning earlier without changing your leave-by time. Choose 0 to be warned at leave-by.</string>
+    <string name="context_reminder_suppression">Prepare-to-leave warnings are skipped when you’re already heading to class or have arrived.</string>
+    <string name="context_reminder_updating">Updating live times…</string>
+    <string name="context_reminder_applying">Applying your arrival buffer and preparation time.</string>
+    <string name="context_reminder_waiting">Waiting for live travel time</string>
+    <string name="context_reminder_waiting_detail">Departure and reminder times will appear when a travel estimate is available.</string>
+    <string name="context_reminder_unavailable">Live timing unavailable</string>
+    <string name="context_reminder_unavailable_detail">Live times are shown for your current or next class.</string>
+    <string name="context_reminder_arrival_buffer">Arrival buffer: %1$d minutes</string>
+    <string name="context_reminder_arrival_a11y">%1$s arrival buffer</string>
+    <string name="context_reminder_preparation">Prepare before departure: %1$d minutes</string>
+    <string name="context_reminder_preparation_a11y">%1$s prepare before departure</string>
+    <string name="context_reminder_prepare_at">Prepare to leave: %1$s</string>
+    <string name="context_reminder_travel_time">Travel time: %1$d min. Extra allowances are included in the departure time.</string>
+    <string name="context_reminder_summary">%1$d min arrival buffer · %2$d min preparation</string>
+    <string name="context_home_arrival_buffer">%1$d min arrival buffer</string>
+</resources>

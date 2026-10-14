@@ -1,6 +1,7 @@
 package au.edu.unimelb.campuscompanion.data
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
@@ -179,6 +180,50 @@ class IcsTimetableParserTest {
         val floating = event("one").replace(";TZID=Australia/Melbourne", "")
         assertEquals(parseEvents(floating).groups.last().timetableKey,
             parseEvents(floating, zone = ZoneId.of("UTC")).groups.last().timetableKey)
+    }
+
+    @Test fun retainsFinishedOccurrenceUntilExclusivePostClassExpiryAcrossDisplayZones() {
+        val calendar = event("just-finished").replace("RRULE:FREQ=WEEKLY;COUNT=3\n", "")
+        val bytes = ("BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//Test//EN\n$calendar\nEND:VCALENDAR")
+            .replace("\n", "\r\n").toByteArray()
+        val end = ZonedDateTime.of(2026, 9, 24, 16, 0, 0, 0, melbourne)
+        for (now in listOf(end, end.plusMinutes(15).minusNanos(1))) {
+            val result = parser.parse(bytes, now, ZoneId.of("UTC"))
+            assertEquals(1, result.sessions.size)
+            assertEquals(end.toInstant(), result.sessions.single().end.toInstant())
+            assertEquals(ZoneId.of("UTC"), result.sessions.single().end.zone)
+            // A retained tutorial must not create a membership for its expired slot.
+            assertEquals(listOf("COMP90018|course"), result.groups.map { it.timetableKey })
+        }
+        assertTrue(parser.parse(bytes, end.plusMinutes(15), melbourne).sessions.isEmpty())
+    }
+
+    @Test fun retainedHistoryDoesNotDisplaceFiveHundredUpcomingOccurrencesOrAddSlotGroups() {
+        val end = ZonedDateTime.of(2026, 9, 24, 16, 0, 0, 0, melbourne)
+        val recent = event("recent").replace("RRULE:FREQ=WEEKLY;COUNT=3\n", "")
+        val future = event("future", summary = "SWEN90006 Software Modelling - Tutorial 01",
+            date = "20260925").replace("RRULE:FREQ=WEEKLY;COUNT=3", "RRULE:FREQ=HOURLY;COUNT=501")
+        val bytes = ("BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//Test//EN\n$recent\n$future\nEND:VCALENDAR")
+            .replace("\n", "\r\n").toByteArray()
+        val result = parser.parse(bytes, end.plusMinutes(1), melbourne)
+        assertEquals(501, result.sessions.size)
+        assertEquals(500, result.sessions.count { it.end.isAfter(end.plusMinutes(1)) })
+        assertEquals("recent", result.sessions.first().id.substringBefore('@'))
+        assertFalse(result.groups.any { it.timetableKey?.startsWith("COMP90018|tutorial|") == true })
+        assertTrue(result.groups.any { it.timetableKey?.startsWith("SWEN90006|tutorial|") == true })
+    }
+
+    @Test fun parserAndCacheFilteringUseTheConfiguredPostClassWindow() {
+        val calendar = event("recent").replace("RRULE:FREQ=WEEKLY;COUNT=3\n", "")
+        val bytes = ("BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//Test//EN\n$calendar\nEND:VCALENDAR")
+            .replace("\n", "\r\n").toByteArray()
+        val end = ZonedDateTime.of(2026, 9, 24, 16, 0, 0, 0, melbourne)
+        val extended = IcsTimetableParser(postClassMinutes = 20).parse(bytes, end.plusMinutes(16), melbourne)
+        assertEquals(1, extended.sessions.size)
+        assertTrue(parser.parse(bytes, end.plusMinutes(16), melbourne).sessions.isEmpty())
+        assertEquals(1, extended.forDisplay(end.plusMinutes(20).minusNanos(1).toInstant(), melbourne, 20).sessions.size)
+        assertTrue(extended.forDisplay(end.plusMinutes(20).toInstant(), melbourne, 20).sessions.isEmpty())
+        assertTrue(IcsTimetableParser(postClassMinutes = 0).parse(bytes, end, melbourne).sessions.isEmpty())
     }
 
 }

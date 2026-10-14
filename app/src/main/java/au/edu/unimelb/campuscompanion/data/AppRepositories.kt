@@ -1,6 +1,7 @@
 package au.edu.unimelb.campuscompanion.data
 
 import android.content.Context
+import android.content.Intent
 import android.util.Log
 import au.edu.unimelb.campuscompanion.auth.SupabaseProvider
 import au.edu.unimelb.campuscompanion.context.DepartureReminders
@@ -46,6 +47,8 @@ import kotlinx.coroutines.flow.map
 import au.edu.unimelb.campuscompanion.push.DepartureNotifier
 import au.edu.unimelb.campuscompanion.push.FirebaseTokenSource
 import au.edu.unimelb.campuscompanion.push.PushTokens
+import au.edu.unimelb.campuscompanion.sensing.service.SensingAccountLifecycle
+import au.edu.unimelb.campuscompanion.sensing.service.SensingForegroundService
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.status.SessionStatus
@@ -72,7 +75,13 @@ object AppRepositories {
     val joinLinks = JoinLinkInbox()
 
     private lateinit var appContext: Context
-    private var timetableUserId: String? = null
+    internal val sensingAccounts by lazy { SensingAccountLifecycle(travel) }
+    /** True only after authentication and its cached timetable have been reconciled. */
+    val sensingAccountEligible get() = sensingAccounts.eligible
+    val sensingAccountReady get() = sensingAccounts.ready
+
+    fun updateTimetable(userId: String, sessions: List<CourseSession>): Boolean =
+        sensingAccounts.updateTimetable(userId, sessions)
     private val departureHistory by lazy { au.edu.unimelb.campuscompanion.push.DepartureReminderHistory(appContext) }
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -83,6 +92,8 @@ object AppRepositories {
     /** Prepares the on-device cache. Called once from the application's onCreate. */
     fun init(context: Context) {
         appContext = context.applicationContext
+        // Register user-configurable reminder defaults before the first scheduled departure.
+        DepartureNotifier.createChannel(appContext)
         // An interrupted process cannot keep tracking its in-memory route.
         au.edu.unimelb.campuscompanion.navigation.TransitNotifier.tracking(appContext, false)
         au.edu.unimelb.campuscompanion.navigation.TransitNotifier.cancelAlert(appContext)
@@ -105,39 +116,41 @@ object AppRepositories {
             ).run()
         }
         SupabaseProvider.client?.let { client ->
-            applicationScope.launch {
+            applicationScope.launch(Dispatchers.Main.immediate) {
                 client.auth.sessionStatus.collect { status ->
                     when (status) {
                         is SessionStatus.Authenticated -> {
-                            val userId = client.auth.currentUserOrNull()?.id
-                            if (userId != timetableUserId) {
-                                if (timetableUserId != null) {
+                            val userId = status.session.user?.id
+                            if (!sensingAccounts.ready.value || userId != sensingAccounts.currentAccountId) {
+                                if (sensingAccounts.currentAccountId != null) {
                                     // Another account signed in without signing out first.
                                     DepartureNotifier.cancelAll(appContext)
+                                    navigation.clear()
                                 }
-                                timetableUserId = userId
-                                travel.updateSessions(
-                                    userId?.let { TimetableSubscriptionStore(appContext).load(it).timetable?.sessions }.orEmpty(),
-                                    reset = true
-                                )
+                                sensingAccounts.replaceAccount(userId,
+                                    userId?.let { TimetableSubscriptionStore(appContext).load(it).timetable?.sessions }.orEmpty())
                             }
                             push.onSignedIn()
                         }
                         // Cached group data belongs to the user who was signed in.
                         is SessionStatus.NotAuthenticated -> {
+                            sensingAccounts.replaceAccount(null, emptyList())
+                            appContext.stopService(Intent(appContext, SensingForegroundService::class.java))
+                            navigation.clear()
+                            DepartureNotifier.cancelAll(appContext)
                             groups.clearSession()
                             database.messageDao().deleteAll()
-                            navigation.clear()
-                            // Reminders name the previous account's classes and buildings.
-                            DepartureNotifier.cancelAll(appContext)
-                            timetableUserId = null
-                            travel.updateSessions(emptyList(), reset = true)
+                        }
+                        is SessionStatus.RefreshFailure -> {
+                            // Initial restoration failure cannot leave a sticky service waiting
+                            // forever. An already-established offline account keeps its cache/run.
+                            if (!sensingAccounts.ready.value) sensingAccounts.replaceAccount(null, emptyList())
                         }
                         else -> Unit
                     }
                 }
             }
-        }
+        } ?: sensingAccounts.replaceAccount(null, emptyList())
     }
 
     private val database: CampusDatabase by lazy { CampusDatabase.create(appContext) }
@@ -273,7 +286,8 @@ object AppRepositories {
             preferences = { TravelPreferencesStore(appContext).load() },
             weather = weather,
             reminderPreference = ::courseReminderPreference,
-            reminderChanges = CourseReminderPreferencesStore.changes.map { Unit }
+            reminderChanges = CourseReminderPreferencesStore.changes.map { Unit },
+            elapsedNanos = android.os.SystemClock::elapsedRealtimeNanos
         )
     }
 }

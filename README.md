@@ -120,6 +120,8 @@ For the engine's 15-minute post-class window, Home uses the finished occurrence 
 
 A matching repository membership can appear on Home even if it folded automatically after its final class; explicit user folds are honoured and the Groups screen keeps its normal folding rules. Home shows at most two distinct groups, retaining ordinary order when there is no validated finished occurrence or no match. Empty matching groups still open normally and show the repository's empty-message summary. Removing or editing the finished occurrence clears its context, and expiry comes from the engine rather than a second Home timer.
 
+The ICS parser and account-scoped timetable cache retain finished occurrences for this same 15-minute window, including refreshes and session reconstruction after recreation or offline restart. Retained history does not consume the 500 upcoming-class import slots or create new tutorial/workshop memberships. Schedule marks these rows finished; the engine removes the post-class selection at the exclusive expiry boundary on reevaluation.
+
 Deploy the function after pushing the migrations:
 
 ```bash
@@ -260,34 +262,47 @@ This setup does not switch the context engine's ETA provider to Google.
 
 ### Live Home travel time and departure notifications
 
-Home shows **Travel time** (duration and mode), without a distance metric. Current GPS fixes feed the
-application-owned travel engine about every 10 seconds while its location foreground service runs;
-the engine also reevaluates the clock every 30 seconds. Positions older than two minutes cannot supply a travel estimate. The engine combines motion
-input with recent, timestamped GPS progress toward the classroom; repeated or inaccurate fixes
-do not count as additional evidence.
+Home shows **Travel time** (duration and mode), without a distance metric. The location foreground
+service requests fixes every 10 seconds during active class/navigation sensing and every 60 seconds
+in battery-saving NORMAL mode; the engine also reevaluates the clock every 30 seconds. Fresh,
+target-scoped GPS, motion/activity and nullable fusion evidence arrive together. New physical
+decisions require usable measurements; a temporary signal outage can preserve an established trip
+and last-known guidance. Explicit stop, permission loss or account replacement clears sensing
+evidence and guidance. Walking, running and vehicle activity require progress toward the classroom.
 Routing requests are limited to once per destination every three minutes. Walking/driving estimates
 are cached for one day, transit estimates for ten minutes, and a recent routed estimate can be reused
 for ten minutes while the user moves. Otherwise the offline straight-line estimate is used.
 
-The default ten-minute setting is a **preparation reminder lead**. Departure deadline = class start
-− travel minutes − classroom entry allowance − weather allowance. Home, reminder settings and
-notifications use this same physical deadline. For an 11:00 class and a 20-minute trip, Home shows
-10:40 as the departure deadline, and the preparation notification arrives at 10:30. If fresh GPS
-samples show that the student is stationary or moving away, Home and a second notification urge
-immediate departure at 10:35. This five-minute urgent check is independent of the preparation slider.
-Approaching the destination or arriving suppresses the warning. Each warning stage is delivered at
-most once per account and class occurrence. Lecture/tutorial/workshop switches still apply.
-Notifications are generated on the phone, so FCM/server push credentials are not
-required. Android notifications and location permission must be enabled; the foreground service must
-be running. Force-stop prevents background delivery until the app is opened again.
+The course settings separate **arrival buffer** (default 0 minutes) from **preparation time**
+(default 5 minutes), each adjustable from 0–30 minutes in five-minute increments. Leave-by time =
+class start − travel − arrival buffer − weather allowance − classroom entry allowance.
+The preparation notification is due that many minutes before leave-by; preparation does not move
+the physical departure deadline. A zero preparation time warns at leave-by. The feature context
+engine drives “Prepare to leave” and “Running late”, using fresh motion/activity and fusion evidence
+to suppress unnecessary reminders while travelling or after arrival. Lecture/tutorial/workshop
+switches still apply.
 
-The application restores the signed-in user's cached timetable for reminders and no longer clears
-it when a screen is destroyed. Successful reminder deliveries are saved on the device by account,
-class ID, class start time and warning stage, so restarting the app does not repeat them. A delivered
-urgent alert also prevents a later preparation warning from replacing it. Failed delivery
-attempts remain eligible on the next travel snapshot or reminder preference update, while the
-current timing and movement still call for a reminder. Saved records expire when the class ends and are pruned on the
-next successful delivery. The notification links to Schedule.
+Notifications are generated on the phone, so FCM/server push credentials are not required. The
+departure channel defaults to high importance, sound and vibration, allowing system pop-up alerts.
+**Schedule → Departure reminders → Sound & pop-up settings** opens the phone settings for this
+notification category. Android retains the user's changes; the app does not recreate the channel
+or override sound, pop-up, Do Not Disturb or disabled notifications. Actual pop-up presentation
+depends on the phone's notification settings. Location permission and the foreground service are
+required for sensing; force-stop prevents delivery until the app is opened again.
+
+The application restores the signed-in user's cached timetable, including a post-class group card
+for 15 minutes after the class ends even across a restart. Successful reminder deliveries are saved
+on the device by account, class ID, class start time and context state, so restarting the app does
+not repeat them. A delivered Running late alert prevents a later preparation warning from replacing
+it. Failed deliveries remain eligible while the context still calls for a reminder. Saved records
+expire when the class ends and are pruned on the next successful delivery. Notifications link to
+Schedule.
+
+Step 6 adds journey and emulator acceptance tests, plus a disposable ICS fixture generator at
+`scripts/create-context-rehearsal-ics.py`. Debug `DeparturePrompt` logs identify
+notification post/update/withdraw API submissions without logging account IDs or reminder text.
+Physical recognition, actual geofence delivery, battery measurement and live-backend rehearsal
+remain separate acceptance work. The fixture Home recreation host exists only in debug builds.
 
 ## Editing a profile
 

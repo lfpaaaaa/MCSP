@@ -126,7 +126,7 @@ class TravelEngineSameBuildingEditTest {
         assertEquals(FakeBuildingLookup.PETER_HALL, after.building)
         assertEquals(expected, after.state)
         val reminder = reminders().consider(after)
-        assertNull("unexpected reminder: ${reminder?.title}", reminder)
+        assertNull("unexpected reminder: ${reminder?.title?.english()}", reminder)
     }
 
     /** Arrives at the entrance, then indoor GPS reads ~120 m from the building centroid. */

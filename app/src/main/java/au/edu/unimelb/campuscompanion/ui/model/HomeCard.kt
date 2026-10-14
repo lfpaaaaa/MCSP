@@ -2,7 +2,6 @@ package au.edu.unimelb.campuscompanion.ui.model
 
 import au.edu.unimelb.campuscompanion.R
 import au.edu.unimelb.campuscompanion.ui.text.UiText
-import au.edu.unimelb.campuscompanion.context.needsUrgentDeparture
 import au.edu.unimelb.campuscompanion.context.ContextEngine
 import au.edu.unimelb.campuscompanion.context.ContextState
 import au.edu.unimelb.campuscompanion.context.TravelSnapshot
@@ -27,8 +26,7 @@ data class HomeCardUiState(
     val weatherBufferMinutes: Int,
     val entryAllowanceMinutes: Int,
     /** Validated post-class occurrence; can coexist with urgent guidance for the next class. */
-    val finishedSession: CourseSession?,
-    val urgentDeparture: Boolean = false
+    val finishedSession: CourseSession?
 ) {
     val isUpdating: Boolean get() = state == null
 
@@ -42,7 +40,7 @@ data class HomeCardUiState(
             .let { if (it.isBlank()) UiText(R.string.home_location_missing) else UiText.Literal(it) }
 
     val statusLabel: UiText
-        get() = if (urgentDeparture) UiText(R.string.home_leave_now) else when (state) {
+        get() = when (state) {
             null -> UiText(R.string.home_status_updating)
             ContextState.NO_UPCOMING_CLASS -> UiText(R.string.home_status_not_today)
             ContextState.LONG_BREAK -> UiText(R.string.home_status_long_break)
@@ -58,7 +56,7 @@ data class HomeCardUiState(
 
     /** Reuses the existing pill colours only; [state] remains the full engine decision. */
     val statusTone: SessionStatus
-        get() = if (urgentDeparture) SessionStatus.LeaveSoon else when (state) {
+        get() = when (state) {
             null, ContextState.LONG_BREAK, ContextState.UPCOMING -> SessionStatus.Upcoming
             ContextState.NO_UPCOMING_CLASS -> SessionStatus.Finished
             ContextState.LEAVE_SOON, ContextState.RUNNING_LATE -> SessionStatus.LeaveSoon
@@ -104,8 +102,7 @@ fun buildHomeCardState(
         leadMinutes = current?.leadMinutes ?: 0,
         weatherBufferMinutes = current?.weatherBufferMinutes ?: 0,
         entryAllowanceMinutes = current?.entryAllowanceMinutes ?: 0,
-        finishedSession = finishedSession.takeIf { matches },
-        urgentDeparture = current?.needsUrgentDeparture(now.toInstant()) == true
+        finishedSession = finishedSession.takeIf { matches }
     )
 }
 

@@ -100,11 +100,11 @@ fun ClassCompassScreen(session: CourseSession?, loading: Boolean, modifier: Modi
             precise = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
             var active = true
             trackingFailed = false
-            sensorsAvailable = detector.start()
+            detector.start { sensorsAvailable = it }
             try {
                 if (precise) {
                     runCatching {
-                        tracker.startTracking(LocationTrackingMode.PRE_CLASS).addOnFailureListener {
+                        tracker.startTracking(LocationTrackingMode.PRE_CLASS) {
                             if (active) trackingFailed = true
                         }
                     }.onFailure { trackingFailed = true }

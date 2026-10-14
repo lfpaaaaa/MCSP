@@ -2,6 +2,7 @@ package au.edu.unimelb.campuscompanion.data
 
 import au.edu.unimelb.campuscompanion.ui.text.UiText
 import au.edu.unimelb.campuscompanion.R
+import au.edu.unimelb.campuscompanion.context.ContextConfig
 import au.edu.unimelb.campuscompanion.ui.model.trimTrailingCommas
 import au.edu.unimelb.campuscompanion.data.model.TimetableGroupSpec
 import au.edu.unimelb.campuscompanion.ui.model.CourseGroup
@@ -39,7 +40,7 @@ import java.time.zone.ZoneRules
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * What a calendar parsed into: the sessions of the coming months, the course groups they imply
+ * What a calendar parsed into: recent post-class and upcoming sessions, the course groups they imply
  * and how many events the calendar held.
  */
 data class TimetableImport(
@@ -157,7 +158,9 @@ class TimetableImporter(
  * Parses an iCalendar timetable into the sessions from the day before [parse]'s `now` to six
  * months after it, expanding recurring events and showing them in the given display zone.
  */
-class IcsTimetableParser {
+class IcsTimetableParser(
+    private val postClassMinutes: Int = ContextConfig().postClassMinutes
+) {
     fun parse(
         bytes: ByteArray,
         now: ZonedDateTime,
@@ -187,7 +190,7 @@ class IcsTimetableParser {
         }
         val rangeStart = now.minusDays(1)
         val rangeEnd = now.plusMonths(6)
-        val sessions = events.flatMapIndexed { index, event ->
+        val occurrences = events.flatMapIndexed { index, event ->
             val eventDetails = detailsFor(event)
             if (eventDetails.code != FALLBACK_EVENT_CODE) {
                 courseTitles.putIfAbsent(eventDetails.code, eventDetails.title)
@@ -215,14 +218,18 @@ class IcsTimetableParser {
             }
         }
             .distinctBy { it.id }
-            .filter { session ->
-                session.end.isAfter(now.withZoneSameInstant(session.end.zone))
-            }
             .sortedBy { it.start.toInstant() }
+        val nowInstant = now.toInstant()
+        // Recent history must not consume the existing upcoming quota or create slot memberships.
+        val upcoming = occurrences.filter { it.end.toInstant().isAfter(nowInstant) }
             .take(MAX_IMPORTED_SESSIONS)
+        val recent = occurrences.filter {
+            !it.end.toInstant().isAfter(nowInstant) && it.isRetainedForContext(nowInstant, postClassMinutes)
+        }
+        val sessions = (recent + upcoming).sortedBy { it.start.toInstant() }
 
         val specs = courseTitles.map { (code, title) -> TimetableGroupSpec(code, title.take(60), "course") } +
-            sessions.mapNotNull { session ->
+            upcoming.mapNotNull { session ->
                 session.copy(title = courseTitles[session.code] ?: session.title).timetableGroupSpec()
             }.distinctBy { it.key }
         val groups = specs.map { spec ->

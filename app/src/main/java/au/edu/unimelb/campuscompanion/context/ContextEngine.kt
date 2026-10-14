@@ -1,6 +1,7 @@
 package au.edu.unimelb.campuscompanion.context
 
 import au.edu.unimelb.campuscompanion.ui.model.CourseSession
+import au.edu.unimelb.campuscompanion.ui.model.MAX_COURSE_REMINDER_PREPARATION_MINUTES
 import au.edu.unimelb.campuscompanion.ui.model.matchesTimetableSession
 import java.time.Duration
 import java.time.Instant
@@ -12,7 +13,7 @@ import kotlin.math.min
 data class ContextConfig(
     /** Minutes from the building entrance to the room, added to the departure buffer. */
     val entryAllowanceMinutes: Int = 0,
-    /** How long before the leave-by time the state becomes [ContextState.LEAVE_SOON]. */
+    /** Fallback warning window when [ContextInputs.preparationMinutes] is not supplied. */
     val leaveSoonWindowMinutes: Int = 5,
     /** How long before the leave-by time walking towards the class counts as setting off for it. */
     val earlyDepartureWindowMinutes: Int = 45,
@@ -47,7 +48,7 @@ data class ContextInputs(
     val isMoving: Boolean,
     /**
      * The sensing service's combined verdict (moving, distance falling, heading towards the building),
-     * or null when it does not provide one. Without it the engine checks walking and distance itself.
+     * True confirms entry, false vetoes entry, and null permits movement/progress fallback.
      */
     val enRouteSignal: Boolean? = null,
     /** The arrival geofence of the tracked class's building has been entered. */
@@ -57,7 +58,15 @@ data class ContextInputs(
      * geofence), or null when the building is unknown. The distances above are measured against
      * it, so trip memory is kept only while the class and this building stay the same.
      */
-    val buildingCode: String? = null
+    val buildingCode: String? = null,
+    /** Production fallback needs sustained distinct observations, not a single GPS jump. */
+    val progressConfirmed: Boolean = true,
+    /** A stale sampling gap clears unconfirmed history without ending an established trip. */
+    val resetProgress: Boolean = false,
+    /** Same-target advisory only; never used for physical arrival, travel or retreat decisions. */
+    val lastKnownAway: Boolean = false,
+    /** Warning lead time, separate from the arrival buffer; null uses the config fallback. */
+    val preparationMinutes: Int? = null
 )
 
 /**
@@ -149,6 +158,8 @@ object ContextEngine {
 
         val start = session.start.toInstant()
         val leaveBy = leaveBy(start, inputs.travelMinutes, inputs.bufferMinutes, config.entryAllowanceMinutes)
+        val preparationMinutes = (inputs.preparationMinutes ?: config.leaveSoonWindowMinutes)
+            .coerceIn(0, MAX_COURSE_REMINDER_PREPARATION_MINUTES)
         val departureWindowOpens = (leaveBy ?: start).minus(minutes(config.earlyDepartureWindowMinutes))
         val inDepartureWindow = !now.isBefore(departureWindowOpens)
 
@@ -170,8 +181,11 @@ object ContextEngine {
         } else {
             sameTrip
         }
+        val scopedMemory = previousMemory ?: ContextMemory(session.id, buildingCode = inputs.buildingCode)
         val memory = updateMemory(
-            previous = previousMemory ?: ContextMemory(session.id, buildingCode = inputs.buildingCode),
+            previous = if (inputs.resetProgress && !scopedMemory.enRoute) {
+                scopedMemory.copy(farthestMeters = null, closestMeters = null)
+            } else scopedMemory,
             inputs = inputs,
             inDepartureWindow = inDepartureWindow,
             config = config
@@ -183,7 +197,7 @@ object ContextEngine {
             memory.arrived && inDepartureWindow -> ContextState.ARRIVED
             memory.enRoute -> ContextState.EN_ROUTE
             travelMinutes != null && now.plus(minutes(travelMinutes)).isAfter(start) -> ContextState.RUNNING_LATE
-            leaveBy != null && !now.isBefore(leaveBy.minus(minutes(config.leaveSoonWindowMinutes))) ->
+            leaveBy != null && !now.isBefore(leaveBy.minus(minutes(preparationMinutes))) ->
                 ContextState.LEAVE_SOON
             finished != null -> ContextState.POST_CLASS
             !startsToday(session, now) -> ContextState.NO_UPCOMING_CLASS
@@ -212,7 +226,7 @@ object ContextEngine {
             memory.arrived -> ContextState.IN_CLASS
             withinGrace && memory.enRoute -> ContextState.EN_ROUTE
             // Known to be away from the building (otherwise memory.arrived would be set).
-            withinGrace && inputs.distanceMeters != null -> ContextState.RUNNING_LATE
+            withinGrace && (inputs.distanceMeters != null || inputs.lastKnownAway) -> ContextState.RUNNING_LATE
             // Position unknown, or long past the start: assume the student is in class.
             else -> ContextState.IN_CLASS
         }
@@ -258,8 +272,11 @@ object ContextEngine {
         }
 
         val farthest = max(previous.farthestMeters ?: distance, distance)
-        val setOff = inputs.enRouteSignal == true ||
-            (inputs.isMoving && farthest - distance >= config.closingMeters)
+        val setOff = when (inputs.enRouteSignal) {
+            true -> true
+            false -> false
+            null -> inputs.isMoving && inputs.progressConfirmed && farthest - distance >= config.closingMeters
+        }
         return if (setOff) {
             previous.copy(arrived = false, enRoute = true, farthestMeters = null, closestMeters = distance)
         } else {

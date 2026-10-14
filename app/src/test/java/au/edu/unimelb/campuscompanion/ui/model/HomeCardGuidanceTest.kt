@@ -113,8 +113,7 @@ class HomeCardGuidanceTest {
         ))
         val explanation = requireNotNull(guidance.bufferExplanation?.english())
 
-        assertFalse(explanation.contains("arrival buffer"))
-        assertFalse(explanation.contains("3 min"))
+        assertTrue(explanation.contains("3 min arrival buffer"))
         assertTrue(explanation.contains("4 min for weather"))
         assertTrue(explanation.contains("6 min to reach the room"))
         assertFalse(explanation.contains("10 min"))

@@ -50,9 +50,7 @@ fun buildHomeCardGuidance(card: HomeCardUiState, now: ZonedDateTime): HomeCardGu
         }
     }
 
-    val text = if (card.urgentDeparture) {
-        HomeGuidanceText(UiText(R.string.home_leave_now), UiText(R.string.departure_not_approaching))
-    } else when (state) {
+    val text = when (state) {
         ContextState.UPCOMING, ContextState.LEAVE_SOON -> {
             val deadline = card.leaveBy
             if (deadline == null) {
@@ -106,10 +104,11 @@ fun buildHomeCardGuidance(card: HomeCardUiState, now: ZonedDateTime): HomeCardGu
     }
 
     val showTravel = state in TRAVEL_GUIDANCE_STATES
-    val showDeparture = (state in DEPARTURE_GUIDANCE_STATES || card.urgentDeparture) && card.leaveBy != null
+    val showDeparture = (state in DEPARTURE_GUIDANCE_STATES) && card.leaveBy != null
     val showBuffers = showDeparture && card.estimate != null
     val bufferParts = if (showBuffers) {
         buildList {
+            if (card.leadMinutes > 0) add(UiText(R.string.context_home_arrival_buffer, card.leadMinutes))
             if (card.weatherBufferMinutes > 0) add(UiText(R.string.home_weather_allowance, card.weatherBufferMinutes))
             if (card.entryAllowanceMinutes > 0) add(UiText(R.string.home_entry_allowance, card.entryAllowanceMinutes))
         }

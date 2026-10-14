@@ -5,13 +5,20 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
+import android.content.ActivityNotFoundException
+import android.media.AudioAttributes
+import android.provider.Settings
 import android.content.Intent
 import android.os.Bundle
+import android.os.SystemClock
 import android.service.notification.StatusBarNotification
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import au.edu.unimelb.campuscompanion.BuildConfig
 import au.edu.unimelb.campuscompanion.MainActivity
 import au.edu.unimelb.campuscompanion.R
+import au.edu.unimelb.campuscompanion.context.ContextState
 import au.edu.unimelb.campuscompanion.context.DepartureReminder
 import au.edu.unimelb.campuscompanion.context.DepartureShade
 
@@ -24,6 +31,10 @@ object DepartureNotifier {
     const val CHANNEL_ID = "departure"
     private const val TAG_PREFIX = "departure:"
     private const val EXTRA_COURSE_KEY = "au.edu.unimelb.campuscompanion.extra.DEPARTURE_COURSE_KEY"
+    private const val DEBUG_TAG = "DeparturePrompt"
+    private const val REJECTION_LOG_INTERVAL_MILLIS = 5_000L
+    private val diagnosticLock = Any()
+    private var lastRejectionLogElapsedMillis: Long? = null
 
     /** Posts the reminder with sound and vibration; false when notifications are off or denied. */
     fun show(context: Context, reminder: DepartureReminder): Boolean = post(context, reminder, silently = false)
@@ -33,7 +44,10 @@ object DepartureNotifier {
      * dismissed is not posted again; returns false then.
      */
     fun update(context: Context, reminder: DepartureReminder): Boolean {
-        if (prompts(context).none { it.tag == tag(reminder.key) }) return false
+        if (prompts(context).none { it.tag == tag(reminder.key) }) {
+            logDiagnostic("update", reminder.notificationId, "not_shown", reminder.state, limited = true)
+            return false
+        }
         return post(context, reminder, silently = true)
     }
 
@@ -66,10 +80,17 @@ object DepartureNotifier {
 
     @SuppressLint("MissingPermission")
     private fun post(context: Context, reminder: DepartureReminder, silently: Boolean): Boolean {
-        if (!Notifications.canNotify(context)) return false
+        val operation = if (silently) "update" else "post"
+        if (!Notifications.canNotify(context)) {
+            logDiagnostic(operation, reminder.notificationId, "notifications_unavailable", reminder.state, limited = true)
+            return false
+        }
         createChannel(context)
         if (manager(context).getNotificationChannel(CHANNEL_ID)?.importance ==
-            NotificationManager.IMPORTANCE_NONE) return false
+            NotificationManager.IMPORTANCE_NONE) {
+            logDiagnostic(operation, reminder.notificationId, "channel_disabled", reminder.state, limited = true)
+            return false
+        }
 
         val open = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -99,9 +120,37 @@ object DepartureNotifier {
         }
         return try {
             NotificationManagerCompat.from(context).notify(tag(reminder.key), reminder.notificationId, builder.build())
+            logDiagnostic(operation, reminder.notificationId, "submitted", reminder.state)
             true
-        } catch (_: SecurityException) { false }
+        } catch (_: SecurityException) {
+            logDiagnostic(operation, reminder.notificationId, "permission_changed", reminder.state, limited = true)
+            false
+        }
     }
+
+    /** Opens this reminder category, with fallbacks for phones with custom Settings apps. */
+    fun openSettings(context: Context) {
+        createChannel(context)
+        val intents = listOf(
+            notificationSettingsIntent(context),
+            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName),
+            Intent(Settings.ACTION_SETTINGS)
+        )
+        for (intent in intents) {
+            try {
+                context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                return
+            } catch (_: ActivityNotFoundException) {
+                // Some Android variants expose only the app-wide notification settings.
+            }
+        }
+    }
+
+    internal fun notificationSettingsIntent(context: Context): Intent =
+        Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+            .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+            .putExtra(Settings.EXTRA_CHANNEL_ID, CHANNEL_ID)
 
     /** This app's departure reminders in the shade, including ones posted by earlier versions. */
     private fun prompts(context: Context): List<StatusBarNotification> =
@@ -109,19 +158,50 @@ object DepartureNotifier {
 
     private fun cancel(context: Context, which: (StatusBarNotification) -> Boolean) {
         val manager = manager(context)
-        prompts(context).filter(which).forEach { manager.cancel(it.tag, it.id) }
+        prompts(context).filter(which).forEach {
+            manager.cancel(it.tag, it.id)
+            logDiagnostic("withdraw", it.id, "submitted")
+        }
+    }
+
+    /** One line per notification operation; bound repeated delivery failures without storing content. */
+    private fun logDiagnostic(
+        operation: String,
+        notificationId: Int,
+        result: String,
+        state: ContextState? = null,
+        limited: Boolean = false
+    ) {
+        if (!BuildConfig.DEBUG) return
+        val elapsedMillis = SystemClock.elapsedRealtime()
+        if (limited) {
+            synchronized(diagnosticLock) {
+                val previous = lastRejectionLogElapsedMillis
+                if (previous != null && elapsedMillis - previous < REJECTION_LOG_INTERVAL_MILLIS) return
+                lastRejectionLogElapsedMillis = elapsedMillis
+            }
+        }
+        val stateField = state?.let { ", state=$it" }.orEmpty()
+        // Submission is an API call result, not a claim that Android has displayed/removed it yet.
+        Log.d(DEBUG_TAG, "operation=$operation, result=$result, notificationId=$notificationId" +
+            "$stateField, elapsedRealtimeMs=$elapsedMillis")
     }
 
     private fun manager(context: Context): NotificationManager =
         context.getSystemService(NotificationManager::class.java)
 
-    private fun createChannel(context: Context) {
+    /** Registers defaults once; Android retains any later changes the user makes in Settings. */
+    internal fun createChannel(context: Context, channelId: String = CHANNEL_ID) {
         val channel = NotificationChannel(
-            CHANNEL_ID,
+            channelId,
             context.getString(R.string.campus_companion_app_departure_reminders),
             NotificationManager.IMPORTANCE_HIGH
         ).apply {
             description = context.getString(R.string.notification_when_it_is_time_to_leave_for_your)
+            setSound(Settings.System.DEFAULT_NOTIFICATION_URI, AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build())
             enableVibration(true)
         }
         manager(context).createNotificationChannel(channel)

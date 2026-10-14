@@ -3,13 +3,17 @@ package au.edu.unimelb.campuscompanion.ui.model
 import java.time.ZonedDateTime
 import java.util.Locale
 
-const val DEFAULT_COURSE_REMINDER_LEAD_MINUTES = 10
-const val MAX_COURSE_REMINDER_LEAD_MINUTES = 60
+const val DEFAULT_COURSE_REMINDER_LEAD_MINUTES = 0
+const val MAX_COURSE_REMINDER_LEAD_MINUTES = 30
+const val DEFAULT_COURSE_REMINDER_PREPARATION_MINUTES = 5
+const val MAX_COURSE_REMINDER_PREPARATION_MINUTES = 30
 
 data class CourseReminderPreference(
     val enabled: Boolean = true,
     /** Extra time to arrive before class, separate from weather and classroom-entry allowances. */
-    val leadMinutes: Int = DEFAULT_COURSE_REMINDER_LEAD_MINUTES
+    val leadMinutes: Int = DEFAULT_COURSE_REMINDER_LEAD_MINUTES,
+    /** Warning time before departure; never changes the leave-by deadline. */
+    val preparationMinutes: Int = DEFAULT_COURSE_REMINDER_PREPARATION_MINUTES
 )
 
 data class CourseReminderSeries(
