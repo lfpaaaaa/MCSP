@@ -375,3 +375,27 @@ after process restart they reconcile the retained cache rather than trusting a n
 
 Validation for this increment is recorded in
 [`docs/shared-delivery-verification.md`](docs/shared-delivery-verification.md).
+
+## Group files and join codes
+
+Group settings now lists **Members → Group files → View join code → Share QR code → Invite
+with NFC**. Opening Members or Files and returning keeps pending fold, mute and nickname
+edits, including through Activity recreation. Cancel discards the draft; Save applies it.
+Timetable groups keep their automatic membership and hide invitation/exit controls.
+
+Group files searches file names/uploaders and filters All, Photos, Videos, Audio and Documents,
+newest first. It reuses the protected attachment viewer and download consent. Only the uploader
+sees Delete; failed deletion retains Retry. Refresh and automatic reconciliation update the
+catalog, while offline copies are marked as saved. Access denial hides saved rows and pauses
+automatic requests until a successful explicit refresh. Account changes invalidate the
+in-memory catalog and in-flight results. Fresh file catalogs also confirm queued uploads so
+deleting a completed file before returning to chat cannot leave a stuck upload indicator.
+
+View join code shows the existing six-character code and its remaining original five-minute
+lifetime from server group creation. Reopening/recreating the screen never starts a new
+lifetime. Expired/unavailable codes offer QR/NFC alternatives, and Copy checks expiry again.
+
+This increment adds no backend migration. Upload/deletion still require the shared delivery
+migration/functions/cleanup schedule above. See
+[`docs/group-settings-features-verification.md`](docs/group-settings-features-verification.md)
+for automated and emulator evidence and remaining active-backend acceptance checks.

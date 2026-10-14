@@ -25,6 +25,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import au.edu.unimelb.campuscompanion.data.*
 import au.edu.unimelb.campuscompanion.data.model.SharedFile
+import au.edu.unimelb.campuscompanion.data.repository.FileRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -79,7 +80,12 @@ internal fun AttachmentUploadBubble(upload: AttachmentUpload, onRetry: () -> Uni
 
 /** Retrieves protected bytes using a fresh signed URL, then previews or saves those bytes. */
 @Composable
-internal fun ChatAttachmentViewer(file: SharedFile, currentUserId: String, onDismiss: () -> Unit) {
+internal fun ChatAttachmentViewer(
+    file: SharedFile,
+    currentUserId: String,
+    repository: FileRepository = AppRepositories.files,
+    onDismiss: () -> Unit
+) {
     val context = LocalContext.current
     val canDownload = file.canDownloadBy(currentUserId)
     val canPreview = file.mimeType.startsWith("image/") || file.mimeType.startsWith("video/") ||
@@ -101,7 +107,7 @@ internal fun ChatAttachmentViewer(file: SharedFile, currentUserId: String, onDis
         if (uri != null && source != null) scope.launch {
             saving = true
             try {
-                AppRepositories.files.createDownloadUrl(file.id).getOrThrow()
+                repository.createDownloadUrl(file.id).getOrThrow()
                 withContext(Dispatchers.IO) {
                     context.contentResolver.openOutputStream(uri)?.use { output ->
                         source.inputStream().use { it.copyTo(output) }
@@ -118,7 +124,7 @@ internal fun ChatAttachmentViewer(file: SharedFile, currentUserId: String, onDis
         loading = true
         error = null
         try {
-            val downloaded = downloadAttachment(context, AppRepositories.files, file, forDownload = !canPreview)
+            val downloaded = downloadAttachment(context, repository, file, forDownload = !canPreview)
             localFile = downloaded
             if (file.mimeType.startsWith("image/")) {
                 bitmap = withContext(Dispatchers.IO) {
@@ -170,7 +176,7 @@ internal fun ChatAttachmentViewer(file: SharedFile, currentUserId: String, onDis
                     if (canDownload) TextButton(onClick = {
                         scope.launch {
                             try {
-                                AppRepositories.files.createDownloadUrl(file.id).getOrThrow()
+                                repository.createDownloadUrl(file.id).getOrThrow()
                                 val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", source)
                                 context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, file.mimeType)
                                     .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
@@ -198,7 +204,7 @@ internal fun ChatAttachmentViewer(file: SharedFile, currentUserId: String, onDis
             if (canDownload) TextButton(enabled = localFile != null && !saving && !deleting, onClick = {
                 scope.launch {
                     try {
-                        AppRepositories.files.createDownloadUrl(file.id).getOrThrow()
+                        repository.createDownloadUrl(file.id).getOrThrow()
                         saveDocument.launch(file.fileName.substringAfterLast('/').substringAfterLast('\\'))
                     } catch (e: CancellationException) { throw e }
                     catch (e: Exception) { error = e.toUserMessage().body }
@@ -218,7 +224,7 @@ internal fun ChatAttachmentViewer(file: SharedFile, currentUserId: String, onDis
                 deleteError = null
                 scope.launch {
                     try {
-                        AppRepositories.files.deleteFile(file.id).getOrThrow()
+                        repository.deleteFile(file.id).getOrThrow()
                         player?.stopPlayback()
                         onDismiss()
                     } catch (e: CancellationException) { throw e }

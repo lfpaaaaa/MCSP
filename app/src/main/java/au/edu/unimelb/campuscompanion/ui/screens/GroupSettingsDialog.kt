@@ -9,6 +9,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Nfc
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.QrCode
+import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.outlined.Key
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -38,7 +40,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import au.edu.unimelb.campuscompanion.ui.model.CourseGroup
 import au.edu.unimelb.campuscompanion.ui.model.GroupOrigin
-import au.edu.unimelb.campuscompanion.ui.model.isValidGroupJoinCode
+import au.edu.unimelb.campuscompanion.ui.model.joinCodeAccess
+import au.edu.unimelb.campuscompanion.data.AppRepositories
+import au.edu.unimelb.campuscompanion.data.repository.FileRepository
 
 @Composable
 fun GroupSettingsDialog(
@@ -53,20 +57,23 @@ fun GroupSettingsDialog(
     observeMembers: () -> kotlinx.coroutines.flow.Flow<List<au.edu.unimelb.campuscompanion.data.model.GroupMember>>,
     onTransfer: suspend (String) -> Result<Unit>,
     onExitGroup: suspend (Boolean) -> Result<Unit>,
-    onSave: suspend (folded: Boolean, muted: Boolean, displayName: String, nicknameChanged: Boolean) -> Result<Unit>
+    onSave: suspend (folded: Boolean, muted: Boolean, displayName: String, nicknameChanged: Boolean) -> Result<Unit>,
+    fileRepository: FileRepository = AppRepositories.files,
+    onConfirmedFiles: (Set<String>) -> Unit = {}
 ) {
-    var folded by rememberSaveable(group.id) { mutableStateOf(initialFolded) }
-    var muted by rememberSaveable(group.id) { mutableStateOf(initialMuted) }
-    var displayName by rememberSaveable(group.id) { mutableStateOf(initialDisplayName) }
+    var folded by rememberSaveable(group.id, currentUserId) { mutableStateOf(initialFolded) }
+    var muted by rememberSaveable(group.id, currentUserId) { mutableStateOf(initialMuted) }
+    var displayName by rememberSaveable(group.id, currentUserId) { mutableStateOf(initialDisplayName) }
+    var nicknameLoaded by rememberSaveable(group.id, currentUserId) { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
     val latestMembers by rememberUpdatedState(observeMembers)
-    var serverName by remember(group.id) { mutableStateOf<String?>(null) }
-    var loadingName by remember(group.id) { mutableStateOf(true) }
-    var loadAttempt by remember(group.id) { mutableStateOf(0) }
-    var loadError by remember(group.id) { mutableStateOf<String?>(null) }
-    var saveError by remember(group.id) { mutableStateOf<String?>(null) }
-    var saving by remember(group.id) { mutableStateOf(false) }
+    var serverName by remember(group.id, currentUserId) { mutableStateOf<String?>(null) }
+    var loadingName by remember(group.id, currentUserId) { mutableStateOf(true) }
+    var loadAttempt by remember(group.id, currentUserId) { mutableStateOf(0) }
+    var loadError by remember(group.id, currentUserId) { mutableStateOf<String?>(null) }
+    var saveError by remember(group.id, currentUserId) { mutableStateOf<String?>(null) }
+    var saving by remember(group.id, currentUserId) { mutableStateOf(false) }
     LaunchedEffect(group.id, currentUserId, loadAttempt) {
         loadingName = true
         loadError = null
@@ -74,13 +81,27 @@ fun GroupSettingsDialog(
             val member = latestMembers().first().firstOrNull { it.userId == currentUserId }
                 ?: throw au.edu.unimelb.campuscompanion.data.DataError.Forbidden()
             serverName = member.displayName
-            displayName = member.displayName
+            // Keep an edited nickname across nested pages and Activity recreation.
+            if (!nicknameLoaded) {
+                displayName = member.displayName
+                nicknameLoaded = true
+            }
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (error: Exception) { loadError = error.toUserMessage().body }
         finally { loadingName = false }
     }
 
-    var showMembers by rememberSaveable(group.id) { mutableStateOf(false) }
+    var showMembers by rememberSaveable(group.id, currentUserId) { mutableStateOf(false) }
+    var showFiles by rememberSaveable(group.id, currentUserId) { mutableStateOf(false) }
+    var showJoinCode by rememberSaveable(group.id, currentUserId) { mutableStateOf(false) }
+    var showQr by rememberSaveable(group.id, currentUserId) { mutableStateOf(false) }
+    val canInvite = group.origin != GroupOrigin.Timetable && group.timetableKey == null
+    if (showFiles) {
+        GroupFilesScreen(group.id, group.name, currentUserId,
+            onBack = { showFiles = false }, repository = fileRepository,
+            onConfirmedFiles = onConfirmedFiles)
+        return
+    }
     if (showMembers) {
         GroupSettingsPage(
             onDismissRequest = { showMembers = false },
@@ -99,8 +120,11 @@ fun GroupSettingsDialog(
         return
     }
 
-    val canInvite = group.origin != GroupOrigin.Timetable && group.timetableKey == null
-    var showQr by rememberSaveable(group.id) { mutableStateOf(false) }
+    if (canInvite && showJoinCode) {
+        GroupJoinCodeDialog(group.joinCodeAccess(), onDismiss = { showJoinCode = false },
+            onShareQr = { showJoinCode = false; showQr = true },
+            onInviteWithNfc = { showJoinCode = false; onInviteWithNfc() })
+    }
     if (canInvite && showQr) {
         GroupInviteQrDialog(group.name, createQrInvite, onDismiss = { showQr = false })
     }
@@ -121,13 +145,24 @@ fun GroupSettingsDialog(
                     Icon(Icons.Outlined.Groups, contentDescription = null)
                     Text("Members (${group.members})", modifier = Modifier.padding(start = 8.dp))
                 }
+                OutlinedButton(onClick = { showFiles = true }, enabled = !saving,
+                    modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Outlined.FolderOpen, contentDescription = null)
+                    Text("Group files", modifier = Modifier.padding(start = 8.dp))
+                }
                 if (canInvite) {
-                    OutlinedButton(onClick = { showQr = true }, modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(onClick = { showJoinCode = true }, enabled = !saving,
+                        modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Outlined.Key, contentDescription = null)
+                        Text("View join code", modifier = Modifier.padding(start = 8.dp))
+                    }
+                    OutlinedButton(onClick = { showQr = true }, enabled = !saving, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Outlined.QrCode, contentDescription = null)
                         Text("Share QR code", modifier = Modifier.padding(start = 8.dp))
                     }
                     OutlinedButton(
                         onClick = onInviteWithNfc,
+                        enabled = !saving,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Icon(
@@ -148,12 +183,14 @@ fun GroupSettingsDialog(
                         "Created and joined groups stay active until you fold them."
                     },
                     checked = folded,
+                    enabled = !saving,
                     onCheckedChange = { folded = it }
                 )
                 SettingSwitchRow(
                     title = "Mute notifications",
                     description = "Keep the chat available without notification alerts.",
                     checked = muted,
+                    enabled = !saving,
                     onCheckedChange = { muted = it }
                 )
                 OutlinedTextField(
@@ -173,7 +210,7 @@ fun GroupSettingsDialog(
             }
         },
         bottomAction = {
-            if (group.origin != GroupOrigin.Timetable) {
+            if (canInvite) {
                 GroupExitAction(
                     isOwner = group.origin == GroupOrigin.CreatedByUser,
                     onExit = onExitGroup
@@ -212,6 +249,7 @@ private fun SettingSwitchRow(
     title: String,
     description: String,
     checked: Boolean,
+    enabled: Boolean = true,
     onCheckedChange: (Boolean) -> Unit
 ) {
     Row(
@@ -235,6 +273,7 @@ private fun SettingSwitchRow(
         }
         Switch(
             checked = checked,
+            enabled = enabled,
             onCheckedChange = onCheckedChange
         )
     }

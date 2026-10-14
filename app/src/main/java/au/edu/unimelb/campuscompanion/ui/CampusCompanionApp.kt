@@ -85,6 +85,9 @@ import au.edu.unimelb.campuscompanion.ui.model.NfcJoinUiState
 import au.edu.unimelb.campuscompanion.ui.model.NfcShareUiState
 import au.edu.unimelb.campuscompanion.ui.model.PendingDocument
 import au.edu.unimelb.campuscompanion.ui.model.StartedGroupAccess
+import au.edu.unimelb.campuscompanion.ui.model.toCourseGroup
+import au.edu.unimelb.campuscompanion.ui.model.groupJoinCodeExpiresAt
+import au.edu.unimelb.campuscompanion.ui.model.restoreJoinCodeExpiresAt
 import au.edu.unimelb.campuscompanion.ui.model.TimetableState
 import au.edu.unimelb.campuscompanion.ui.model.buildCourseReminderSeries
 import au.edu.unimelb.campuscompanion.ui.model.foldedOverrideAfterEdit
@@ -139,6 +142,10 @@ fun CampusCompanionApp(authViewModel: AuthViewModel) {
     var openGroupMembers by rememberSaveable { mutableStateOf(0) }
     var openGroupLatestMessage by rememberSaveable { mutableStateOf("") }
     var openGroupOrigin by rememberSaveable { mutableStateOf(GroupOrigin.Timetable.name) }
+    var openGroupJoinCode by rememberSaveable { mutableStateOf<String?>(null) }
+    var openGroupJoinCodeExpiresAt by rememberSaveable { mutableStateOf<String?>(null) }
+    var openGroupTimetableKey by rememberSaveable { mutableStateOf<String?>(null) }
+    var openGroupTimetableSlot by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingDocumentUris by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
     var pendingDocumentNames by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
     var pendingDocumentSizes by rememberSaveable { mutableStateOf(arrayListOf<Long>()) }
@@ -186,6 +193,10 @@ fun CampusCompanionApp(authViewModel: AuthViewModel) {
         openGroupMembers = 0
         openGroupLatestMessage = ""
         openGroupOrigin = GroupOrigin.Timetable.name
+        openGroupJoinCode = null
+        openGroupJoinCodeExpiresAt = null
+        openGroupTimetableKey = null
+        openGroupTimetableSlot = null
         clearPendingDocuments()
         clearCameraCapture()
     }
@@ -199,6 +210,10 @@ fun CampusCompanionApp(authViewModel: AuthViewModel) {
         openGroupMembers = group.members
         openGroupLatestMessage = group.latestMessage
         openGroupOrigin = group.origin.name
+        openGroupJoinCode = group.joinCode
+        openGroupJoinCodeExpiresAt = group.joinCodeExpiresAt?.toString()
+        openGroupTimetableKey = group.timetableKey
+        openGroupTimetableSlot = group.timetableSlot
     }
 
     val restoredGroup = openGroupId?.let { groupId ->
@@ -213,7 +228,11 @@ fun CampusCompanionApp(authViewModel: AuthViewModel) {
             latestMessage = openGroupLatestMessage,
             latestFileName = null,
             origin = GroupOrigin.entries.firstOrNull { it.name == openGroupOrigin }
-                ?: GroupOrigin.Timetable
+                ?: GroupOrigin.Timetable,
+            joinCode = openGroupJoinCode,
+            joinCodeExpiresAt = restoreJoinCodeExpiresAt(openGroupJoinCodeExpiresAt),
+            timetableKey = openGroupTimetableKey,
+            timetableSlot = openGroupTimetableSlot
         )
     }
 
@@ -817,6 +836,7 @@ private fun AuthenticatedCampusApp(
             initialFolded = selectedGroup.id in foldedGroupIds,
             initialMuted = selectedPreferences.muted,
             initialDisplayName = selectedPreferences.displayName.ifBlank { user.profileName },
+            onConfirmedFiles = { AppRepositories.attachmentUploads.acknowledge(it) },
             onDismiss = { showGroupSettings = false },
             onInviteWithNfc = { startNfcShare(selectedGroup) },
             createQrInvite = { inviteRepository.createInvite(selectedGroup.id) },
@@ -1025,7 +1045,7 @@ private fun AuthenticatedCampusApp(
                             StartedGroupAccess(
                                 groupName = group.name,
                                 joinCode = group.joinCode?.takeIf(::isValidGroupJoinCode),
-                                expiresAt = group.createdAt.plusSeconds(300)
+                                expiresAt = groupJoinCodeExpiresAt(group.createdAt)
                             )
                         }
                     },
@@ -1147,39 +1167,6 @@ private fun AuthenticatedCampusApp(
         }
     }
 }
-
-/** A group the user has just created, before its summary has been fetched. */
-private fun Group.toCourseGroup(currentUserId: String, memberCount: Int): CourseGroup = CourseGroup(
-    id = id,
-    courseCode = courseCode.orEmpty(),
-    name = name,
-    members = memberCount,
-    unreadCount = 0,
-    latestMessage = "No messages yet.",
-    latestFileName = null,
-    origin = if (createdBy == currentUserId) GroupOrigin.CreatedByUser else GroupOrigin.Joined,
-    joinCode = joinCode
-)
-
-private fun GroupSummary.toCourseGroup(currentUserId: String): CourseGroup = CourseGroup(
-    id = group.id,
-    courseCode = group.courseCode.orEmpty(),
-    name = if (group.timetableKey != null) group.name.trimTrailingCommas() else group.name,
-    members = memberCount,
-    unreadCount = unreadCount,
-    latestMessage = latestMessagePreview ?: "No messages yet.",
-    latestFileName = latestFileName,
-    origin = if (group.timetableKey != null) {
-        GroupOrigin.Timetable
-    } else if (myRole == au.edu.unimelb.campuscompanion.data.model.GroupRole.Owner) {
-        GroupOrigin.CreatedByUser
-    } else {
-        GroupOrigin.Joined
-    },
-    joinCode = group.joinCode,
-    timetableKey = group.timetableKey,
-    timetableSlot = group.timetableSlot
-)
 
 private fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this

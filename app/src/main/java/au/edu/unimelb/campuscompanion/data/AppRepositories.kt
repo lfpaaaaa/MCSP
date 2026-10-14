@@ -126,6 +126,7 @@ object AppRepositories {
                                     // Another account signed in without signing out first.
                                     DepartureNotifier.cancelAll(appContext)
                                     navigation.clear()
+                                    files.clearSession()
                                 }
                                 sensingAccounts.replaceAccount(userId,
                                     userId?.let { TimetableSubscriptionStore(appContext).load(it).timetable?.sessions }.orEmpty())
@@ -139,6 +140,7 @@ object AppRepositories {
                             navigation.clear()
                             DepartureNotifier.cancelAll(appContext)
                             groups.clearSession()
+                            files.clearSession()
                             database.messageDao().deleteAll()
                         }
                         is SessionStatus.RefreshFailure -> {

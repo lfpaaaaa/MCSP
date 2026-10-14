@@ -20,6 +20,7 @@ class FakeFileRemoteDataSource : FileRemoteDataSource {
     var uploadResponseFailure: DataError? = null
     var recordResponseFailure: DataError? = null
     var objectDeletionFailure: DataError? = null
+    var fetchRequest: (suspend (String) -> List<SharedFileRow>)? = null
 
     val stored = mutableListOf<SharedFileRow>()
     val objects = mutableMapOf<String, ByteArray>()
@@ -34,6 +35,7 @@ class FakeFileRemoteDataSource : FileRemoteDataSource {
     override suspend fun fetchFiles(groupId: String): List<SharedFileRow> {
         fetchCount.value += 1
         fetchFailure?.let { throw it }
+        fetchRequest?.let { return it(groupId) }
         return stored.filter { it.groupId == groupId }.sortedByDescending { it.createdAt }
     }
 

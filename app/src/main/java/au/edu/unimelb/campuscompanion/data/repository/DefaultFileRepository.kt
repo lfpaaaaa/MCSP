@@ -2,6 +2,7 @@ package au.edu.unimelb.campuscompanion.data.repository
 
 import au.edu.unimelb.campuscompanion.data.DataError
 import au.edu.unimelb.campuscompanion.data.model.CurrentUser
+import au.edu.unimelb.campuscompanion.data.model.FileCatalogState
 import au.edu.unimelb.campuscompanion.data.model.SharedFile
 import au.edu.unimelb.campuscompanion.data.model.UploadState
 import au.edu.unimelb.campuscompanion.data.remote.FileRemoteDataSource
@@ -13,6 +14,9 @@ import au.edu.unimelb.campuscompanion.data.remote.toModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -20,7 +24,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
@@ -47,17 +52,53 @@ class DefaultFileRepository(
     private val reconciliationIntervalMillis: Long = RECONCILIATION_INTERVAL_MILLIS
 ) : FileRepository {
 
-    private val filesByGroup = MutableStateFlow<Map<String, List<SharedFileRow>>>(emptyMap())
+    private class Session(val userId: String)
+    private data class Catalog(
+        val rows: List<SharedFileRow> = emptyList(),
+        val isLoading: Boolean = true,
+        val hasLoaded: Boolean = false,
+        val isCached: Boolean = false,
+        val error: DataError? = null,
+        val cacheRead: Boolean = false
+    ) {
+        fun toModel() = FileCatalogState(rows.map(SharedFileRow::toModel), isLoading, hasLoaded, isCached, error)
+    }
+    private data class CatalogStore(val session: Session? = null, val groups: Map<String, Catalog> = emptyMap())
+    private val catalogs = MutableStateFlow(CatalogStore())
     private val refreshLock = Mutex()
 
-    override fun observeFiles(groupId: String): Flow<List<SharedFile>> = channelFlow {
-        showSavedList(groupId)
-        launch { keepFresh(groupId) }
-        filesByGroup
-            .map { byGroup -> byGroup[groupId] }
-            .filterNotNull()
+    override fun clearSession() {
+        catalogs.value = CatalogStore()
+    }
+
+    override fun observeFiles(groupId: String): Flow<List<SharedFile>> = observeFileCatalog(groupId)
+        .filter { it.hasLoaded || it.error != null }
+        .map { it.files }
+        .distinctUntilChanged()
+
+    override fun observeFileCatalog(groupId: String): Flow<FileCatalogState> = channelFlow {
+        val session = dataResult { currentSession() }.getOrElse {
+            send(FileCatalogState(isLoading = false, error = it.toDataError()))
+            return@channelFlow
+        }
+        launch(start = CoroutineStart.UNDISPATCHED) {
+            catalogs.map { store ->
+                if (store.session === session && isCurrent(session)) {
+                    (store.groups[groupId] ?: Catalog()).toModel()
+                } else FileCatalogState(isLoading = false, error = DataError.Unauthenticated())
+            }
             .distinctUntilChanged()
-            .collect { rows -> send(rows.map { it.toModel() }) }
+            .collect { send(it) }
+        }
+        showSavedList(session, groupId)
+        if (isCurrent(session)) launch { keepFresh(session, groupId) }
+        awaitCancellation()
+    }
+
+    override suspend fun refreshFiles(groupId: String): Result<Unit> = dataResult {
+        val session = currentSession()
+        showSavedList(session, groupId)
+        refresh(session, groupId).getOrThrow()
     }
 
     override fun uploadFile(
@@ -82,6 +123,7 @@ class DefaultFileRepository(
             emit(UploadState.Failed(DataError.Unauthenticated()))
             return@flow
         }
+        val session = currentSession()
         val type = mimeType.trim().takeIf { it.contains('/') && it.length <= MAX_MIME_TYPE_LENGTH }
             ?: DEFAULT_MIME_TYPE
         val total = bytes.size.toLong()
@@ -121,117 +163,203 @@ class DefaultFileRepository(
             inserted.allowDownloads != allowDownloads) {
             throw DataError.Validation("This upload no longer matches its original file.")
         }
-        if (currentUser()?.id != user.id) throw DataError.Unauthenticated()
+        requireCurrent(session)
         val row = inserted.copy(uploaderName = user.displayName)
-        storeList(groupId) { rows -> listOf(row) + rows.filterNot { it.id == row.id } }
+        refreshLock.withLock {
+            storeList(session, groupId) { rows -> listOf(row) + rows.filterNot { it.id == row.id } }
+        }
+        requireCurrent(session)
         emit(UploadState.Completed(row.toModel()))
     }.catch { error ->
         if (error is CancellationException) throw error
         emit(UploadState.Failed(error.toDataError()))
     }
 
-    override suspend fun createPreviewUrl(fileId: String): Result<String> {
-        if (currentUser() == null) return Result.failure(DataError.Unauthenticated())
-        if (cachedRow(fileId) == null) return Result.failure(DataError.NotFound())
-        return dataResult { remote.createAccessUrl(fileId, forDownload = false) }
+    override suspend fun createPreviewUrl(fileId: String): Result<String> = dataResult {
+        val session = currentSession()
+        if (cachedRow(session, fileId) == null) throw DataError.NotFound()
+        remote.createAccessUrl(fileId, forDownload = false).also { requireCurrent(session) }
     }
 
-    override suspend fun createDownloadUrl(fileId: String): Result<String> {
-        val row = cachedRow(fileId) ?: return Result.failure(DataError.NotFound())
-        val user = currentUser() ?: return Result.failure(DataError.Unauthenticated())
-        if (!row.toModel().canDownloadBy(user.id)) {
-            return Result.failure(DataError.Validation("The uploader has disabled downloads for this attachment."))
+    override suspend fun createDownloadUrl(fileId: String): Result<String> = dataResult {
+        val session = currentSession()
+        val row = cachedRow(session, fileId) ?: throw DataError.NotFound()
+        if (!row.toModel().canDownloadBy(session.userId)) {
+            throw DataError.Validation("The uploader has disabled downloads for this attachment.")
         }
         // The server checks the current membership and saved permission again.
-        return dataResult { remote.createAccessUrl(fileId, forDownload = true) }
+        remote.createAccessUrl(fileId, forDownload = true).also { requireCurrent(session) }
     }
 
-    override suspend fun deleteFile(fileId: String): Result<Unit> {
-        val row = cachedRow(fileId)
-        val user = currentUser() ?: return Result.failure(DataError.Unauthenticated())
-        if (row != null && row.uploaderId != user.id) {
-            return Result.failure(DataError.Forbidden())
+    override suspend fun deleteFile(fileId: String): Result<Unit> = dataResult {
+        val session = currentSession()
+        val row = cachedRow(session, fileId)
+        if (row != null && row.uploaderId != session.userId) {
+            throw DataError.Forbidden()
         }
-        return dataResult {
-            // The server keeps a durable job and removes metadata only after Storage succeeds.
-            // A failure leaves the cached row visible so the uploader can retry.
-            remote.deleteFile(fileId)
-            if (row != null) storeList(row.groupId) { rows -> rows.filterNot { it.id == fileId } }
-            Unit
+        // The server keeps a durable job and removes metadata only after Storage succeeds.
+        // A failure leaves the cached row visible so the uploader can retry.
+        remote.deleteFile(fileId)
+        requireCurrent(session)
+        if (row != null) refreshLock.withLock {
+            storeList(session, row.groupId) { rows -> rows.filterNot { it.id == fileId } }
         }
+        requireCurrent(session)
+        Unit
     }
 
     /** Keeps the file list of [groupId] up to date for as long as the caller is active. */
-    private suspend fun keepFresh(groupId: String) {
+    private suspend fun keepFresh(session: Session, groupId: String) {
+        while (isCurrent(session)) {
+            synchronizeWhileAllowed(session, groupId)
+            if (!isCurrent(session)) return
+            // A denial stops network work. An explicit successful refresh after rejoining resumes
+            // this observer without requiring the user to close and reopen the file browser.
+            catalogs.first { store ->
+                !isCurrent(session) || store.groups[groupId]?.let {
+                    it.hasLoaded && !it.isLoading && it.error == null
+                } == true
+            }
+        }
+    }
+
+    private suspend fun synchronizeWhileAllowed(session: Session, groupId: String) {
         coroutineScope {
-            launch {
-                while (true) {
-                    refreshUntilSuccessful(groupId)
+            // Coalesce reconnect/insert events while a read or retry is already in progress.
+            val requests = Channel<Unit>(Channel.CONFLATED)
+            val periodic = launch {
+                while (isCurrent(session)) {
+                    requests.send(Unit)
                     // Realtime DELETE filtering/RLS does not reliably identify a group. Reconcile
                     // while observed so another member's deletion also disappears locally.
                     delay(reconciliationIntervalMillis.coerceAtLeast(1))
                 }
             }
-            var attempt = 0
-            while (true) {
-                try {
-                    remote.fileChanges(groupId).collect {
-                        attempt = 0
-                        launch { refreshUntilSuccessful(groupId) }
+            val realtime = launch {
+                var attempt = 0
+                while (isCurrent(session)) {
+                    try {
+                        remote.fileChanges(groupId).collect {
+                            attempt = 0
+                            requests.trySend(Unit)
+                        }
+                    } catch (cancellation: CancellationException) {
+                        throw cancellation
+                    } catch (_: Throwable) {
+                        requests.trySend(Unit)
                     }
-                } catch (cancellation: CancellationException) {
-                    throw cancellation
-                } catch (error: Throwable) {
-                    // The last list stays visible while the live feed is joined again.
+                    delay(retryDelay(++attempt))
                 }
-                attempt++
-                delay(retryDelay(attempt))
+            }
+            try {
+                for (request in requests) {
+                    var attempt = 0
+                    while (isCurrent(session)) {
+                        val result = refresh(session, groupId)
+                        if (result.isSuccess) break
+                        if (result.exceptionOrNull().isAccessDenied()) return@coroutineScope
+                        delay(retryDelay(++attempt))
+                    }
+                    if (!isCurrent(session)) return@coroutineScope
+                }
+            } finally {
+                periodic.cancel()
+                realtime.cancel()
+                requests.close()
             }
         }
     }
 
-    private suspend fun refreshUntilSuccessful(groupId: String) {
-        var attempt = 0
-        while (!refresh(groupId)) {
-            attempt++
-            delay(retryDelay(attempt))
+    private suspend fun refresh(session: Session, groupId: String): Result<Unit> = refreshLock.withLock {
+        dataResult {
+            requireCurrent(session)
+            updateCatalog(session, groupId) { it.copy(isLoading = true, error = null) }
+            val fetched = dataResult { remote.fetchFiles(groupId) }
+            requireCurrent(session)
+            fetched.fold(
+                onSuccess = { rows -> storeList(session, groupId) { rows } },
+                onFailure = { error ->
+                    val failure = error.toDataError()
+                    if (failure.isAccessDenied()) {
+                        updateCatalog(session, groupId) {
+                            Catalog(isLoading = false, error = failure, cacheRead = true)
+                        }
+                        saveCache(session, groupId, emptyList())
+                    } else {
+                        updateCatalog(session, groupId) {
+                            it.copy(isLoading = false, isCached = it.hasLoaded, error = failure)
+                        }
+                    }
+                    throw failure
+                }
+            )
+            requireCurrent(session)
         }
-    }
-
-    private suspend fun refresh(groupId: String): Boolean = refreshLock.withLock {
-        val fetched = dataResult { remote.fetchFiles(groupId) }
-        fetched.onSuccess { rows -> storeList(groupId) { rows } }
-        fetched.isSuccess
     }
 
     /**
      * Seeds the list of [groupId] from the copy on the device, so the chat shows its files before
      * the server answers and without a connection. A fresh list replaces it as soon as one arrives.
      */
-    private suspend fun showSavedList(groupId: String) {
-        val fileCache = cache ?: return
-        if (filesByGroup.value[groupId] != null) return
-        val userId = currentUser()?.id ?: return
-        val saved = withContext(Dispatchers.IO) { runCatching { fileCache.load(userId, groupId) }.getOrNull() }
-            ?: return
-        filesByGroup.update { byGroup -> if (byGroup[groupId] == null) byGroup + (groupId to saved) else byGroup }
+    private suspend fun showSavedList(session: Session, groupId: String) = refreshLock.withLock {
+        if (!isCurrent(session) || catalogs.value.groups[groupId]?.cacheRead == true) return@withLock
+        val saved = withContext(Dispatchers.IO) {
+            runCatching { cache?.load(session.userId, groupId) }.getOrNull()
+        }
+        if (!isCurrent(session)) return@withLock
+        updateCatalog(session, groupId) {
+            if (saved == null) it.copy(cacheRead = true)
+            else it.copy(rows = saved, hasLoaded = true, isCached = true, cacheRead = true)
+        }
     }
 
     /**
      * Replaces the list of [groupId] with [transform] of the current one and keeps a copy on the
      * device. The copy is written even if the caller is cancelled meanwhile, so it never lags.
      */
-    private suspend fun storeList(groupId: String, transform: (List<SharedFileRow>) -> List<SharedFileRow>) {
-        val rows = filesByGroup
-            .updateAndGet { byGroup -> byGroup + (groupId to transform(byGroup[groupId].orEmpty())) }
-            .getValue(groupId)
-        val fileCache = cache ?: return
-        val userId = currentUser()?.id ?: return
-        withContext(Dispatchers.IO + NonCancellable) { runCatching { fileCache.save(userId, groupId, rows) } }
+    private suspend fun storeList(session: Session, groupId: String, transform: (List<SharedFileRow>) -> List<SharedFileRow>) {
+        requireCurrent(session)
+        val rows = transform(catalogs.value.groups[groupId]?.rows.orEmpty())
+        updateCatalog(session, groupId) {
+            Catalog(rows, isLoading = false, hasLoaded = true, cacheRead = true)
+        }
+        saveCache(session, groupId, rows)
     }
 
-    private fun cachedRow(fileId: String): SharedFileRow? =
-        filesByGroup.value.values.asSequence().flatten().firstOrNull { it.id == fileId }
+    private suspend fun saveCache(session: Session, groupId: String, rows: List<SharedFileRow>) {
+        val fileCache = cache ?: return
+        // Retain the account that authorized the operation even if sign-out occurs during I/O.
+        withContext(Dispatchers.IO + NonCancellable) { runCatching { fileCache.save(session.userId, groupId, rows) } }
+    }
+
+    private fun updateCatalog(session: Session, groupId: String, transform: (Catalog) -> Catalog) {
+        requireCurrent(session)
+        catalogs.update { store ->
+            if (store.session !== session) store
+            else store.copy(groups = store.groups + (groupId to transform(store.groups[groupId] ?: Catalog())))
+        }
+    }
+
+    private fun currentSession(): Session {
+        val userId = currentUser()?.id ?: run { clearSession(); throw DataError.Unauthenticated() }
+        return catalogs.updateAndGet { store ->
+            if (store.session?.userId == userId) store else CatalogStore(Session(userId))
+        }.session!!.also { requireCurrent(it) }
+    }
+
+    private fun isCurrent(session: Session): Boolean =
+        catalogs.value.session === session && currentUser()?.id == session.userId
+
+    private fun requireCurrent(session: Session) {
+        if (!isCurrent(session)) throw DataError.Unauthenticated()
+    }
+
+    private fun cachedRow(session: Session, fileId: String): SharedFileRow? =
+        catalogs.value.takeIf { it.session === session }?.groups?.values
+            ?.asSequence()?.flatMap { it.rows.asSequence() }?.firstOrNull { it.id == fileId }
+
+    private fun Throwable?.isAccessDenied(): Boolean =
+        this is DataError.Forbidden || this is DataError.Unauthenticated || this is DataError.NotFound
 
     private fun retryDelay(attempt: Int): Long {
         val factor = 1L shl (attempt - 1).coerceIn(0, 6)

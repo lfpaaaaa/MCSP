@@ -14,7 +14,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.CheckCircle
-import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
@@ -44,8 +43,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
@@ -61,8 +58,6 @@ import au.edu.unimelb.campuscompanion.ui.model.StartedGroupAccess
 import au.edu.unimelb.campuscompanion.ui.model.TimetableState
 import au.edu.unimelb.campuscompanion.ui.model.isValidGroupJoinCode
 import au.edu.unimelb.campuscompanion.ui.model.normalizeGroupJoinCode
-import java.time.Duration
-import java.time.Instant
 import kotlinx.coroutines.launch
 
 @Composable
@@ -415,12 +410,7 @@ private fun StartGroupDialog(
     var errorMessage by rememberSaveable { mutableStateOf<String?>(null) }
     var isSubmitting by rememberSaveable { mutableStateOf(false) }
     var startedGroup by remember { mutableStateOf<StartedGroupAccess?>(null) }
-    var now by remember { mutableStateOf(Instant.now()) }
-    LaunchedEffect(startedGroup) {
-        if (startedGroup != null) while (true) { now = Instant.now(); delay(1_000) }
-    }
     val scope = rememberCoroutineScope()
-    val clipboard = LocalClipboardManager.current
 
     AlertDialog(
         onDismissRequest = {
@@ -472,46 +462,7 @@ private fun StartGroupDialog(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text("${result.groupName} is ready.")
-                    if (result.joinCode != null && result.expiresAt != null && now.isBefore(result.expiresAt)) {
-                        Surface(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.secondaryContainer
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = "Join code",
-                                        style = MaterialTheme.typography.labelMedium
-                                    )
-                                    Text(
-                                        text = result.joinCode,
-                                        style = MaterialTheme.typography.headlineMedium
-                                    )
-                                }
-                                IconButton(
-                                    onClick = {
-                                        clipboard.setText(AnnotatedString(result.joinCode))
-                                    }
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Outlined.ContentCopy,
-                                        contentDescription = "Copy join code"
-                                    )
-                                }
-                            }
-                        }
-                        val remaining = Duration.between(now, result.expiresAt).seconds.coerceAtLeast(0)
-                        Text("Code expires in ${remaining / 60}:${(remaining % 60).toString().padStart(2, '0')}. Valid only during the first 5 minutes after group creation.")
-                    } else {
-                        Text(
-                            text = "The 6-character code is unavailable or expired. Use Share QR code or NFC in group settings.",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+                    GroupJoinCodeContent(result)
                 }
             }
         },
