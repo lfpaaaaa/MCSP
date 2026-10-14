@@ -22,6 +22,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -49,6 +50,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.FileProvider
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -1134,7 +1136,7 @@ private fun AuthenticatedCampusApp(
 /** Navigation animates the whole destination, including the app bar and bottom navigation. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CampusScreenScaffold(
+internal fun CampusScreenScaffold(
     route: String,
     selectedGroup: CourseGroup?,
     profileSaving: Boolean,
@@ -1165,7 +1167,8 @@ private fun CampusScreenScaffold(
                                 } ?: selectedGroup?.courseCode
                                     ?.takeIf(String::isNotBlank)
                                     ?: selectedGroup?.name
-                                    ?: textResources.getString(R.string.campus_companion_app_group)
+                                    ?: textResources.getString(R.string.campus_companion_app_group),
+                                maxLines = 1, overflow = TextOverflow.Ellipsis
                             )
                             selectedGroup?.let { group ->
                                 Text(
@@ -1242,7 +1245,8 @@ private fun CampusScreenScaffold(
             }
         }
     ) { innerPadding ->
-        Box(Modifier.fillMaxSize().padding(innerPadding)) { content() }
+        // Children such as chat apply IME padding only for space not already reserved here.
+        Box(Modifier.fillMaxSize().padding(innerPadding).consumeWindowInsets(innerPadding)) { content() }
     }
 }
 

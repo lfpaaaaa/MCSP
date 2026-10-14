@@ -21,6 +21,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
@@ -62,23 +63,29 @@ internal fun SharedAttachmentBubble(file: SharedFile, isMine: Boolean, onOpen: (
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun AttachmentUploadBubble(upload: AttachmentUpload, onRetry: () -> Unit, onDismiss: () -> Unit) {
     val textResources = textResources()
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(upload.fileName)
-            when (upload.phase) {
-                AttachmentPhase.Uploading -> {
-                    LinearProgressIndicator(progress = { upload.progress }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = textResources.getString(R.string.a11y_uploading_file, upload.fileName) })
-                    Text(textResources.getString(R.string.chat_attachments_uploading, (upload.progress * 100).toInt()), style = MaterialTheme.typography.labelSmall)
-                }
-                AttachmentPhase.Completed -> Text(textResources.getString(R.string.chat_attachments_uploaded_syncing), modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
-                AttachmentPhase.Failed -> {
-                    Text(upload.error ?: textResources.getString(R.string.chat_attachments_upload_failed), color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
-                    Row {
-                        TextButton(onClick = onRetry, modifier = Modifier.semantics { contentDescription = textResources.getString(R.string.a11y_retry_upload, upload.fileName) }) { Text(textResources.getString(R.string.action_retry)) }
-                        TextButton(onClick = onDismiss, modifier = Modifier.semantics { contentDescription = textResources.getString(R.string.a11y_remove_file, upload.fileName) }) { Text(textResources.getString(R.string.chat_attachments_remove)) }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        Card(Modifier.widthIn(max = 320.dp).fillMaxWidth()) {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(upload.fileName, style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                when (upload.phase) {
+                    AttachmentPhase.Uploading -> {
+                        LinearProgressIndicator(progress = { upload.progress }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = textResources.getString(R.string.a11y_uploading_file, upload.fileName) })
+                        Text(textResources.getString(R.string.chat_attachments_uploading, (upload.progress * 100).toInt()), style = MaterialTheme.typography.labelSmall)
+                    }
+                    AttachmentPhase.Completed -> Text(textResources.getString(R.string.chat_attachments_uploaded_syncing), modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                    AttachmentPhase.Failed -> {
+                        Text(upload.error ?: textResources.getString(R.string.chat_attachments_upload_failed),
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                        FlowRow {
+                            TextButton(onClick = onRetry, modifier = Modifier.semantics { contentDescription = textResources.getString(R.string.a11y_retry_upload, upload.fileName) }) { Text(textResources.getString(R.string.action_retry)) }
+                            TextButton(onClick = onDismiss, modifier = Modifier.semantics { contentDescription = textResources.getString(R.string.a11y_remove_file, upload.fileName) }) { Text(textResources.getString(R.string.chat_attachments_remove)) }
+                        }
                     }
                 }
             }

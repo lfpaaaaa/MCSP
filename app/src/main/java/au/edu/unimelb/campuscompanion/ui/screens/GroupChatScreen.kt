@@ -102,6 +102,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import au.edu.unimelb.campuscompanion.data.AppRepositories
+import au.edu.unimelb.campuscompanion.data.AttachmentUploadQueue
+import au.edu.unimelb.campuscompanion.data.repository.ChatMessageSender
 import au.edu.unimelb.campuscompanion.data.model.ChatConnection
 import au.edu.unimelb.campuscompanion.data.model.MessageStatus
 import au.edu.unimelb.campuscompanion.data.model.SharedFile
@@ -178,7 +180,9 @@ fun GroupChatScreen(
     onCapturedCameraPhotoConsumed: () -> Unit,
     modifier: Modifier = Modifier,
     chatRepository: ChatRepository = AppRepositories.chat,
-    fileRepository: FileRepository = AppRepositories.files
+    fileRepository: FileRepository = AppRepositories.files,
+    messageSender: ChatMessageSender = AppRepositories.chatSender,
+    uploadQueue: AttachmentUploadQueue = AppRepositories.attachmentUploads
 ) {
     val textResources = textResources()
     val listState = rememberLazyListState()
@@ -222,8 +226,6 @@ fun GroupChatScreen(
     }
     val state by session.state.collectAsState()
     val rows = remember(state.items) { timelineRows(state.items) }
-    val sender = remember { AppRepositories.chatSender }
-    val uploadQueue = remember { AppRepositories.attachmentUploads }
     val allUploads by uploadQueue.uploads.collectAsState()
     val sharedIds = state.items.filterIsInstance<ChatTimelineItem.File>().mapTo(mutableSetOf()) { it.file.id }
     val uploads = allUploads.filter {
@@ -269,7 +271,7 @@ fun GroupChatScreen(
             return
         }
         if (text.isNotEmpty()) {
-            val delivery = sender.send(group.id, text)
+            val delivery = messageSender.send(group.id, text)
             coroutineScope.launch { delivery.await().onFailure(session::report) }
         }
         draft = ""
@@ -436,7 +438,7 @@ fun GroupChatScreen(
                         is ChatTimelineItem.Message -> ChatBubble(
                             item = item,
                             onRetry = {
-                                val delivery = sender.retry(group.id, item.message.clientId)
+                                val delivery = messageSender.retry(group.id, item.message.clientId)
                                 coroutineScope.launch { delivery.await().onFailure(session::report) }
                             }
                         )
@@ -461,127 +463,131 @@ fun GroupChatScreen(
 
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         Surface(color = MaterialTheme.colorScheme.surfaceContainerLowest) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.Bottom,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                IconButton(
-                    onClick = {
-                        focusManager.clearFocus()
-                        showAttachmentSheet = true
-                    }
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.AddCircleOutline,
-                        contentDescription = textResources.getString(R.string.group_chat_add_attachment),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                }
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    if (pendingDocuments.isNotEmpty() || localAttachment != null) {
-                        LazyRow(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            contentPadding = PaddingValues(end = 4.dp)
-                        ) {
-                            items(
-                                items = pendingDocuments,
-                                key = PendingDocument::uri
-                            ) { document ->
-                                PendingAttachment(
-                                    displayName = document.displayName,
-                                    kind = AttachmentKind.File,
-                                    sizeBytes = document.sizeBytes,
-                                    allowDownloads = document.uri !in blockedDownloadUris,
-                                    onAllowDownloadsChange = { setDownloadAllowed(document.uri, it) },
-                                    onRemove = {
-                                        setDownloadAllowed(document.uri, true)
-                                        onPendingDocumentRemoved(document.uri)
-                                    }
-                                )
-                            }
-                            localAttachment?.let { attachment ->
-                                item(key = "local-attachment") {
+            Column {
+                if (pendingDocuments.isNotEmpty() || localAttachment != null || pendingDocumentError != null) {
+                    Column(
+                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        if (pendingDocuments.isNotEmpty() || localAttachment != null) {
+                            LazyRow(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                contentPadding = PaddingValues(end = 4.dp)
+                            ) {
+                                items(
+                                    items = pendingDocuments,
+                                    key = PendingDocument::uri
+                                ) { document ->
                                     PendingAttachment(
-                                        displayName = attachment.displayName,
-                                        kind = attachment.kind,
-                                        sizeBytes = null,
-                                        allowDownloads = attachment.uri.toString() !in blockedDownloadUris,
-                                        onAllowDownloadsChange = { setDownloadAllowed(attachment.uri.toString(), it) },
+                                        displayName = document.displayName,
+                                        kind = AttachmentKind.File,
+                                        sizeBytes = document.sizeBytes,
+                                        allowDownloads = document.uri !in blockedDownloadUris,
+                                        onAllowDownloadsChange = { setDownloadAllowed(document.uri, it) },
                                         onRemove = {
-                                            discardLocalRecording(context, attachment.uri.toString())
-                                            setDownloadAllowed(attachment.uri.toString(), true)
-                                            localAttachment = null
+                                            setDownloadAllowed(document.uri, true)
+                                            onPendingDocumentRemoved(document.uri)
                                         }
                                     )
                                 }
+                                localAttachment?.let { attachment ->
+                                    item(key = "local-attachment") {
+                                        PendingAttachment(
+                                            displayName = attachment.displayName,
+                                            kind = attachment.kind,
+                                            sizeBytes = null,
+                                            allowDownloads = attachment.uri.toString() !in blockedDownloadUris,
+                                            onAllowDownloadsChange = { setDownloadAllowed(attachment.uri.toString(), it) },
+                                            onRemove = {
+                                                discardLocalRecording(context, attachment.uri.toString())
+                                                setDownloadAllowed(attachment.uri.toString(), true)
+                                                localAttachment = null
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                            if (pendingDocuments.isNotEmpty()) {
+                                Text(
+                                    text = textResources.getQuantityString(R.plurals.document_capacity, MAX_PENDING_DOCUMENTS, pendingDocuments.size, MAX_PENDING_DOCUMENTS),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                         }
-                        if (pendingDocuments.isNotEmpty()) {
+                        pendingDocumentError?.let { error ->
                             Text(
-                                text = textResources.getQuantityString(R.plurals.document_capacity, MAX_PENDING_DOCUMENTS, pendingDocuments.size, MAX_PENDING_DOCUMENTS),
+                                text = error,
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.error
                             )
                         }
                     }
-                    pendingDocumentError?.let { error ->
-                        Text(
-                            text = error,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.error
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    IconButton(
+                        onClick = {
+                            focusManager.clearFocus()
+                            showAttachmentSheet = true
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.AddCircleOutline,
+                            contentDescription = textResources.getString(R.string.group_chat_add_attachment),
+                            tint = MaterialTheme.colorScheme.primary
                         )
                     }
                     TextField(
                         value = draft,
                         onValueChange = { draft = it.take(ChatRepository.MAX_MESSAGE_LENGTH) },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text(textResources.getString(R.string.group_chat_message)) },
+                        modifier = Modifier.weight(1f),
+                        placeholder = { Text(textResources.getString(R.string.group_chat_message)) },
                         maxLines = 4,
-                        shape = RoundedCornerShape(6.dp),
+                        shape = RoundedCornerShape(24.dp),
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                         keyboardActions = KeyboardActions(onSend = { sendDraft() }),
                         colors = TextFieldDefaults.colors(
-                            focusedContainerColor = MaterialTheme.colorScheme.surface,
-                            unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
                             focusedIndicatorColor = Color.Transparent,
                             unfocusedIndicatorColor = Color.Transparent,
                             disabledIndicatorColor = Color.Transparent
                         )
                     )
-                }
-                IconButton(
-                    onClick = {
-                        focusManager.clearFocus()
-                        showRecording = true
-                    }
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Mic,
-                        contentDescription = stringResource(R.string.record_audio),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                }
-                val canSend = draft.isNotBlank() || pendingDocuments.isNotEmpty() || localAttachment != null
-                IconButton(
-                    onClick = { sendDraft() },
-                    enabled = canSend
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.Send,
-                        contentDescription = textResources.getString(R.string.group_chat_send_message),
-                        tint = if (canSend) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
+                    IconButton(
+                        onClick = {
+                            focusManager.clearFocus()
+                            showRecording = true
                         }
-                    )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Mic,
+                            contentDescription = stringResource(R.string.record_audio),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    val canSend = draft.isNotBlank() || pendingDocuments.isNotEmpty() || localAttachment != null
+                    IconButton(
+                        onClick = { sendDraft() },
+                        enabled = canSend
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Send,
+                            contentDescription = textResources.getString(R.string.group_chat_send_message),
+                            tint = if (canSend) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            }
+                        )
+                    }
                 }
             }
         }

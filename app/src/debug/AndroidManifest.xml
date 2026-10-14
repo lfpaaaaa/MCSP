@@ -4,5 +4,9 @@
         <activity
             android:name=".testing.HomeRecreationTestActivity"
             android:exported="false" />
+        <activity
+            android:name=".testing.ChatLayoutTestActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
     </application>
 </manifest>
