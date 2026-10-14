@@ -14,16 +14,16 @@ class TranscriptSearchTest {
         assertTrue(transcriptMatches("", "hello").isEmpty())
         assertTrue(transcriptMatches("hi", "hello").isEmpty())
     }
-    @Test fun chineseEmojiAndPunctuationKeepTheirOriginalOffsets() {
-        val text = "你好 😀 (test) 你好"
-        val ranges = transcriptMatches(text, "你好")
+    @Test fun emojiAndPunctuationKeepTheirOriginalOffsets() {
+        val text = "Hi 😀 (test) Hi"
+        val ranges = transcriptMatches(text, "Hi")
         assertEquals(2, ranges.size)
-        assertTrue(ranges.all { text.substring(it) == "你好" })
+        assertTrue(ranges.all { text.substring(it) == "Hi" })
         assertEquals(listOf(3..4), transcriptMatches(text, "😀"))
         assertEquals(listOf(6..11), transcriptMatches(text, "(test)"))
     }
     @Test fun longTranscriptChunksReconstructExactlyWithoutSplittingEmoji() {
-        val text = ("😀 multiple words\n第二行\n".repeat(10_000)).take(MAX_TRANSCRIPT_LENGTH)
+        val text = ("😀 multiple words\nSecond line\n".repeat(10_000)).take(MAX_TRANSCRIPT_LENGTH)
         val chunks = transcriptChunks(text, 31)
         assertEquals(text, chunks.joinToString("") { it.text })
         assertTrue(chunks.all { it.text.length <= 31 && it.text.isNotEmpty() })

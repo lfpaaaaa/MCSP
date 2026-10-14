@@ -33,7 +33,7 @@ SELECT is((SELECT display_name FROM public.group_members('e5000000-0000-4000-800
 SELECT is((SELECT sender_name FROM public.group_messages_before('e5000000-0000-4000-8000-000000000005')),'Alice tutorial','existing history uses current nickname');
 SELECT is((SELECT sender_name FROM public.group_messages_after('e5000000-0000-4000-8000-000000000005','2026-10-09','00000000-0000-0000-0000-000000000000',10)),'Alice tutorial','catch-up uses group nickname');
 SELECT is((SELECT uploader_name FROM public.group_files('e5000000-0000-4000-8000-000000000005')),'Alice tutorial','attachment author uses nickname');
-SELECT is(public.set_group_nickname('e5000000-0000-4000-8000-000000000005','组长 Bob'),'组长 Bob','Unicode nickname supported for owner');
+SELECT is(public.set_group_nickname('e5000000-0000-4000-8000-000000000005','Leader Bob 😀'),'Leader Bob 😀','Unicode nickname supported for owner');
 SELECT is((SELECT display_name FROM public.group_members('e5000000-0000-4000-8000-000000000005') WHERE user_id='a1000000-0000-4000-8000-000000000001'),'Alice tutorial','owner changing own nickname leaves other members untouched');
 
 SELECT set_config('request.jwt.claim.sub','c3000000-0000-4000-8000-000000000003',true);

@@ -18,7 +18,7 @@ class GroupJoinCodeTest {
         assertTrue(isValidGroupJoinCode("A1B2C3"))
         assertFalse(isValidGroupJoinCode("A1B2C"))
         assertFalse(isValidGroupJoinCode("A1B2-3"))
-        assertFalse(isValidGroupJoinCode("ABC你好1"))
+        assertFalse(isValidGroupJoinCode("ABC😀1"))
     }
 
     @Test

@@ -246,7 +246,7 @@
     <string name="groups_scan_qr">Scan QR</string>
     <string name="groups_loading_groups">Loading groups...</string>
     <string name="groups_active_groups">Active groups</string>
-    <string name="groups_label">已折叠 (%1$d)</string>
+    <string name="groups_label">Folded groups (%1$d)</string>
     <string name="groups_hide_folded_groups">Hide folded groups</string>
     <string name="groups_show_folded_groups">Show folded groups</string>
     <string name="groups_folded_groups">Folded groups</string>
@@ -262,7 +262,7 @@
     <string name="groups_open_nfc_settings">Open NFC settings</string>
     <string name="groups_try_again">Try again</string>
     <string name="groups_no_active_groups">No active groups</string>
-    <string name="groups_your_existing_group_chats_are_in">Your existing group chats are in 已折叠.</string>
+    <string name="groups_your_existing_group_chats_are_in">Your existing group chats are in Folded groups.</string>
     <string name="groups_no_active_groups_are_available">No active groups are available.</string>
     <string name="groups_create_a_group_or_connect_your_timetable_on">Create a group or connect your timetable on Home.</string>
     <string name="groups_go_to_home">Go to Home</string>
@@ -544,7 +544,7 @@
     <string name="copy_is_ready">%1$s is ready.</string>
     <string name="copy_account">%1$s account</string>
     <string name="attachment_summary">%1$s · %2$s · Tap to open</string>
-    <string name="group_owner_name">%1$s · 群主</string>
+    <string name="group_owner_name">%1$s · Owner</string>
     <string name="attachment_kind_size">%1$s · %2$s</string>
     <string name="file_size_mb">%1$.1f MB</string>
     <string name="file_size_kb">%1$.1f KB</string>
